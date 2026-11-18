@@ -250,6 +250,12 @@ export function quizPosition(task: LearningTask): { current: number; total: numb
   return index < 0 ? undefined : { current: index + 1, total: task.deliveries.length };
 }
 
+/** 测验里还有几题没答：交卷或到截止时间以后，这些题算错。 */
+export function quizUnanswered(task: LearningTask): number {
+  const answered = new Set(task.submissions.map((submission) => submission.deliveryId));
+  return task.deliveries.filter((delivery) => !answered.has(delivery.deliveryId)).length;
+}
+
 /**
  * 测验和重考的头部：只写类型、第几题和剩余时间。作答时只留当前这道题，不列全部 topic 的名称，也不显示知识点进度。
  */

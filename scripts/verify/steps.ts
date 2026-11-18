@@ -11,6 +11,7 @@ import type { Page } from "./browser.js";
 import { confirmationAnswers, courseFiles, courseQuestions, QUIZ_COURSE, quizDurationMs, type QuestionDefinition } from "./course.js";
 import type { ModelFailureScript, ScriptedModel } from "./model.js";
 import type { Checks } from "./walk.js";
+import { strings } from "../../apps/web/src/strings/zh-CN.js";
 
 export interface Context {
   app: App;
@@ -31,10 +32,8 @@ export const KNOWN = {
   // 测验的问题（2026-11-18 走查测验时发现，编号见前端问题全集），按测验计划逐项修。
   quizCard: "菜单的测验卡片只写类型和标题，没写共几题（Q1；限时要等契约给出时长再写）",
   quizPosition: "测验头部“第几题 / 共几题”的文字还是占位〔待写〕，看不出题号（Q1；键 learn.quiz.position.status）",
-  quizFinish: "测验没有“交卷”，只能“中止测验”，确认里不说还有几题没答、没答的算错；结束后只显示最后一题，不逐题列出对错（Q1、Q3）",
-  quizRecovery: "测验里判不出结果的题旁边没有“交卷”（Q4；测验不能推进的“先做下一题”已去掉）",
-  quizAbort: "测验作答中仍有“中止测验”；按契约开始后中止就是交卷，作答页只该留“交卷”（Q5）",
-  quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1）",
+  quizResult: "测验结束后只显示最后一题，不逐题列出对错（Q3；留给学习线 #117，测验按答卷而不是按“当前一步”来设计）",
+  quizFocus: "提交一题以后焦点丢到页面开头，不在下一道题上（A1；留给学习线 #117）",
 } as const;
 
 /** 模型请求失败时对话里应当出现的那句话（维护者定的文字），按假模型失败的方式。 */
@@ -287,16 +286,24 @@ async function answerQuizQuestion(page: Page, questions: Map<string, QuestionDef
   return question.id;
 }
 
+/** 正则里按字面匹配一段文字。 */
+function literal(text: string): RegExp {
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}$`, "u");
+}
+
 /**
- * 交卷。有“交卷”就点它；现在只有“中止测验”，按契约开始后中止就是按已有作答交卷，所以退而用它，后面的步骤照样走得下去。
- * 交回有没有“交卷”和确认框里的文字。
+ * 交卷按钮的名称：取字符串文件里的那一句，文字还是占位〔待写〕时也找得到。
+ * 作答区里没有别的按钮叫这个名字（题号等占位不是按钮）；确认框里的确认按钮与它同名。
  */
+const FINISH = literal(strings["learn.quiz.finish.action"]);
+
+/** 交卷：点任务区的交卷，在确认框里确认。交回有没有交卷按钮和确认框里的文字。 */
 async function finishQuiz(page: Page, kind: string): Promise<{ button: boolean; dialog: string }> {
-  const button = await page.has({ name: /^交卷$/u, selector: "button" });
-  await page.click(button ? { name: /^交卷$/u, selector: "button" } : { name: `中止${kind}`, selector: "button" });
+  const button = await page.has({ name: FINISH, selector: "main button" });
+  await page.click(button ? { name: FINISH, selector: "main button" } : { name: `中止${kind}`, selector: "button" });
   await until("确认框打开", async () => (await openDialog(page)) !== "");
   const dialog = await page.evaluate<string>("(() => { const dialog = document.querySelector('[role=dialog]'); return dialog ? dialog.innerText.trim() : ''; })()");
-  await page.click({ name: button ? /交卷/u : /^中止$/u, selector: "[role=dialog] button" });
+  await page.click({ name: button ? FINISH : /^中止$/u, selector: "[role=dialog] button" });
   await page.waitText(new RegExp(`${kind}结束|已中止`, "u"), 15_000);
   return { button, dialog };
 }
@@ -829,8 +836,8 @@ export const STEPS: Step[] = [
       const overflow = await page.evaluate<number>("document.documentElement.scrollWidth - document.documentElement.clientWidth");
       checks.expect("400 px 宽时测验画面不横向溢出", overflow <= 0, `多出 ${overflow} px`);
       await page.viewport(1120, 760);
-      checks.known(KNOWN.quizAbort, "V6 测验作答中没有“中止”，只留“交卷”", !(await page.has({ name: /^中止/u, selector: "button" })),
-        "准备阶段的“中止准备”走查到不了：menu.select 当场交付全部题目，正常流程停不在准备阶段");
+      checks.expect("V6 测验作答中没有“中止”，只留“交卷”", !(await page.has({ name: /^中止/u, selector: "button" })) && await page.has({ name: FINISH, selector: "main button" }),
+        "准备阶段的“中止准备”走查到不了：menu.select 当场交付全部题目，正常流程停不在准备阶段；由单元测试覆盖");
       const first = await answerQuizQuestion(page, questions);
       const focus = await focusTarget(page);
       checks.known(KNOWN.quizFocus, "V7 提交一题以后，焦点在下一道题的作答处或主按钮上", focus.onTask, focus.what);
@@ -840,11 +847,12 @@ export const STEPS: Step[] = [
       const record = await quizRecord(app);
       checks.expect("测验出了 3 个 topic 各一题", record.questions.length === 3, record.questions.join("、"));
       checks.expect("交卷前只答了 1 题", record.answered === 1 && record.questions.includes(first), `${record.answered} 份作答`);
-      checks.known(KNOWN.quizFinish, "V3 测验作答中有“交卷”", finished.button);
-      checks.known(KNOWN.quizFinish, "V3 交卷的确认写明还有 2 题没答", finished.button && /2/u.test(finished.dialog), finished.dialog.replaceAll("\n", " / ") || "没有交卷的确认");
+      checks.expect("V3 测验作答中有“交卷”", finished.button);
+      // “没答的算错”那句文字待写，这里只查题数。
+      checks.expect("V3 交卷的确认写明还有 2 题没答", finished.button && /2/u.test(finished.dialog), finished.dialog.replaceAll("\n", " / ") || "没有交卷的确认");
       const ended = result.indexOf("测验结束");
       const bodies = record.questions.map((id) => questions.get(id)?.body.trim() ?? id);
-      checks.known(KNOWN.quizFinish, "V3 结果页先给结论，再逐题列出 3 道题", ended >= 0 && bodies.every((body) => result.indexOf(body, ended) > ended),
+      checks.known(KNOWN.quizResult, "V3 结果页先给结论，再逐题列出 3 道题", ended >= 0 && bodies.every((body) => result.indexOf(body, ended) > ended),
         `${ended >= 0 ? "有“测验结束”" : "没有“测验结束”"}；列出 ${bodies.filter((body) => result.includes(body)).length} 道`);
       const reviewed = await reviewUntil(page, questions);
       checks.expect("没答的两个 topic 各复习一次以后，菜单里出现重考", reviewed === 2, `复习 ${reviewed} 次`);
@@ -887,7 +895,7 @@ export const STEPS: Step[] = [
       await page.shot("retake-ungraded");
       const shown = await buttons(page);
       checks.expect("V5 判不出结果的一题旁边没有“先做下一题”（测验不能推进）", !shown.includes("先做下一题"), shown.join("、"));
-      checks.known(KNOWN.quizRecovery, "V5 判不出结果的一题：有“再判一次”和“交卷”", shown.includes("再判一次") && shown.includes("交卷"), shown.join("、"));
+      checks.expect("V5 判不出结果的一题：有“再判一次”和“交卷”", shown.includes("再判一次") && shown.some((name) => FINISH.test(name)), shown.join("、"));
 
       // 搁置过了截止时间（例如电脑睡眠）：后端和页面的时钟一起拨过去，页面重新可见、得到焦点，不刷新。
       await app.shiftClock(duration + 60_000);
