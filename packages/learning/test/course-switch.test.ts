@@ -257,3 +257,24 @@ test("发布 course.json 出错：学习插件就此停下，不再按哪一门�
   await assert.rejects(f.call("progress.setGoal", { dailyGoalXp: 30 }), { code: "course_unavailable" });
   await assert.rejects(f.tool("course_use"), { code: "course_switch_failed" });
 });
+
+test("题号不变而题面与解析换了：作答查询、参考搜索都不放出新版的解析", async (t) => {
+  const f = await fixture(t);
+  assert.match(await f.tool("course_use"), /^已换用/u);
+  await f.lesson("os01");
+  const NEW = "新版的解析：这是另一道题的讲法";
+  await f.editTopic("os01", (topic) => {
+    const q1 = ((topic.kps as { practice: Record<string, unknown>[] }[])[0]?.practice ?? []).find((question) => question.id === "os01.k1.q1");
+    assert.ok(q1);
+    q1.body = "换了题面：哪种状态只差处理机？";
+    q1.explanation = NEW;
+  });
+  assert.match(await f.tool("course_use"), /^已换用/u);
+  const found = await f.call("content.search", { query: "新版的解析", offset: 0, limit: 20 });
+  assert.deepEqual(found.hits.filter((hit) => hit.ref.kind === "explanation"), []);
+  const delivery = [...(f.session()?.replay.allDeliveries() ?? [])].find((entry) => entry.questionId === "os01.k1.q1");
+  assert.ok(delivery);
+  const got = await f.call("submission.get", { submissionId: `s${delivery.seq}` });
+  assert.ok(got.status === "found");
+  assert.equal(JSON.stringify(got.submission.explanation ?? []).includes("新版的解析"), false);
+});

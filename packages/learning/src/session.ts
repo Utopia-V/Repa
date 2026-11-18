@@ -4,7 +4,7 @@ import { canRender, contentVersion, modelFailureOf, type ClientCapabilities, typ
 import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
 import { content, type QuestionEntry } from "./check/items.js";
-import { CourseIndex, gradingNeed, needsModel, needsPython } from "./course-index.js";
+import { CourseIndex, gradingNeed, needsModel, needsPython, type IndexedQuestion } from "./course-index.js";
 import { courseStructure, StructureIndex } from "./course-structure.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Question, Topic } from "./format/schema.js";
@@ -660,13 +660,21 @@ export class LearningSession {
       processing,
       gradeRevision: delivery.grades.length,
     };
-    // 反馈与解析只取学习者看到的那一份题面的：题面改了，新版的解析不配旧题。
-    const entry = seen && this.course.questions.get(delivery.questionId);
-    if (latest && entry && this.released(delivery)) {
+    const entry = await this.releasedQuestion(delivery);
+    if (latest && entry) {
       result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference);
       result.explanation = content(entry.question.explanation);
     }
     return result;
+  }
+
+  /**
+   * 一份作答此刻可以放出反馈与解析的那道题：已经判过、任务允许放出（见 released），而且是学习者看到的同一份题面（见 seenQuestion）。
+   * 题面改了就不放：新版的解析不配旧题。作答查询、参考搜索与读取都经这里判断。
+   */
+  async releasedQuestion(delivery: DeliveryRecord): Promise<IndexedQuestion | undefined> {
+    if (!delivery.grades.length || !this.released(delivery) || !await this.seenQuestion(delivery)) return undefined;
+    return this.course.questions.get(delivery.questionId);
   }
 
   /** 课内判完就释放反馈与解析；复习和测验等任务结束。 */
