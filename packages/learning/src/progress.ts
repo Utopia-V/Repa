@@ -140,13 +140,12 @@ export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, cou
   }
   const pending = replay.pending;
   if (pending && !pending.topicIds.length) {
+    // 已到测验门槛，但学过的 topic 没有可出的测验题：菜单为空，等课程补上题目。
     menu.candidates = [];
-    menu.unavailableReason = "已到测验门槛，但已学 topic 的 quiz 题量不足。";
     delete menu.availableAt;
   } else if (pending) {
     const candidate = { id: `quiz-${pending.n}`, kind: "quiz" as const, title: "测验", topicIds: pending.topicIds };
     menu.candidates = [candidate, ...replay.quizOnly() ? [] : menu.candidates].slice(0, MENU_SIZE);
-    delete menu.unavailableReason;
     delete menu.availableAt;
   } else {
     const quizzes = replay.tasks.filter((task) => isQuiz(task.kind));
@@ -163,7 +162,6 @@ export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, cou
         topicIds: original.task.topicIds,
         originalTaskId: taskId(original.task),
       }, ...menu.candidates].slice(0, MENU_SIZE);
-      delete menu.unavailableReason;
       delete menu.availableAt;
     }
   }

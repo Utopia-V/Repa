@@ -287,6 +287,7 @@ const phase = Type.Union([
   object({ stage: Type.Literal("feedback"), submissionId: identifier }),
   // unresolved：任务已经结束，但还有作答没判出结果，判出来可能改变结论；判出以后改为其他三种之一。
   object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout", "unresolved"]) }),
+  // reason：中止的原因，一句完整的中文；学习者自己中止时为空串。
   object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
 ]);
 /**
@@ -312,7 +313,8 @@ export const LearningMenuSchema = object({
     id: identifier, kind, title: Type.String({ maxLength: 200 }), topicIds: Type.Array(identifier),
     originalTaskId: Type.Optional(identifier),
   }), { maxItems: 3 }),
-  unavailableReason: Type.Optional(Type.String({ maxLength: 500 })), availableAt: Type.Optional(timestamp),
+  // 没有候选时最早什么时候会有（没通过的课或复习休息结束）；说明的文字由界面持有。
+  availableAt: Type.Optional(timestamp),
 });
 /** 学习菜单。 */
 export type LearningMenu = Static<typeof LearningMenuSchema>;
@@ -412,7 +414,7 @@ export type CourseBuilding = Static<typeof CourseBuildingSchema>;
 export const LearningSettingsSchema = object({ autoExpand: Type.Boolean() });
 /** 学习插件的设置。 */
 export type LearningSettings = Static<typeof LearningSettingsSchema>;
-/** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话；前端收到后重新读取 building.get。 */
+/** 做课的状态变了：开始或结束一次展开、换用了新的一版、记下了做课的会话、学过的部分变了；前端收到后重新读取 building.get。 */
 export const BuildingEventSchema = object({ type: Type.Literal("building.changed") });
 /** building.changed 事件。 */
 export type BuildingEvent = Static<typeof BuildingEventSchema>;

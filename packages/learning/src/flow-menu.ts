@@ -113,11 +113,8 @@ function buildMenu(
     }
   }
   const menu: LearningMenu = { menuId, candidates: selected };
-  if (!selected.length) {
-    menu.unavailableReason = "当前没有可开始的任务；可以回顾已学内容，或等待冷却结束／所需执行服务就绪。";
-    if (availableAt !== undefined) {
-      menu.availableAt = availableAt;
-    }
+  if (!selected.length && availableAt !== undefined) {
+    menu.availableAt = availableAt;
   }
   return menu;
 }
