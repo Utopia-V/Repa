@@ -287,6 +287,7 @@ const phase = Type.Union([
   object({ stage: Type.Literal("feedback"), submissionId: identifier }),
   // unresolved：任务已经结束，但还有作答没判出结果，判出来可能改变结论；判出以后改为其他三种之一。
   object({ stage: Type.Literal("completed"), outcome: Type.Enum(["passed", "failed", "timeout", "unresolved"]) }),
+  // reason：中止的原因，一句完整的中文；学习者自己中止时为空串。
   object({ stage: Type.Literal("aborted"), reason: Type.String({ maxLength: 500 }) }),
 ]);
 /**

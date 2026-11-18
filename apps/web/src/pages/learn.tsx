@@ -67,21 +67,27 @@ function Learn({ space }: { space: string }) {
     if (learning.available === undefined && learning.status === "idle") void loadLearning();
   }, [learning.available, learning.status, loadLearning]);
 
-  // 右侧：有进行中的任务时是辅导；没有（回到菜单，包括刚结束或中止以后）而有做课的对话时是做课的对话，
-  // 学习者能接着原来那段对话改课；空间里没有做课的对话时，结束了的任务仍可以问辅导。
+  // 右侧有两种面板。任务在页面上（进行中，或结束、中止以后当天仍显示结果）时可以问辅导；没有进行中的任务而有做课的对话时
+  // 可以回到做课，接着原来那段对话改课。结果画面上两种都有，缺省是辅导：学习者刚从这一项出来，反馈刚放出。
   const makingSession = learning.building?.sessionId ?? undefined;
-  const panelKind = !active && makingSession !== undefined ? "making" : current ? "tutor" : undefined;
+  const tutorShown = current != null;
+  const makingShown = !active && makingSession !== undefined;
+  // 学习者在结果画面上选过的面板，只对选的那一项任务有效；换了任务回到缺省。
+  const [chosen, setChosen] = useState<{ taskId: string | undefined; kind: "tutor" | "making" }>();
+  const preferred = chosen && chosen.taskId === current?.taskId ? chosen.kind : "tutor";
+  const panelKind = tutorShown && makingShown ? preferred : tutorShown ? "tutor" : makingShown ? "making" : undefined;
+  const choose = useCallback((kind: "tutor" | "making") => setChosen({ taskId: current?.taskId, kind }), [current?.taskId]);
   useMakingSession(panelKind === "making" ? makingSession : undefined);
-  // 窄屏时做课的对话在抽屉里：Agent 提问时它在等学习者回答，打开抽屉让问题被看到。
+  // 窄屏时做课的对话在抽屉里：Agent 提问时它在等学习者回答，换到做课并打开抽屉，让问题被看到。
   useEffect(() => {
-    if (asking && panelKind === "making") setPanelOpen(true);
-  }, [asking, panelKind]);
-  // 抽屉里的内容在做课与辅导之间换了（从抽屉里开始了第一节），收起抽屉，学习者看到的是任务本身。
-  const shownKind = useRef(panelKind);
+    if (!asking || !makingShown) return;
+    choose("making");
+    setPanelOpen(true);
+  }, [asking, makingShown, choose]);
+  // 开始了一项任务（例如在做课的抽屉里点了“开始”），收起抽屉，学习者看到的是任务本身。
   useEffect(() => {
-    if (shownKind.current !== undefined && panelKind !== undefined && shownKind.current !== panelKind) setPanelOpen(false);
-    shownKind.current = panelKind;
-  }, [panelKind]);
+    if (active) setPanelOpen(false);
+  }, [active]);
 
   // 换了任务、阶段或题目，从新画面的开头看起；同一画面里的刷新不动滚动位置。
   useEffect(() => {
@@ -124,10 +130,13 @@ function Learn({ space }: { space: string }) {
     ? <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />
     : undefined;
   const panel = panelKind === "making" && makingSession !== undefined
-    ? { label: t("making.panel.label"), action: t("learn.making.action"), content: <MakingPanel sessionId={makingSession}>{firstMenu}</MakingPanel> }
+    ? { label: t("making.panel.label"), content: <MakingPanel sessionId={makingSession}>{firstMenu}</MakingPanel> }
     : panelKind === "tutor"
-      ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} referenceAllowed={restrictions.referenceContentAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
+      ? { label: t("tutor.panel.label"), content: <TutorPanel allowed={restrictions.tutorAllowed} referenceAllowed={restrictions.referenceContentAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
       : undefined;
+  // 标题栏的入口：窄屏时每种面板一个，点了打开抽屉里的那一种；宽屏时面板常驻右侧，只给切到另一种的那一个。
+  const entries = ([["tutor", tutorShown, t("learn.tutor.action")], ["making", makingShown, t("learn.making.action")]] as const)
+    .filter(([kind, shown]) => shown && (!wide || kind !== panelKind));
 
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
@@ -138,8 +147,7 @@ function Learn({ space }: { space: string }) {
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
           <Progress value={goal} aria-label={t("learn.dailyGoal.progress.label")} />
         </div>}
-        {panel && !wide && <Button variant="tertiary" onClick={() => setPanelOpen(true)} leadingIcon={MessageCircle}>{panel.action}
-        </Button>}
+        {entries.map(([kind, , action]) => <Button key={kind} variant="tertiary" onClick={() => { choose(kind); setPanelOpen(true); }} leadingIcon={MessageCircle}>{action}</Button>)}
       </div>
     </header>
 

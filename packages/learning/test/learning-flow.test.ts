@@ -751,7 +751,8 @@ for (const wrong of [3, 1]) {
       const expected = updateStudent(f.session().course.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
       assert.deepEqual(await f.student(), expected);
     } else {
-      assert.equal(ended.task?.phase.stage, "aborted");
+      // 学习者自己中止：不另附原因，界面只说“已中止。”。
+      assert.deepEqual(ended.task?.phase, { stage: "aborted", reason: "" });
       assert.deepEqual(await f.student(), learned);
     }
     const student = await f.student();
