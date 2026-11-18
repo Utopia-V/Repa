@@ -1,5 +1,6 @@
 /**
  * 测试版 v0.1.0-test.1 留下的学习数据，现在的代码打开以后，在同一时刻读出的结果与测试版自己算出的相同。
+ * 除了 17 个取数点，还对每个空间学习记录的每个前缀比较一次（prefixes.json.br）：每次只多一条事实，哪一条事实之后读数开始不同一目了然。
  * 数据与标准答案见 test/fixtures/test1/README.md；标准答案由测试版的代码算出，这里不通过时不改它。
  */
 import test from "node:test";
@@ -10,7 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { copySpace, TIME_ZONE, type Reading } from "./fixtures/test1-readings.js";
+import { brotliDecompressSync } from "node:zlib";
+import { copySpace, PREFIX_LATER_MS, TIME_ZONE, type PrefixReading, type Reading } from "./fixtures/test1-readings.js";
 
 const run = promisify(execFile);
 const FIXTURE = fileURLToPath(new URL("./fixtures/test1/", import.meta.url));
@@ -29,30 +31,61 @@ interface Case {
 }
 const answers = JSON.parse(await readFile(path.join(FIXTURE, "answers.json"), "utf8")) as { timeZone: string; cases: Case[] };
 
-/** 全部取数点在一个子进程里读完：时区要在进程启动时定下。 */
+interface PrefixSpace {
+  id: string;
+  source: string;
+  model: boolean;
+  prefixes: PrefixReading[];
+}
+const prefixAnswers = JSON.parse(brotliDecompressSync(await readFile(path.join(FIXTURE, "prefixes.json.br"))).toString("utf8")) as {
+  timeZone: string;
+  laterMs: number;
+  spaces: PrefixSpace[];
+};
+
+/** 在一个子进程里按清单读数：时区要在进程启动时定下。spaces 是每项要复制的空间目录与学习记录只留的行数。 */
+async function readInChild<T>(spaces: { source: string; facts?: number }[], entry: (root: string, index: number) => object): Promise<T[]> {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-test1-")));
+  try {
+    const list = [];
+    for (const [index, space] of spaces.entries()) {
+      const root = path.join(base, String(index), "home", "Repa", path.basename(space.source));
+      await copySpace(space.source, root, space.facts);
+      list.push(entry(root, index));
+    }
+    await writeFile(path.join(base, "cases.json"), JSON.stringify(list));
+    const { stdout } = await run(process.execPath, ["--import", "tsx", "test/fixtures/test1-read.ts", path.join(base, "cases.json")], {
+      cwd: PACKAGE, env: { ...process.env, TZ: TIME_ZONE }, maxBuffer: 256 * 1024 * 1024,
+    });
+    return JSON.parse(stdout) as T[];
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+}
+
+/** 全部取数点在一个子进程里读完。 */
 let readings: Promise<Map<string, Record<string, unknown>>> | undefined;
 function readAll(): Promise<Map<string, Record<string, unknown>>> {
   readings ??= (async () => {
-    const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-test1-")));
-    try {
-      const list = [];
-      for (const entry of answers.cases) {
-        const root = path.join(base, entry.id, "home", "Repa", entry.space);
-        const source = entry.snapshot === null ? path.join(FIXTURE, "home", "Repa", entry.space) : path.join(FIXTURE, "snapshots", entry.space, entry.snapshot);
-        await copySpace(source, root, entry.facts ?? undefined);
-        list.push({ root, at: entry.at, model: entry.model });
-      }
-      await writeFile(path.join(base, "cases.json"), JSON.stringify(list));
-      const { stdout } = await run(process.execPath, ["--import", "tsx", "test/fixtures/test1-read.ts", path.join(base, "cases.json")], {
-        cwd: PACKAGE, env: { ...process.env, TZ: TIME_ZONE }, maxBuffer: 64 * 1024 * 1024,
-      });
-      const results = JSON.parse(stdout) as Reading[];
-      return new Map(answers.cases.map((entry, index) => [entry.id, results[index]?.meaning as Record<string, unknown>]));
-    } finally {
-      await rm(base, { recursive: true, force: true });
-    }
+    const spaces = answers.cases.map((entry) => ({
+      source: entry.snapshot === null ? path.join(FIXTURE, "home", "Repa", entry.space) : path.join(FIXTURE, "snapshots", entry.space, entry.snapshot),
+      ...(entry.facts === null ? {} : { facts: entry.facts }),
+    }));
+    const results = await readInChild<Reading>(spaces, (root, index) => ({ root, at: answers.cases[index]?.at, model: answers.cases[index]?.model }));
+    return new Map(answers.cases.map((entry, index) => [entry.id, results[index]?.meaning as Record<string, unknown>]));
   })();
   return readings;
+}
+
+/** 全部空间的逐前缀读数，也在一个子进程里读完。 */
+let prefixReadings: Promise<Map<string, PrefixReading[]>> | undefined;
+function readAllPrefixes(): Promise<Map<string, PrefixReading[]>> {
+  prefixReadings ??= (async () => {
+    const spaces = prefixAnswers.spaces.map((entry) => ({ source: path.join(FIXTURE, entry.source) }));
+    const results = await readInChild<PrefixReading[]>(spaces, (root, index) => ({ root, model: prefixAnswers.spaces[index]?.model, prefixes: true }));
+    return new Map(prefixAnswers.spaces.map((entry, index) => [entry.id, results[index] ?? []]));
+  })();
+  return prefixReadings;
 }
 
 /**
@@ -72,6 +105,22 @@ function comparable(field: string, value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !dropped.includes(key)));
 }
 
+/**
+ * 两份读数是否相同。小数允许末位的出入：记忆量经指数函数算出，同一份 V8 在不同平台上的结果会差最后一位
+ * （Windows 上 0.48574933424651034，Linux 上 0.4857493342465103），这不是读数变了。整数、字符串、结构必须完全相同。
+ */
+function sameReading(actual: unknown, expected: unknown): boolean {
+  if (typeof actual === "number" && typeof expected === "number") {
+    if (Number.isInteger(actual) || Number.isInteger(expected)) return actual === expected;
+    return Math.abs(actual - expected) <= 1e-12 * Math.max(1, Math.abs(actual), Math.abs(expected));
+  }
+  if (actual === null || expected === null || typeof actual !== "object" || typeof expected !== "object") return actual === expected;
+  if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+  const left = Object.keys(actual), right = Object.keys(expected);
+  return left.length === right.length && left.every((key) => Object.hasOwn(expected, key)
+    && sameReading((actual as Record<string, unknown>)[key], (expected as Record<string, unknown>)[key]));
+}
+
 test("标准答案取数时的时区与现在取数的时区相同", () => {
   assert.equal(answers.timeZone, TIME_ZONE);
 });
@@ -82,9 +131,41 @@ for (const entry of answers.cases) {
     assert.ok(reading);
     for (const [field, expected] of Object.entries(entry.reading)) {
       await t.test(field, () => {
-        assert.deepEqual(comparable(field, reading[field]), comparable(field, expected));
+        const actual = comparable(field, reading[field]);
+        const wanted = comparable(field, expected);
+        if (!sameReading(actual, wanted)) assert.deepEqual(actual, wanted);
       });
     }
     assert.deepEqual(Object.keys(reading).sort(), Object.keys(entry.reading).sort());
+  });
+}
+
+test("逐前缀的标准答案与现在取数用的时区、能力和间隔相同", () => {
+  assert.equal(prefixAnswers.timeZone, TIME_ZONE);
+  assert.equal(prefixAnswers.laterMs, PREFIX_LATER_MS);
+});
+
+for (const space of prefixAnswers.spaces) {
+  test(`测试版数据 ${space.source} 的每个前缀（0 到 ${space.prefixes.length - 1} 条事实，各在最后一条事实时与 25 小时后）：现在的代码读出的各项与测试版相同`, async () => {
+    const actual = (await readAllPrefixes()).get(space.id) ?? [];
+    assert.equal(actual.length, space.prefixes.length);
+    // 逐项比较全部前缀，报出最早不同的那一处和不同的总数：最早的那一处之前的事实都读得相同，问题出在它这一条事实上。
+    const differences: { facts: number; clock: "at" | "later"; field: string; actual: unknown; expected: unknown }[] = [];
+    for (const [index, expected] of space.prefixes.entries()) {
+      for (const clock of ["at", "later"] as const) {
+        const got = actual[index]?.[clock] ?? {};
+        const want = expected[clock];
+        for (const field of new Set([...Object.keys(got), ...Object.keys(want)])) {
+          const left = comparable(field, got[field]);
+          const right = comparable(field, want[field]);
+          if (!sameReading(left, right)) differences.push({ facts: expected.facts, clock, field, actual: left, expected: right });
+        }
+      }
+    }
+    const first = differences[0];
+    if (first) {
+      const where = differences.slice(0, 10).map((entry) => `${entry.facts} 条/${entry.clock}/${entry.field}`).join("，");
+      assert.deepEqual(first.actual, first.expected, `共 ${differences.length} 处不同，最早的几处：${where}`);
+    }
   });
 }

@@ -1,6 +1,6 @@
 /**
  * 学习插件接入学生模型的地方：时间换算、按课程的包含关系传递信用（FIRe），以及插件实际使用的参数。
- * 包含图来自课程里各 topic 的 encompassings（见 CourseIndex.graph），权重是课程作者写的 Repa 假设。
+ * 包含图来自课程里各 topic 的 encompassings（见 StructureIndex.graph），权重是课程作者写的 Repa 假设。
  */
 import {
   applyRepetition, isDue, memoryAt, selectTasks,

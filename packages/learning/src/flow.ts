@@ -3,7 +3,6 @@ import { RepaFault } from "@repa/base";
 import type { MethodContext, PluginInstance, PluginMethod } from "@repa/base/plugin";
 import { parse, type ClientCapabilities } from "@repa/base/protocol";
 import { trialBatch } from "./code-tests.js";
-import { needsModel } from "./course-index.js";
 import { deliverySeed, mapAnswer, renderDelivery } from "./delivery.js";
 import { isQuiz, lessonRequirement, sequenceOf, taskId, taskPractice, topicEligible, type DeliveryRecord, type TaskEvidence } from "./flow-state.js";
 import {
@@ -29,7 +28,7 @@ export async function connectLearning(
   const methods: Record<string, PluginMethod> = {};
   const stale = (message: string) => new RepaFault("stale_state", message);
   const current = () => session.replay.currentEvidence();
-  const kpOf = (delivery: DeliveryRecord) => session.course.questions.get(delivery.questionId)?.kp.id;
+  const kpOf = (delivery: DeliveryRecord) => session.structure.questions.get(delivery.questionId)?.kpId;
   const lookup = (id: string) => {
     const seq = sequenceOf(id, "s");
     const delivery = seq === undefined ? undefined : session.replay.delivery(seq);
@@ -76,7 +75,7 @@ export async function connectLearning(
     if (task.kind === "lesson" && (invalidShownKp || rewound)) {
       throw stale("当前交付已失去课内资格，请中止后重新选择");
     }
-    if (!topicEligible(session.course, session.before(), task.topicIds[0] ?? "", task.kind, session.clock())) {
+    if (!topicEligible(session.structure, session.before(), task.topicIds[0] ?? "", task.kind, session.clock())) {
       throw stale("任务已失去学习资格，请中止当前任务后重新选择");
     }
   }
@@ -99,7 +98,7 @@ export async function connectLearning(
       // 之后加进课程的题不是这节课的要求。
       const asked = new Set(task.deliveries.map((delivery) => delivery.questionId));
       const kpId = evidence.kps.find((kp) => !kp.completed)?.kpId;
-      const practice = kpId === undefined ? undefined : taskPractice(task, session.course).get(kpId);
+      const practice = kpId === undefined ? undefined : taskPractice(task, session.structure).get(kpId);
       const allowed = new Set([...practice?.required ?? [], ...practice?.open ?? []]);
       pool = pool.filter((entry) => entry.kp.id === kpId && allowed.has(entry.question.id) && !asked.has(entry.question.id));
     }
@@ -121,8 +120,9 @@ export async function connectLearning(
     }
     if (task.kind === "lesson") {
       // 开放题不计入必做，答完必做题这个知识点就判定了；所以最后一道必做题之前，先出还能出的开放题，有模型时它们才不会被跳过。
-      const required = candidates.filter((candidate) => !needsModel(candidate.question));
-      const open = candidates.filter((candidate) => needsModel(candidate.question));
+      const isOpen = (candidate: (typeof candidates)[number]) => session.structure.questions.get(candidate.question.id)?.open === true;
+      const required = candidates.filter((candidate) => !isOpen(candidate));
+      const open = candidates.filter(isOpen);
       if (required.length === 1 && open.length > 0) {
         candidates = [...open, ...required];
       }
@@ -190,9 +190,9 @@ export async function connectLearning(
       const original = candidate.originalTaskId === undefined ? undefined : sequenceOf(candidate.originalTaskId, "t");
       return [{
         type: "task", kind: candidate.kind, topics: candidate.topicIds,
-        course: { id: session.course.course.course.id, version: session.course.course.course.version },
+        course: { ...session.structure.data.course },
         ...(original === undefined ? {} : { retakes: original }),
-        ...(candidate.kind === "lesson" ? lessonRequirement(session.course, candidate.topicIds[0] ?? "") : {}),
+        ...(candidate.kind === "lesson" ? lessonRequirement(session.structure, candidate.topicIds[0] ?? "") : {}),
       }];
     });
     if (restricted) {

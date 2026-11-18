@@ -65,6 +65,8 @@
 
 ### 重放、重算与代价
 
+重放只经课程结构读课程（[`course-structure.ts`](../../packages/learning/src/course-structure.ts) 的 `CourseStructure`）：课程的标识与版本，按课程顺序的 topic 与知识点，各题池的题目编号，哪些练习题要由模型判分，课的分钟数，先修、关键先修与包含关系，以及 topic 是否已展开。任务的结论、XP、学生模型、补救、测验和菜单只由它和学习记录决定。结构是纯数据，可以原样写成 JSON 再读回；学习会话从当前课程取出它，题面、讲解、标题、判分和调用方能否使用一道题则读完整的课程内容。随包的 Python 课（48 个 topic、1180 道题）完整内容约 1.5 MB，结构约 36 KB。
+
 `replay.ts` 按事实的先后重放。学生模型、课内继承进度、失败的课能否重试和强制补救是已结束任务依次叠加的结果；当前任务在旁边单独计算，结束后叠上去。当前的课也从这份叠加结果继承知识点进度，所以更早任务的重判改变了继承的进度时，当前的课的进度和结论随之改变，与学生模型和菜单一致。各情形的代价如下：
 
 | 情形 | 做什么 | 代价 |
@@ -128,7 +130,7 @@ npm exec --workspace=@repa/learning -- repa-course recover-log /absolute/space /
 
 `loadCourseSources` 接收有序来源列表：先列唯一的 `{ kind: "bundled", directory }`，再列 `{ kind: "overlay", file }`。覆盖文件通过 `host.files` 读取，使用 JSON 形状 `{ courseId, basedOn, topic }`；`basedOn` 必须等于上游课程版本，`topic` 按当前 schema 完整替换同 id topic。来源重复、未知 topic 或版本不符都会报错，读取随包课程不会修改其文件。
 
-插件通过 `student-model.ts` 的 `updateStudent` 和 `chooseTasks` 接入 `@repa/learning-model`。图里有课程的先修关系和各 topic 的 `encompassings`（只取正权重），通过与失败沿它按权重隐式传播（FIRe）。时间按 Unix 毫秒除以 `DAY_MS` 转为连续天数；当前时间早于已有的更新锚点（时钟回拨）时，按最近一次更新的时刻算，相当于零间隔，不报错。参数取 `parameters.ts` 的 `STUDENT_MODEL`；`new Replay(course, model)` 按另一组参数重放同一份事实，可以比较两组参数的预测。`memory` 是调度量，不是答对概率。
+插件通过 `student-model.ts` 的 `updateStudent` 和 `chooseTasks` 接入 `@repa/learning-model`。图里有课程的先修关系和各 topic 的 `encompassings`（只取正权重），通过与失败沿它按权重隐式传播（FIRe）。时间按 Unix 毫秒除以 `DAY_MS` 转为连续天数；当前时间早于已有的更新锚点（时钟回拨）时，按最近一次更新的时刻算，相当于零间隔，不报错。参数取 `parameters.ts` 的 `STUDENT_MODEL`；`new Replay(structure, model)` 按另一组参数重放同一份事实，可以比较两组参数的预测。`memory` 是调度量，不是答对概率。
 
 ## 未完成项与待验证项
 
@@ -150,4 +152,4 @@ npm run check --workspace=@repa/learning
 
 [`learning-records.test.ts`](../../packages/learning/test/learning-records.test.ts) 用三个子进程分别在作答写入后、模型返回而判分未写入时、判分写入后 SIGKILL，再重开核对作答保留、任务不阻塞、补判只调用一次模型；另覆盖同载荷并发提交、写入失败、引用错误、残缺尾部的恢复命令、可忽略的新增字段和经真实宿主重开。[`learning-facts.test.ts`](../../packages/learning/test/learning-facts.test.ts) 覆盖答案或运行前导改正后的重判、判分中断的作答补判以后课按作答先后重新判定（第三题补判为错即失败，XP 不收回）、更早一轮课的重判反映到正在进行的重试、更早一轮课的补判使正在进行的课通过时照常结算 XP、没有证据时不阻塞、中止复习时已有失败证据记为失败、复习判满题数而待判作答判对还能通过时结论待定、每项任务记下开始时的课程版本、只搬事实文件后重算出相同状态、换一组学生模型参数重放得出不同的预测、归属改变不换版本，以及每次作答的字节上限（含最长的代码题）和重算次数（对错没变的重判不重算）。[`replay-properties.test.ts`](../../packages/learning/test/replay-properties.test.ts) 经真实插件方法随机走学习流程（选任务、作答、判分失败、补判、申诉、改答案、等待、重开），每一步核对：现场状态与从事实重放的结果相同；增量叠加与从头叠加的结果相同，当前的课与学生模型用同一份继承进度；每项任务的 XP 等于它到此刻的最高奖励；课和测验的结论不因待判作答的判分而改变，结论待定时待判作答判对和判错的结论确实不同；菜单为空时一定给出最早恢复时间，除非课都学完了，或测验到了门槛却凑不出题。它同时断言序列确实走到了测验、换题重考、结论待定、强制补救，以及补救没通过而在休息、菜单报告恢复时间的情形。合并门禁用固定的种子，只挡常见形状的错误；[`property-exploration.yml`](../../.github/workflows/property-exploration.yml) 每晚换一个种子跑 1000 个序列，失败只报告，不挡合并。本机设置 `REPA_PROPERTY_RUNS`、`REPA_PROPERTY_SEED` 可以换种子多跑。[`backup-export.test.ts`](../../packages/learning/test/backup-export.test.ts) 经真实后端和学习插件核对：导出的 zip 只含白名单中的文件，没有选择包含会话时没有会话记录；作答里写有已保存的密钥时导出内容中的密钥已被替换；清单与 zip 一致，预览以后新增的记录和日志末尾的半行都不进入导出；导出只读取学习记录，选择包含会话时再读会话记录，每个文件只读一次；学习进行中备份，日志末尾有半行，接着学，恢复到原位置以后学习插件照常打开、可以继续作答。
 
-改学习记录、做课记录等持久格式，或改重放与课程组织之前，先看 [`test1-fixtures.test.ts`](../../packages/learning/test/test1-fixtures.test.ts)：它用第一个测试版 `v0.1.0-test.1` 留下的五个空间，在固定时刻核对现在的代码读出的任务结论、每笔 XP、学生模型、补救、测验和菜单与测试版自己算出的相同。数据怎样产生、标准答案包含哪些读数，见[固定数据的说明](../../packages/learning/test/fixtures/test1/README.md)。它不通过时不改标准答案，而是查明哪一项变了、由哪个提交引入。
+改学习记录、做课记录等持久格式，或改重放与课程组织之前，先看 [`test1-fixtures.test.ts`](../../packages/learning/test/test1-fixtures.test.ts)：它用第一个测试版 `v0.1.0-test.1` 留下的五个空间，在固定时刻核对现在的代码读出的任务结论、每笔 XP、学生模型、补救、测验和菜单与测试版自己算出的相同；再对每个空间学习记录的每个前缀各读两次（最后一条事实时与 25 小时后）比较，不同时报出最早不同的那一条事实。数据怎样产生、标准答案包含哪些读数，见[固定数据的说明](../../packages/learning/test/fixtures/test1/README.md)。它不通过时不改标准答案，而是查明哪一项变了、由哪个提交引入。

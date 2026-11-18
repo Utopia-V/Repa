@@ -1,5 +1,5 @@
 import type { ModelConfig } from "@repa/learning-model";
-import type { CourseIndex } from "./course-index.js";
+import type { StructureIndex } from "./course-structure.js";
 import {
   deadlineAt,
   emptyFold,
@@ -67,7 +67,7 @@ export class Replay {
   private changes = 0;
   private sampled = "";
 
-  constructor(private readonly course: CourseIndex, private readonly model: ModelConfig = STUDENT_MODEL) {}
+  constructor(private readonly structure: StructureIndex, private readonly model: ModelConfig = STUDENT_MODEL) {}
 
   get current(): TaskRecord | undefined {
     return this.tasks.at(-1);
@@ -98,7 +98,7 @@ export class Replay {
     const task = this.current;
     if (!task) return undefined;
     const inherited = task.kind === "lesson" ? this.before().lessons.get(task.topicIds[0] ?? "") : undefined;
-    return taskEvidence(task, this.course, inherited);
+    return taskEvidence(task, this.structure, inherited);
   }
 
   /** 当前任务之前的学习状态，用于判断当前任务是否仍有资格。 */
@@ -106,7 +106,7 @@ export class Replay {
     if (this.stale) {
       let fold = emptyFold();
       for (const task of this.tasks.slice(0, -1)) {
-        fold = foldTask(fold, taskEvidence(task, this.course, fold.lessons.get(task.topicIds[0] ?? "")), this.course, this.model);
+        fold = foldTask(fold, taskEvidence(task, this.structure, fold.lessons.get(task.topicIds[0] ?? "")), this.structure, this.model);
       }
       this.prefix = fold;
       this.stale = false;
@@ -120,7 +120,7 @@ export class Replay {
   fold(): Fold {
     const prefix = this.before();
     const entry = this.currentEvidence();
-    return entry?.outcome ? foldTask(prefix, entry, this.course, this.model) : prefix;
+    return entry?.outcome ? foldTask(prefix, entry, this.structure, this.model) : prefix;
   }
 
   /** 截止时间已过的测验在截止时刻结束（课和复习不限时）；时间只会向前，所以在读取时就地结算与重放结果一致。 */
@@ -146,9 +146,9 @@ export class Replay {
           const prefix = this.before();
           const inherited = prefix.lessons.get(previous.topicIds[0] ?? "");
           if (previous.kind === "lesson" && inherited) previous.inherited = inherited;
-          const entry = taskEvidence(previous, this.course, previous.inherited);
+          const entry = taskEvidence(previous, this.structure, previous.inherited);
           this.observe(previous, fact.at, entry);
-          this.prefix = foldTask(prefix, entry, this.course, this.model);
+          this.prefix = foldTask(prefix, entry, this.structure, this.model);
           this.changes++;
         }
         const task: TaskRecord = {
@@ -238,8 +238,8 @@ export class Replay {
   private reconsiderCurrent(at: number): void {
     const task = this.current;
     if (task?.kind !== "lesson") return;
-    const own = taskEvidence(task, this.course, undefined);
-    if (reward({ ...own, outcome: "passed" }, this.course) > (this.best.get(task.seq) ?? 0)) {
+    const own = taskEvidence(task, this.structure, undefined);
+    if (reward({ ...own, outcome: "passed" }, this.structure) > (this.best.get(task.seq) ?? 0)) {
       this.observe(task, at);
     }
   }
@@ -261,11 +261,11 @@ export class Replay {
    * 已结束的任务用它结束时实际继承的那份（task.inherited）。
    */
   private observe(task: TaskRecord, at: number, entry?: TaskEvidence): void {
-    const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, this.course, task.inherited));
+    const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, this.structure, task.inherited));
     // XP 发了就不收回。课和复习的奖励按判出结果的作答里答对的比例算，后判出的错题会把比例拉低，所以还有没判出结果的作答时
     // 不结算，等它们判出来按全部证据再发；测验按全部交付算，后判出的结果只会让奖励变高，照常结算。
     if (!evidence || (!isQuiz(task.kind) && evidence.attempts.some((attempt) => attempt.verdict === undefined))) return;
-    const value = reward(evidence, this.course);
+    const value = reward(evidence, this.structure);
     const best = this.best.get(task.seq) ?? 0;
     if (value <= best) return;
     this.best.set(task.seq, value);
@@ -298,11 +298,11 @@ export class Replay {
   /** 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。 */
   private pick(n: number): string[] {
     const fold = this.fold();
-    if (!this.course.course.topics.some((topic) => fold.student[topic.id] && this.course.quizTopics.has(topic.id))) {
+    if (!this.structure.order.some((topic) => fold.student[topic.id] && this.structure.quizTopics.has(topic.id))) {
       return [];
     }
     this.samplings++;
-    return sampleTopics(this.tasks, fold, this.course, n);
+    return sampleTopics(this.tasks, fold, this.structure, n);
   }
 
   /** 测验出现后又攒够延后窗口，就只提供测验。 */
