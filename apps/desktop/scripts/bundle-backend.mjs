@@ -14,7 +14,7 @@
  * - 按路径加载的 JavaScript（worker）各自打成自足的文件，放回原来的位置。
  */
 import { build, transform } from "esbuild";
-import { copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /** 不打包、原样留在 node_modules 的包：Linux 课程核对的沙箱用 Node 按路径加载它们，Landlock 按路径放行。 */
@@ -49,6 +49,13 @@ const WORKERS_WITHOUT_FILES = {
 };
 
 const CODE = /\.(?:[cm]?js|[cm]?ts|tsx|jsx|map)$/u;
+
+/** 被打包的包里按路径当作数据读取的 JavaScript：Pi 导出 HTML 时把它们读进页面，不经 import。 */
+const CODE_READ_AS_DATA = new Set([
+  "@earendil-works/pi-coding-agent/dist/core/export-html/template.js",
+  "@earendil-works/pi-coding-agent/dist/core/export-html/vendor/highlight.min.js",
+  "@earendil-works/pi-coding-agent/dist/core/export-html/vendor/marked.min.js",
+]);
 
 // 每个输出文件开头：模块里 CommonJS 风格的 require 由它提供；__repaOutputUrl 是这个输出文件的位置，
 // 模块原来的位置由它和一个相对路径算出（见 relocate），注入的代码因此不含 import.meta，CommonJS 模块里也能用。
@@ -240,9 +247,10 @@ export async function bundleBackend(application) {
     const source = path.join(modules, name);
     const keep = isRepaPackage(name)
       ? (file) => !path.relative(source, file).startsWith(`dist${path.sep}`)
-      : (file) => !CODE.test(file);
+      : (file) => !CODE.test(file) || CODE_READ_AS_DATA.has(posix(path.relative(modules, file)));
     await copyTree(source, path.join(staging, name), keep);
   }
+  for (const file of CODE_READ_AS_DATA) await access(path.join(staging, file));
   for (const name of EXTERNAL) await copyTree(path.join(modules, name), path.join(staging, name), () => true);
 
   // 除 base 外，Repa 包的代码都在 base/dist 里了：插件包只导出插件入口（主进程按它找插件文件夹），其余不再导出任何模块。
