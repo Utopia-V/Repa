@@ -416,6 +416,12 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         },
         // 实例撤下以后不再转发它的事件。
         emit: (event) => { if (!entry.retired.signal.aborted) options.emit(plugin.id, event); },
+        backup() {
+          checkLive(entry);
+          const backup = options.backup;
+          if (backup === undefined) return Promise.reject(new RepaFault("backup_unavailable", "当前宿主不提供备份"));
+          return track(backup());
+        },
         prepareExport(request) {
           checkLive(entry);
           const sources = options.exports;

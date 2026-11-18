@@ -251,6 +251,11 @@ export interface Host {
    * 全部按反馈包的规则替换凭据与密钥，在内存中打成 zip。读不到保存的凭据时以 export_redaction_failed 拒绝。
    */
   prepareExport(request: ExportRequest): Promise<PreparedExport>;
+  /**
+   * 等空间的一次备份成功：备份里已有此刻的空间时直接完成，否则立即备份一份。插件改写或迁移已有的持久数据之前调用，
+   * 改坏了还能从这一份恢复；打开以后的定期备份不能代替它。备份失败时抛出原错误，宿主不提供备份时以 backup_unavailable 拒绝。
+   */
+  backup(): Promise<void>;
 }
 
 /** 可由底座加载的插件定义；open 为一个空间创建独立实例。 */

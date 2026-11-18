@@ -394,6 +394,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件都在插件列表里，带状态和原因。
       const bundled = options.plugins ?? [];
       const selected = await spacePlugins({ home, space, bundled, onError: pluginError });
+      // 在插件打开之前建好：插件迁移已有数据之前经 Host.backup 等一次备份成功，定期备份到空间打开完成以后才开始。
+      const backups = new SpaceBackups({
+        home,
+        space,
+        now: () => runtime.now(),
+        settings: () => settings.get().backup,
+        onUpdate: (status) => emit("backup.updated", status),
+        onError: (error) => {
+          errors.add({
+            source: "backup",
+            message: error instanceof Error ? error.message : String(error),
+            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+          });
+        },
+      });
       plugins = await openPluginHost({
         space,
         plugins: selected.plugins,
@@ -402,6 +417,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         // 插件导出数据与反馈包用同一套脱敏：保存的凭据由运行时读出，读不到时导出失败。
         exports: { home, credentials },
+        backup: async () => { await backups.check(); },
         models: (pluginId) => ({
           complete: (request) => runtime.complete(request, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
@@ -472,20 +488,6 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       owners.agent = agent;
       await host.start();
       await settings.remember(space.root);
-      const backups = new SpaceBackups({
-        home,
-        space,
-        now: () => runtime.now(),
-        settings: () => settings.get().backup,
-        onUpdate: (status) => emit("backup.updated", status),
-        onError: (error) => {
-          errors.add({
-            source: "backup",
-            message: error instanceof Error ? error.message : String(error),
-            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
-          });
-        },
-      });
       const list = await spaceControl.list();
       const opening = randomUUID();
       active = { opening, space, plugins, agent, backups, control: spaceControl };

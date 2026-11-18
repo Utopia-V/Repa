@@ -1,8 +1,8 @@
-import { readdir, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RepaFault } from "@repa/base";
-import { errorText, modelFailureOf } from "@repa/base/protocol";
+import { errorText, modelFailureOf, parse } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
@@ -11,6 +11,7 @@ import { frontendPython, sandboxPython, type CheckPython } from "./check/python.
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_EXAMPLE, COURSE_GUIDE, CONFIRM_CONCURRENCY, CONFIRM_REQUESTS, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
+import { courseStructure, CourseStructureSchema, StructureIndex, type CourseStructure } from "./course-structure.js";
 import { expansionBrief } from "./expansion-brief.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
@@ -18,7 +19,8 @@ import { TOPICS_DIRECTORY } from "./format/load.js";
 import { emptyProgress } from "./progress.js";
 import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningResult, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
-import { LearningSession } from "./session.js";
+import { EMPTY_STRUCTURE, Replay } from "./replay.js";
+import { LearningSession, needsBaseline, recordedLegacy } from "./session.js";
 import { CHECKS, CourseStore, hasSpaceCourse, onlyAdds, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT, TUTOR_TOOLS, tutorAgent, type Tutor, type TutorHooks } from "./tutor.js";
@@ -59,6 +61,15 @@ interface Unready {
 type Current = Ready | Unready;
 
 const NOT_BUILT = "这个空间的课还没有做好";
+
+/**
+ * 测试版 v0.1.0-test.1 随包的 Python 课的结构，从标签上的课程文件取出后冻结。旧日志的基线用它，而不是以后安装包里同名的新版：
+ * 测试版当时就是按这一份解释学习记录的。生成方法与摘要见 legacy/README.md。
+ */
+async function test1Python(): Promise<CourseStructure> {
+  const text = await readFile(new URL("../legacy/test1-python.json", import.meta.url), "utf8");
+  return parse(CourseStructureSchema, JSON.parse(text));
+}
 
 /**
  * 创建学习插件。打开时核对数据目录的格式标记，读入学习记录，再按空间决定学哪门课：换用过空间里的课，就学换用的那一份；
@@ -164,10 +175,59 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     });
   }
 
+  /**
+   * 测试版打开这个空间时用哪门课的结构解释整段学习记录，照测试版的做法认：换用过的副本；没有换用过就是随包的课，
+   * 但空间里有 course/ 而随包的课没有做到一半的任务时，测试版不显示任何一门课（undefined）。副本读不出时为 broken：
+   * 测试版也读不出，不把这种情形定成基线，下次打开或换用时再定。
+   */
+  async function test1Structure(): Promise<{ structure?: CourseStructure } | "broken"> {
+    const active = await store.active();
+    if (active) {
+      try {
+        return { structure: courseStructure(await store.load(active)) };
+      } catch {
+        return "broken";
+      }
+    }
+    // 自定义来源（测试）就用它；缺省的随包课用冻结的测试版那一份。
+    const bundled = options.sources ? courseStructure(await loadCourseSources(sources, host.files)) : await test1Python();
+    if (await hasSpaceCourse(host.files)) {
+      const index = new StructureIndex(bundled);
+      const replay = new Replay(index, undefined, { upTo: records.revision, structure: index });
+      for (const fact of records.facts) replay.apply(fact);
+      replay.settle(host.now());
+      const evidence = replay.currentEvidence();
+      if (evidence === undefined || evidence.outcome !== undefined) return {};
+    }
+    return { structure: bundled };
+  }
+
+  /**
+   * 首次用记录结构的版本打开测试版留下的学习记录：先等一次空间备份成功，再在末尾追加旧日志基线。基线之前的任务此后一律按它计算。
+   * 日志尾部残缺时不能追加，照测试版只读完整的部分（会话按当前的课解释，与测试版相同），恢复以后再写。
+   */
+  async function recordBaseline(structure?: CourseStructure): Promise<void> {
+    try {
+      await host.backup();
+    } catch (error) {
+      throw new RepaFault("backup_failed", `升级学习记录之前的备份没有完成，学习插件没有打开，学习记录没有改动：${errorText(error)}`);
+    }
+    await records.write(() => [{ type: "baseline", rules: "test1", ...(structure ? { structure } : {}) }]);
+  }
+
+  if (needsBaseline(records) && !records.incompleteTail) {
+    const found = await test1Structure();
+    if (found !== "broken") await recordBaseline(found.structure);
+  }
+
   let current: Current;
   const active = await store.active();
+  // 基线不带结构：测试版当时不显示任何一门课，升级以后同样，等学习者换用空间里的课。
+  const masked = recordedLegacy(records)?.structure === EMPTY_STRUCTURE;
   if (active) {
     current = await buildSpace(active);
+  } else if (masked && await hasSpaceCourse(host.files)) {
+    current = { kind: "unready", reason: NOT_BUILT };
   } else {
     current = await build(await loadCourseSources(sources, host.files));
     // 空间里有 course/ 而还没有换用过：没有可学的课。学习者在随包的课里还有做到一半的任务时，先让他做完，下次打开再说。

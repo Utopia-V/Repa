@@ -188,7 +188,9 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
   const quizTask = state.task && (state.task.kind === "quiz" || state.task.kind === "retake") ? state.task : null;
   return {
     serverNow: state.serverNow,
-    factCount: state.revision,
+    // 学习事实的条数。首次打开测试版数据时插件追加一条旧日志基线，新任务之前还可能有课程结构事实：它们记的是怎样解释学习记录，
+    // 不是学习者做过的事，所以不计；其余各项读数照常包括基线之后的全部事实。
+    factCount: session.records.facts.filter((fact) => fact.type !== "baseline" && fact.type !== "structure").length,
     course: state.course,
     progress,
     restriction: state.restrictions,
@@ -225,7 +227,8 @@ export async function readSpace(root: string, now: number, model = true): Promis
   if (!model) models.setDefaultModel(undefined);
   const space = await openSpace(root, { watch: false });
   const errors: unknown[] = [];
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, emit: () => {}, onError: (error) => errors.push(error) });
+  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
+  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
   try {
     const disabled = host.disabled();
     if (disabled.length > 0) throw new Error(`插件被停用：${JSON.stringify(disabled)}`);
@@ -298,7 +301,8 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
   if (!model) models.setDefaultModel(undefined);
   const space = await openSpace(root, { watch: false });
   const errors: unknown[] = [];
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, emit: () => {}, onError: (error) => errors.push(error) });
+  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
+  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
   const scratch = await mkdtemp(path.join(os.tmpdir(), "repa-test1-prefix-"));
   try {
     const disabled = host.disabled();

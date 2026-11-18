@@ -7,6 +7,7 @@ import type { Static, TSchema } from "typebox";
 import type { AskRoute } from "./ask.js";
 import type { AgentTask, AgentWork, CompletionRequest, ModelRef, Models, Plugin, Services, SessionUsage } from "./plugin.js";
 import { openPluginHost, type PluginHost } from "./plugins.js";
+import { checkBackup } from "./backup/store.js";
 import { parse } from "./schema.js";
 import { createSpace, type Space } from "./space.js";
 
@@ -238,7 +239,8 @@ export async function createPluginTestHost(options: PluginTestHostOptions): Prom
   }
 
   try {
-    space = await createSpace(path.join(directory, "space"), { watch: false, onError: (error) => { errors.push(error); } });
+    const created = await createSpace(path.join(directory, "space"), { watch: false, onError: (error) => { errors.push(error); } });
+    space = created;
     host = await openPluginHost({
       space,
       plugins: options.plugins,
@@ -248,6 +250,7 @@ export async function createPluginTestHost(options: PluginTestHostOptions): Prom
       ...(options.services === undefined ? {} : { services: options.services }),
       // 导出写到临时目录的 home/exports/；没有保存的凭据，只按环境变量和格式替换。
       exports: { home: path.join(directory, "home"), credentials: async () => [] },
+      backup: async () => { await checkBackup(path.join(directory, "home"), created, 3, (options.now ?? Date.now)()); },
       emit: (pluginId, event) => { events.push({ pluginId, event }); },
       onError: (error) => { errors.push(error); },
     });
