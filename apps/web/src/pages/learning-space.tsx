@@ -70,7 +70,8 @@ export function LearningSpacePage() {
   // 选择框放在两种布局之外：读取完成时布局切换，不会卸载已经打开的选择框。
   return <>
     {!loadFailed && recent?.length === 0
-      ? <FirstSpace title={t("learningSpace.first.title")} onPick={() => setPicking(true)} onCreated={goHome} />
+      // 上次的空间打不开（例如课程文件夹被移走了）而没有别的最近空间时，这里也说明原因，“选择文件夹”就在下面。
+      ? <FirstSpace title={t("learningSpace.first.title")} previous={resumeFailure} onPick={() => setPicking(true)} onCreated={goHome} />
       : <RecentSpaces
         spaces={spaces}
         active={active}
@@ -110,7 +111,13 @@ export function NewSpacePage() {
  * Windows 的“文档”常被 OneDrive 接管。C 盘小的学习者可以换个位置，选过以后下次新建仍放在那里。
  * 名称不能作文件夹名、或那个文件夹已经有别的内容时如实报错，不替他改名。选已有的文件夹作为次要动作保留。
  */
-function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): void; onCreated(): void }) {
+function FirstSpace({ title, previous, onPick, onCreated }: {
+  title: string;
+  /** 重新打开上次的空间失败的原因。 */
+  previous?: { root: string; error: unknown } | undefined;
+  onPick(): void;
+  onCreated(): void;
+}) {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
@@ -163,6 +170,7 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 pt-16 pb-24 md:px-8">
     <h2 className="text-display weight-semibold">{title}</h2>
+    {previous && <ErrorNotice title={t("learningSpace.open.error", { value: t("learningSpace.lastSpace.label"), root: folderName(previous.root) })} error={previous.error} />}
     {noModel && <div className="grid gap-3">
       <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("making.noModel.description")}</p></StatusNotice>
       <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>
