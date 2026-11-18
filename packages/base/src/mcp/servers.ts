@@ -15,8 +15,12 @@ export const MAX_SERVERS = 16;
 export const MAX_TOOLS = 64;
 // 一个工具说明的字数上限。OpenAI 的函数说明上限是 1024 个字符，超过时整个请求被拒；更长的说明截断并标出。
 export const MAX_DESCRIPTION = 1024;
-// 请求的默认时限：握手、列工具和一次调用各自计算。60 秒与 Pi 的 MCP 扩展相同；配置里写了 timeout 时用它。
+// 请求的默认时限：列工具和一次调用各自计算。60 秒与 Pi 的 MCP 扩展相同；配置里写了 timeout 时用它。
 const DEFAULT_TIMEOUT_MS = 60_000;
+// 本机服务器握手的默认时限。npx、uvx 第一次运行要先下载：server-everything 约 43 MB，GitHub 的 Windows 机器上要 25 秒，
+// 慢的网络上会超过 60 秒；超时会结束下载，重新连接也接不上前一次（实测时限 5 秒时重连 30 次，缓存停在 17 MB），
+// 使用者只能去改配置。10 分钟是 Repa 的假设，容下约 70 KB/s 的下载；握手在后台进行，不拖住消息。配置里写了 timeout 时用它。
+const DEFAULT_STDIO_STARTUP_TIMEOUT_MS = 600_000;
 // 提供方要求工具名不超过 64 个字符、只含字母数字和 _-。
 const TOOL_NAME_LIMIT = 64;
 
@@ -210,7 +214,9 @@ export class McpServers {
     const signal = server.abandon.signal;
     let connection: McpConnection | undefined;
     try {
-      connection = await connect(target, { timeoutMs: server.config.timeoutMs ?? DEFAULT_TIMEOUT_MS, version: this.options.version, signal });
+      const timeoutMs = server.config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      const startupTimeoutMs = server.config.timeoutMs ?? (target.kind === "stdio" ? DEFAULT_STDIO_STARTUP_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
+      connection = await connect(target, { timeoutMs, startupTimeoutMs, version: this.options.version, signal });
       const tools = this.toolsFor(server, connection, await connection.listTools());
       if (signal.aborted) {
         await connection.close();

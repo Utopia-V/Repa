@@ -343,7 +343,7 @@ test("配置里的令牌不出现在列表、会话记录和最近错误里；�
   for (const [name, file] of files) assert.ok(!file.text.includes(SECRET), `${name} 里有令牌`);
 });
 
-test("命令不存在、工作目录不存在时分别说明原因，不报笼统的连接关闭", async t => {
+test("命令不存在、工作目录不存在时分别说明原因，不报笼统的连接关闭；命令在而起来就退出的报连接失败", async t => {
   const f = await fixture(t);
   const missingDirectory = path.join(f.directory, "没有这个目录");
   // Windows 上按名称找不到的命令经 cmd.exe 起来再失败，与写 initialize 时的管道断开同时发生；多起几个，先后各种情形都会遇到。
@@ -352,11 +352,15 @@ test("命令不存在、工作目录不存在时分别说明原因，不报笼�
     ...missing,
     absolute: { command: path.join(f.directory, "no-such-server") },
     nocwd: { ...f.stdio(), cwd: missingDirectory },
+    // 命令在、只是起来就退出的，照实报连接失败并附上 stderr；按名字写的命令在 PATH 里找（Windows 上带 PATHEXT）。
+    exits: { command: "node", args: ["-e", "process.stderr.write('boom'); process.exit(1)"] },
   } }) });
   const list = await until(() => f.client().call("mcp.list", {}), items => items.every(item => item.state !== "connecting"), "全部连完");
   for (const name of Object.keys(missing)) assert.deepEqual(server(list, name).reason, { code: "mcp_command_not_found", message: "找不到命令 repa-no-such-command" });
   assert.equal(server(list, "absolute").reason?.code, "mcp_command_not_found");
   assert.deepEqual(server(list, "nocwd").reason, { code: "mcp_cwd_not_found", message: `工作目录不存在 ${missingDirectory}` });
+  assert.equal(server(list, "exits").reason?.code, "mcp_connect_failed");
+  assert.match(server(list, "exits").reason?.message ?? "", /boom/u);
   assert.deepEqual(await f.lines(), []);
 });
 

@@ -477,7 +477,7 @@ Pi 对超时、断线、限流和服务端错误自动重试（缺省最多 3 �
 
 通用 Agent（包括它起的通用子 Agent 和插件经 `runAgent` 交给它的后台任务）可以使用 MCP 服务器的工具；插件 Agent 没有。设计理由见[设计记录](../../.agents/notes/implemented/feature/2026-11-16-mcp-servers.md)，实现在 [src/mcp/](src/mcp/)：`client.ts` 是唯一用到客户端库 `@earendil-works/pi-mcp` 的文件，`config.ts` 读写配置，`servers.ts` 管连接、状态和工具。
 
-配置在应用配置目录的 `mcp.json`，按通行的 `mcpServers` 写法：stdio 写 `command`、`args`、`env`（可选 `cwd`），Streamable HTTP 写 `url`、`headers`；`timeout` 是请求的时限（秒），默认 60。每项另有 Repa 的 `disabled` 与 `askBeforeCall`（省略时询问）。别的客户端写的字段原样保留；服务器名只能用字母、数字、`_` 和 `-`，至多 32 个字符。一项写错只影响这个服务器，状态里写明原因；整个文件不是 JSON 时 `mcp.list` 以 `mcp_config_invalid` 拒绝，文件不被覆盖。字段见[持久格式](../../docs/generated/persistence.md#mcp-config)。
+配置在应用配置目录的 `mcp.json`，按通行的 `mcpServers` 写法：stdio 写 `command`、`args`、`env`（可选 `cwd`），Streamable HTTP 写 `url`、`headers`；`timeout` 是请求的时限（秒），默认 60；没有写时，stdio 服务器的握手放宽到 10 分钟，`npx`、`uvx` 第一次运行要先下载。每项另有 Repa 的 `disabled` 与 `askBeforeCall`（省略时询问）。别的客户端写的字段原样保留；服务器名只能用字母、数字、`_` 和 `-`，至多 32 个字符。一项写错只影响这个服务器，状态里写明原因；整个文件不是 JSON 时 `mcp.list` 以 `mcp_config_invalid` 拒绝，文件不被覆盖。字段见[持久格式](../../docs/generated/persistence.md#mcp-config)。
 
 连接归协议后端，一个服务器一份，所有空间共用。`startServer` 在后台连接，不等它；`mcp.list` 每次与文件对照（新的连上，改了的重连，停用、删除的关掉，只改询问开关的不动），手改的文件这时生效；`mcp.add`、`mcp.remove`、`mcp.set` 改文件并随即生效；`mcp.reconnect` 重连一个失败的服务器，连接断了不会自己重连。状态变化以 `mcp.updated` 通知。`server.close()` 关闭全部连接，等 stdio 进程连同子进程结束（先关 stdin，0.5 秒后 SIGTERM，再 2 秒后 SIGKILL，作用于整个进程组）。没有通用 Agent（`generalAgent: false`）时不连接，`mcp.*` 以 `mcp_unavailable` 拒绝。stdio 服务器在使用者的主目录运行，继承后端的环境变量（`REPA_TOKEN` 除外）再加上配置的 `env`；Windows 上变量名不分大小写，配置写 `path` 而系统是 `Path` 时以配置为准，找命令与服务器看到的都是这一个值。命令不存在时状态为 `mcp_command_not_found`，`cwd` 不存在时为 `mcp_cwd_not_found`。
 
