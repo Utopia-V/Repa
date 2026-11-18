@@ -117,7 +117,8 @@ function ServerState({ server }: { server: McpServer }) {
     case "connected":
       return <Badge variant="dot" color="green">{t("settings.mcp.connected.status", { count: server.tools.length })}</Badge>;
     case "connecting":
-      return <Badge variant="dot" color="amber">{t("settings.mcp.connecting.status")}</Badge>;
+      // 本机命令形式的服务器第一次运行时常要先下载（npx、uvx），握手因此可以很久。
+      return <Badge variant="dot" color="amber">{t(server.transport === "stdio" ? "settings.mcp.connectingLocal.status" : "settings.mcp.connecting.status")}</Badge>;
     case "disabled":
       return <Badge variant="dot" color="gray">{t("settings.mcp.disabled.status")}</Badge>;
     case "failed":

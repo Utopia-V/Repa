@@ -466,6 +466,7 @@ export const strings = {
   "settings.mcp.add.error": "无法添加服务器",
   "settings.mcp.connected.status": "已连接，{count} 个工具",
   "settings.mcp.connecting.status": "正在连接…",
+  "settings.mcp.connectingLocal.status": "正在连接，首次运行可能需要下载…",
   "settings.mcp.disabled.status": "已停用",
   "settings.mcp.failed.status": "无法连接",
   "settings.mcp.enable.label": "启用 {name}",
