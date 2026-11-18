@@ -242,6 +242,15 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     session: () => current,
     /** 到现在收到的 building.changed 个数。 */
     changes: () => changes,
+    /** 等收到的 building.changed 多于 seen 个。 */
+    async changed(seen: number): Promise<void> {
+      while (changes <= seen) {
+        await new Promise<void>((resolve) => {
+          const wake = () => { waiting.delete(wake); resolve(); };
+          waiting.add(wake);
+        });
+      }
+    },
     async reopen() {
       await client.call("space.close", {});
       ({ opening } = await client.call("space.open", { root }));
@@ -628,6 +637,23 @@ test("关掉自动展开：学习者学到尽头也没有模型请求，设置�
   const shown = await f.until((state) => state.expansion === null);
   assert.equal(shown.lastFailure, null);
   assert.deepEqual(shown.parts.map((part) => part.status), ["learned", "ready", "ready"]);
+});
+
+test("学完一节：整门课里这一部分变成学过，插件随即发 building.changed，前端不必等重开就能读到", { timeout: 30_000 }, async (t) => {
+  // 没有发事件时等不到，按时限失败，而不是挂住。
+  const f = await fixture(t);
+  await f.call("settings.set", { autoExpand: false });
+  await outlineThenFirst(f);
+  // 前端读过一次做课的状态，看到的是第一节可学。
+  assert.deepEqual((await f.building()).parts.map((part) => part.status), ["ready", "outline", "outline"]);
+  const seen = f.changes();
+  await f.select("os01");
+  const done = await f.finish();
+  assert.equal(done.task?.phase.stage === "completed" && done.task.phase.outcome, "passed");
+  await f.changed(seen);
+  assert.deepEqual((await f.building()).parts.map((part) => part.status), ["learned", "outline", "outline"]);
+  // 学过的部分只变了一次，只发一次。
+  assert.equal(f.changes(), seen + 1);
 });
 
 test("学习者正在学的 topic 在新的一版里改了：course_use 不换用，进行中的任务照旧", async (t) => {

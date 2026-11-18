@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -40,8 +40,9 @@ export function useMakingSession(sessionId: string | undefined): void {
 /**
  * 做课的对话：学习插件记下的那一段通用 Agent 会话（building.get 的 sessionId）。学习者在这里看 Agent 在做什么、
  * 回答它的提问、随时提要求。与对话页共用会话记录的显示；接上这段会话由 useMakingSession 负责。
+ * children 放在输入框之上，由学习页决定，例如课刚做好时的菜单。
  */
-export function MakingPanel({ sessionId }: { sessionId: string }) {
+export function MakingPanel({ sessionId, children }: { sessionId: string; children?: ReactNode }) {
   const conversation = useAppStore((state) => state.conversation);
   const connected = useAppStore((state) => state.connected);
   const asks = useAppStore((state) => state.asks);
@@ -108,6 +109,7 @@ export function MakingPanel({ sessionId }: { sessionId: string }) {
       {bound && <ConversationTranscript workingText={t("making.working.status")} />}
     </div>
     <div className="grid gap-3 px-4 pt-2 pb-4">
+      {children}
       {needsModel && <div className="grid gap-3">
         <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("making.noModel.description")}</p></StatusNotice>
         <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>

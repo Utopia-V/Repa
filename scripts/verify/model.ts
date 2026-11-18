@@ -208,7 +208,8 @@ export class ScriptedModel {
       this.log.push({ kind: "agent", note: `失败：${this.failing}` });
       this.fail(this.failing, response);
       return;
-    } else if (tools.includes("course_use")) {
+    } else if (tools.includes("course_use") || tools.includes("learning_task")) {
+      // 通用 Agent 与辅导一样按学习者的消息找剧本。
       reply = this.agentStep(messages);
     } else {
       this.log.push({ kind: "other", note: system.slice(0, 120) });

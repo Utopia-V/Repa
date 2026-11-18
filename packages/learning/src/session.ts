@@ -472,7 +472,8 @@ export class LearningSession {
       case "completed":
         return { stage: "completed", outcome: position.outcome };
       case "aborted":
-        return { stage: "aborted", reason: "学习者中止" };
+        // 目前中止只有学习者自己点的这一种（新任务开始时还没结束的那项也算它），说明里不另附原因。
+        return { stage: "aborted", reason: "" };
       case "preparing":
         return { stage: "preparing" };
       case "explanation":

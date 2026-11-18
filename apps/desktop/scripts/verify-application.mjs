@@ -14,6 +14,8 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** 学习插件里写核对记录的模块，取工作区的构建产物，见 writeConfirmationRecords。 */
+const LEARNING_CHECK = new URL("../../../packages/learning/dist/check/", import.meta.url);
 
 /** 向系统要一个空闲端口给应用的远程调试用。 */
 async function freePort() {
@@ -65,8 +67,8 @@ const PAGE_PYTHON_TIMEOUT_MS = 180_000;
  */
 async function checkPagePython(page, application, temporary) {
   const { RepaClient } = await import(pathToFileURL(path.join(application, "node_modules/@repa/base/dist/client.js")));
-  const { PYTHON_BATCH } = await import(pathToFileURL(path.join(application, "node_modules/@repa/python-runner/dist/protocol.js")));
-  const { parse } = await import(pathToFileURL(path.join(application, "node_modules/yaml/dist/index.js")));
+  const { PYTHON_BATCH } = await import("@repa/python-runner/protocol");
+  const { parse } = await import("yaml");
   const course = parse(await readFile(path.join(application, "node_modules/@repa/learning/courses/python/course.yaml"), "utf8"));
   const expected = { pyodide: String(course.runtime.pyodide), python: String(course.runtime.python), packages: course.runtime.packages };
   const connection = await evaluate(page, "window.repaHost.getConnection()");
@@ -164,12 +166,11 @@ async function startScriptedModel() {
 
 /**
  * 给 topic 里每道由程序判分的题写上当前的核对记录：course_use 只换用核对过的课。模型核对是一次普通的模型请求，
- * 走的路与平台和安装包无关，这里不经假模型重做一遍，直接用安装包里的函数算出记录写进文件。
+ * 走的路与平台和安装包无关，这里不经假模型重做一遍，直接用工作区里同一次构建的学习插件算出记录写进文件：安装包里的后端打成了一个整体，不再单独提供这些模块。
  */
-async function writeConfirmationRecords(application, topicFile, topic) {
-  const check = path.join(application, "node_modules/@repa/learning/dist/check");
-  const { confirmationSlots, lessonVersion, localDate, writeConfirmations } = await import(pathToFileURL(path.join(check, "confirm.js")));
-  const { topicQuestions } = await import(pathToFileURL(path.join(check, "items.js")));
+async function writeConfirmationRecords(topicFile, topic) {
+  const { confirmationSlots, lessonVersion, localDate, writeConfirmations } = await import(new URL("confirm.js", LEARNING_CHECK).href);
+  const { topicQuestions } = await import(new URL("items.js", LEARNING_CHECK).href);
   const scope = "question-lesson-v1";
   const records = [];
   for (const entry of topicQuestions(topic)) {
@@ -192,7 +193,7 @@ const COURSE_USE_TIMEOUT_MS = 240_000;
  */
 async function checkCourseUse(connection, application, temporary, model) {
   const { RepaClient } = await import(pathToFileURL(path.join(application, "node_modules/@repa/base/dist/client.js")));
-  const { parse, stringify } = await import(pathToFileURL(path.join(application, "node_modules/yaml/dist/index.js")));
+  const { parse, stringify } = await import("yaml");
   const guides = path.join(application, "node_modules/@repa/learning/guides");
   const guide = (await readFile(path.join(guides, "making-courses.md"), "utf8")).replaceAll("\r\n", "\n");
   const examples = [...guide.matchAll(/^```yaml\n([\s\S]*?)^```$/gmu)].map((match) => parse(match[1]));
@@ -205,7 +206,7 @@ async function checkCourseUse(connection, application, temporary, model) {
   const topic = parse(await readFile(topicFile, "utf8"));
   topic.kps[0].practice.push(...question);
   await writeFile(topicFile, stringify(topic, { aliasDuplicateObjects: false }));
-  await writeConfirmationRecords(application, topicFile, topic);
+  await writeConfirmationRecords(topicFile, topic);
 
   const client = await RepaClient.connect(connection);
   try {
@@ -277,6 +278,43 @@ async function checkLaunch(executable, application, temporary, hideGit) {
   }
 }
 
+/** 自写插件，导入 @repa/base/plugin，唯一的方法抛出带错误码的 RepaFault。 */
+const HOST_PLUGIN_PROBE = "host-plugin-probe";
+const HOST_PLUGIN_PROBE_FILES = {
+  "repa-plugin.json": JSON.stringify({ id: HOST_PLUGIN_PROBE, version: "0.1.0", entry: "index.js" }),
+  "index.js": `import { RepaFault, Type } from "@repa/base/plugin";
+export default {
+  id: ${JSON.stringify(HOST_PLUGIN_PROBE)},
+  async open() {
+    return { methods: { fault: { parameters: Type.Object({}), invoke: () => { throw new RepaFault("host_plugin_probe", "探针插件抛出的错误"); } } } };
+  },
+};
+`,
+};
+
+/**
+ * 插件文件夹里的 @repa/base/plugin 解析到的是后端自己的那一份：运行上下文和 RepaFault 的 instanceof 都靠它，
+ * 安装包里的后端打成了一个整体，解析错到另一份副本时插件照样能加载，只是错误码和运行上下文悄悄失效。
+ * 所以让探针插件抛出 RepaFault：后端认出它是自己的 RepaFault 时原样交回错误码，认不出时换成通用的错误码。
+ */
+async function checkHostPlugin(client, root, opening) {
+  const folder = path.join(root, ".agents", "plugins", HOST_PLUGIN_PROBE);
+  await mkdir(folder, { recursive: true });
+  for (const [name, content] of Object.entries(HOST_PLUGIN_PROBE_FILES)) await writeFile(path.join(folder, name), content);
+  // 加载自写插件要使用者批准；这里只批准这个探针插件。
+  const stop = client.on("confirm.request", ({ id, request }) => {
+    void client.call("confirm.reply", { id, value: request.kind === "plugin" && request.plugin?.id === HOST_PLUGIN_PROBE }).catch(() => {});
+  });
+  try {
+    const loaded = await client.call("plugin.load", { id: HOST_PLUGIN_PROBE });
+    assert.equal(loaded.state, "running", `导入 @repa/base/plugin 的插件没有运行：${JSON.stringify(loaded.reason)}`);
+  } finally {
+    stop();
+  }
+  const error = await client.call("plugin.call", { pluginId: HOST_PLUGIN_PROBE, method: "fault", input: {}, opening }).then(() => undefined, (reason) => reason);
+  assert.equal(error?.data?.code, "host_plugin_probe", `插件文件夹里的 @repa/base/plugin 不是后端自己的那一份：插件抛出的 RepaFault 交回来是 ${JSON.stringify(error?.data ?? error?.message)}`);
+}
+
 /** 安装包带的 Git 在应用目录里的位置，与主进程的 bundledGit 一致；Linux 安装包不带，返回 undefined。 */
 function bundledGit(application) {
   if (process.platform === "darwin") return path.join(application, "git", "git");
@@ -309,14 +347,15 @@ async function packCount(gitDir) {
 }
 
 /**
- * 用安装布局里的 space-history 和安装包带的 Git 走一遍空间历史，PATH 里没有其他 Git：
+ * 用安装包带的 Git 走一遍空间历史，PATH 里没有其他 Git。这里核对的是 Git 本身，space-history 取工作区的同一份代码
+ * （安装包里它在后端的整体里，后端建空间时已经用安装包带的 Git 保存过一次）：
  * 打开时先保存一次，改文件后再保存一次，对象少，fast-import 会调起 unpack-objects 解成松散对象；
  * fast-import 在调不起它时照样成功、只是留下 pack，所以按有没有 pack 判断。再强制维护一次（gc 调起 repack 等），
  * 最后把历史复制到新目录写出空间文件。空间目录和文件名带空格与中文。
  */
-async function checkGit(application, gitPath, temporary) {
+async function checkGit(gitPath, temporary) {
   const { stdout: version } = await exec(gitPath, ["--version"]);
-  const { openHistory, checkoutLatest } = await import(pathToFileURL(path.join(application, "node_modules/@repa/space-history/dist/index.js")));
+  const { openHistory, checkoutLatest } = await import("@repa/space-history");
   const space = path.join(temporary, "学习 空间");
   const gitDir = path.join(space, ".repa", "history.git");
   const note = "笔记 一.md";
@@ -354,7 +393,6 @@ export async function verifyApplication({ application, executable, temporary }) 
   for (const file of [executable, path.join(base, "cli.js"), path.join(base, "process.js"),
     // 通用 Agent 写插件时读的 Skill 与模板，随 @repa/base 的 files 装进来。
     path.join(base, "../skills/plugin-authoring/SKILL.md"), path.join(base, "../skills/plugin-authoring/template/index.ts"),
-    path.join(application, "node_modules/@repa/space-history/dist/index.js"),
     path.join(learning, "repa-plugin.json"),
     // 课件转文字插件读中文 PDF 要用的 CMap 数据，随包的 files 装进来。
     path.join(materials, "repa-plugin.json"), path.join(materials, "cmaps/UniGB-UCS2-H.bcmap"),
@@ -364,7 +402,7 @@ export async function verifyApplication({ application, executable, temporary }) 
     await access(file);
   }
   const gitPath = bundledGit(application);
-  const git = gitPath === undefined ? undefined : await checkGit(application, gitPath, temporary);
+  const git = gitPath === undefined ? undefined : await checkGit(gitPath, temporary);
   // 后端也在没有其他 Git 的 PATH 下启动，只能用安装包带的那份。
   const nodeEnvironment = { ...process.env, ELECTRON_RUN_AS_NODE: "1" };
   const environment = gitPath === undefined ? nodeEnvironment : withoutGit(nodeEnvironment);
@@ -390,10 +428,11 @@ export async function verifyApplication({ application, executable, temporary }) 
     // 学习者版本带通用 Agent：做课由它完成，设置页按它读提示段。
     assert.ok((await client.call("agent.list", {})).some((agent) => agent.id === "general"));
     await client.call("prompt.list", {});
+    await checkHostPlugin(client, root, created.opening);
   } finally {
     await client?.close();
     await backend.close();
   }
   const launch = await checkLaunch(executable, application, temporary, gitPath !== undefined);
-  return { runtime: runtimeInfo, git, base: true, learning: true, materials: true, connection: true, launch };
+  return { runtime: runtimeInfo, git, base: true, learning: true, materials: true, hostPlugin: true, connection: true, launch };
 }

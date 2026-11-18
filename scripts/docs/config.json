@@ -22,6 +22,14 @@
     {
       "pattern": "scripts/docs/fixtures/**",
       "reason": "检查脚本的通过和失败夹具，保留待测问题"
+    },
+    {
+      "pattern": "packages/learning/test/fixtures/test1/home/**",
+      "reason": "测试版留下的学习空间（含学习者的 AGENTS.md 与课件），冻结的原始数据，保持原貌"
+    },
+    {
+      "pattern": "packages/learning/test/fixtures/test1/snapshots/**",
+      "reason": "同上，走查中途复制的学习空间"
     }
   ]
 }

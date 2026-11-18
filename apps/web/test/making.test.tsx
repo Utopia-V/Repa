@@ -351,13 +351,23 @@ it("已经在学随包课的空间（有学习记录）不显示起点，与以�
   expect(screen.queryByRole("region", { name: "making.materials.title" })).toBeNull();
 });
 
-it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续写的文件在做课的对话里合成一行", async () => {
+it("菜单为空时用界面自己的说明，有恢复时间时写出几点以后可以继续", async () => {
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 5, menu: { menuId: "m1", candidates: [], availableAt: at + 30 * 60_000 } }),
+  });
+  start(fake.client);
+
+  const menu = within(await screen.findByRole("region", { name: "接下来" }));
+  expect(menu.getByText(/^现在没有可以开始的内容。 \d{2}:\d{2} 以后可以继续。$/u)).toBeTruthy();
+});
+
+it("只有轮廓时不显示菜单那句“现在没有可以开始的内容”；连续写的文件在做课的对话里合成一行", async () => {
   const done = (id: string, tool: string) => [
     { id: `a${id}`, type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: `c${id}`, name: tool, input: {} }] } },
     { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
   ];
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [], unavailableReason: "当前没有可开始的任务" } }),
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [] } }),
     "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
     "session.history": () => Promise.resolve([
       ...done("1", "materials_list"), ...done("2", "write"), ...done("3", "write"), ...done("4", "write"), ...done("5", "course_check"),
@@ -371,7 +381,7 @@ it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续�
   expect(panel.getByText("toolActivity.count.label3")).toBeTruthy();
   expect(panel.getAllByText("写入文件")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
-  expect(screen.queryByText("当前没有可开始的任务")).toBeNull();
+  expect(screen.queryByText("现在没有可以开始的内容。")).toBeNull();
 });
 
 it("搜索和读网页在做课的对话里显示成界面文字，不显示工具的内部名字", async () => {
@@ -541,7 +551,7 @@ it("有学习任务时不显示整门课；新课作答时辅导栏用新课的�
   await vi.waitFor(() => expect(store.getState().resources.sessions.data?.map((session) => session.id)).toEqual(["tutor-1", "making-1"]));
 });
 
-it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以前的记录，只留提示；任务结束后记录照常出现", async () => {
+it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以前的记录，只留提示；空间里没有做课的对话时，任务结束后记录照常出现", async () => {
   const review = {
     taskId: "t2", kind: "review" as const, topics: [{ id: "os01", title: "进程状态" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
     startedAt: at, deadlineAt: null, kps: [], submissions: [],
@@ -553,7 +563,7 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
   let current: LearningState = { ...noCourse, revision: 9, course: outlined.course, task: review, restrictions: { kind: "review", tutorAllowed: false, referenceContentAllowed: false } };
   const fake = backend({
     "learning.state.get": () => Promise.resolve(current),
-    "learning.building.get": () => Promise.resolve(outlined),
+    "learning.building.get": () => Promise.resolve({ ...outlined, sessionId: null }),
     "session.history": () => Promise.resolve([{ id: "a1", type: "assistant", timestamp: iso, text: "就绪是只差处理机的状态。", data: { stopReason: "stop" } }]),
   }, [{ id: "tutor-1", createdAt: iso, updatedAt: iso, agent: "learning-tutor" }]);
   const store = start(fake.client);
@@ -566,6 +576,121 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
   current = { ...current, revision: 10, task: { ...review, phase: { stage: "completed" as const, outcome: "passed" as const } }, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true } };
   await act(async () => { fake.emit("plugin.event", { pluginId: "learning", event: { type: "learning.changed", revision: 10, taskId: "t2", menuId: null } }); });
   expect(await tutor.findByText("就绪是只差处理机的状态。")).toBeTruthy();
+});
+
+/** 新课讲解的第一页。 */
+function explanation(topicId: string, text: string) {
+  const ref = { courseId: "os", topicId, kpId: `${topicId}.k1`, id: `${topicId}.k1.explanation`, version: `sha256:${"1".repeat(64)}`, kind: "lesson" as const };
+  return { stage: "explanation" as const, page: { ref, origin: { taskId: "t", content: ref }, offset: 0, total: 1, blocks: [{ type: "markdown" as const, text }] } };
+}
+
+it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的抽屉；宽屏面板缺省是辅导，可以切到做课再切回；开始下一项时只有辅导", async () => {
+  const lesson = {
+    taskId: "t3", kind: "lesson" as const, topics: [{ id: "os02", title: "进程控制块" }], phase: explanation("os02", "PCB 记下进程的一切。"),
+    startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
+  };
+  for (const wide of [false, true]) {
+    let current: LearningState = { ...noCourse, revision: 9, course: outlined.course, task: lesson, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true } };
+    const fake = backend({
+      "learning.state.get": () => Promise.resolve(current),
+      "learning.building.get": () => Promise.resolve(outlined),
+    }, [
+      { id: "tutor-1", createdAt: iso, updatedAt: iso, agent: "learning-tutor" },
+      { id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" },
+    ]);
+    const store = start(fake.client, wide);
+    const changed = async (task: LearningState["task"]) => {
+      current = { ...current, revision: current.revision + 1, task };
+      await act(async () => { fake.emit("plugin.event", { pluginId: "learning", event: { type: "learning.changed", revision: current.revision, taskId: task?.taskId ?? null, menuId: null } }); });
+    };
+    const header = () => within(screen.getByRole("banner"));
+
+    await screen.findByText("PCB 记下进程的一切。");
+    if (wide) expect(await screen.findByRole("complementary", { name: "辅导" })).toBeTruthy();
+    else expect(await header().findByRole("button", { name: "问辅导" })).toBeTruthy();
+    expect(header().queryByRole("button", { name: "learn.making.action" })).toBeNull();
+
+    for (const phase of [{ stage: "completed" as const, outcome: "passed" as const }, { stage: "aborted" as const, reason: "" }]) {
+      await changed({ ...lesson, phase });
+      expect(await header().findByRole("button", { name: "learn.making.action" })).toBeTruthy();
+      if (wide) {
+        expect(screen.getByRole("complementary", { name: "辅导" })).toBeTruthy();
+        fireEvent.click(header().getByRole("button", { name: "learn.making.action" }));
+        expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
+        await vi.waitFor(() => expect(store.getState().conversation.sessionId).toBe("making-1"));
+        fireEvent.click(header().getByRole("button", { name: "问辅导" }));
+        expect(await screen.findByRole("complementary", { name: "辅导" })).toBeTruthy();
+      } else {
+        fireEvent.click(header().getByRole("button", { name: "learn.making.action" }));
+        expect(await screen.findByRole("dialog", { name: "making.panel.label" })).toBeTruthy();
+        await vi.waitFor(() => expect(store.getState().conversation.sessionId).toBe("making-1"));
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+        await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+        fireEvent.click(header().getByRole("button", { name: "问辅导" }));
+        expect(await screen.findByRole("dialog", { name: "辅导" })).toBeTruthy();
+        fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+        await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      }
+      await changed(lesson);
+      await vi.waitFor(() => expect(header().queryByRole("button", { name: "learn.making.action" })).toBeNull());
+    }
+
+    // 没有任务在页面上（第二天只有菜单）时只有做课。
+    await changed(null);
+    if (wide) expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
+    else {
+      expect(await header().findByRole("button", { name: "learn.making.action" })).toBeTruthy();
+      expect(header().queryByRole("button", { name: "问辅导" })).toBeNull();
+    }
+    cleanup();
+    localStorage.clear();
+  }
+});
+
+it("课第一次可以学时，窄屏的做课抽屉里也有菜单；在抽屉里点“开始”，抽屉收起，开始这一节", async () => {
+  const lesson = {
+    taskId: "t1", kind: "lesson" as const, topics: [{ id: "os01", title: "进程状态" }], phase: explanation("os01", "进程有三种状态。"),
+    startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
+  };
+  const ready: LearningState = {
+    ...noCourse, revision: 3, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
+    menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "进程状态", topicIds: ["os01"] }] },
+  };
+  let current = ready;
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve(current),
+    "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: part.status === "learned" ? "ready" as const : part.status })) }),
+    "learning.menu.select": () => {
+      current = { ...ready, revision: 4, task: lesson, menu: null };
+      return Promise.resolve(current);
+    },
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client, false);
+
+  fireEvent.click(await screen.findByRole("button", { name: "learn.making.action" }));
+  const drawer = within(await screen.findByRole("dialog", { name: "making.panel.label" }));
+  fireEvent.click(await drawer.findByRole("button", { name: "开始" }));
+  expect(await screen.findByText("进程有三种状态。")).toBeTruthy();
+  expect(calls(fake.call, "learning.menu.select")).toEqual([{ menuId: "m1", candidateId: "c1" }]);
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("button", { name: "问辅导" })).toBeTruthy();
+});
+
+it("学过一节以后，做课的抽屉里不再放菜单", async () => {
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({
+      ...noCourse, revision: 9, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
+      progress: { ...progress, completedTopics: 1, totalTopics: 4 },
+      menu: { menuId: "m2", candidates: [{ id: "c2", kind: "lesson", title: "进程控制块", topicIds: ["os02"] }] },
+    }),
+    "learning.building.get": () => Promise.resolve(outlined),
+  }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
+  start(fake.client, false);
+
+  fireEvent.click(await screen.findByRole("button", { name: "learn.making.action" }));
+  const drawer = within(await screen.findByRole("dialog", { name: "making.panel.label" }));
+  expect(await drawer.findByRole("textbox")).toBeTruthy();
+  expect(drawer.queryByRole("button", { name: "开始" })).toBeNull();
 });
 
 it("模型请求失败时按后端给出的原因说一句人能看懂的话，原文折叠保留；自动重试过的几次不显示；凭据无效带去设置的入口", async () => {

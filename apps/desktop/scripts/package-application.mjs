@@ -1,5 +1,6 @@
 /**
- * 各平台安装包共用的准备步骤：打包后端工作区包并按锁文件装好运行依赖，带上 Pyodide 与 wheel、Git，收集许可证。
+ * 各平台安装包共用的准备步骤：打包后端工作区包并按锁文件装好运行依赖，再把后端打成少数几个文件（bundle-backend.mjs），
+ * 带上 Pyodide 与 wheel、Git，收集许可证。
  * 平台脚本（package-linux.mjs、package-mac.mjs）再交给 electron-builder 打成各自的格式。
  */
 import { execFile } from "node:child_process";
@@ -10,6 +11,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
+import { bundleBackend } from "./bundle-backend.mjs";
 import { copyGit } from "./bundled-git.mjs";
 
 const exec = promisify(execFile);
@@ -182,7 +184,8 @@ export async function prepareApplication() {
   manifest.dependencies = Object.fromEntries(archivesByPackage.map(({ name, version }) => [name, version]));
   await writeFile(path.join(application, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   await rm(path.join(application, "package-lock.json"));
+  const bundle = await bundleBackend(application);
   const git = await copyGit(application, downloads);
   const inventory = await copyLicenses(git ? [git.license] : []);
-  return { application, manifest, python, git: git?.executable, inventory, packed };
+  return { application, manifest, python, git: git?.executable, inventory, packed, bundle };
 }
