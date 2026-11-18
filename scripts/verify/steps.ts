@@ -63,11 +63,13 @@ const OUTLINE_TOPIC = [
 
 const COURSE_NAME = "操作系统 走查";
 const REQUEST = "想学进程状态和进程控制块，下周考试。";
+const TUTOR_REQUEST = "刚做完的最后一道题，为什么这样答？";
+const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
 
-/** 学习页标题栏右边那个打开面板的按钮的文字（窄屏时面板收在这里）。 */
-async function headerAction(page: Page): Promise<string> {
-  return page.evaluate<string>("(() => { const header = document.querySelector('main header, header'); const button = header && [...header.querySelectorAll('button')].pop(); return button ? button.innerText.trim() : ''; })()");
+/** 学习页标题栏右边打开面板的按钮的文字，按出现的顺序用“、”连起来（窄屏时面板收在这里）。 */
+async function headerActions(page: Page): Promise<string> {
+  return page.evaluate<string>("(() => { const header = document.querySelector('main header, header'); return header ? [...header.querySelectorAll('button')].map((button) => button.innerText.trim()).join('、') : ''; })()");
 }
 
 /** 打开着的对话框或抽屉的标题；没有时为空串。 */
@@ -277,13 +279,13 @@ export const STEPS: Step[] = [
       const drawer = await openDialog(page);
       checks.expect("课做好以后做课的抽屉里就有第一节的“开始”", drawer === "做课" && await page.has({ name: "开始", near: "进程的三种基本状态", selector: "[role=dialog] button" }), `打开着的是「${drawer}」`);
       await page.shot("making-first-lesson");
-      checks.expect("右上角是“做课”入口", (await headerAction(page)) === "做课", await headerAction(page));
+      checks.expect("右上角是“做课”入口", (await headerActions(page)) === "做课", await headerActions(page));
     },
   },
   {
     id: "lesson",
     title: "上完第一节（答案取自课程文件，从界面作答，故意答错一道填空），回到菜单",
-    async run({ page, notes }, checks) {
+    async run({ page, model, notes }, checks) {
       const questions = await courseQuestions();
       const before = learnView(await page.text());
       // 上一步停在做课的抽屉里，从抽屉里开始第一节。
@@ -291,7 +293,7 @@ export const STEPS: Step[] = [
       await page.waitText("看例题");
       await until("抽屉收起", async () => (await openDialog(page)) === "", 5_000).catch(() => undefined);
       checks.expect("在抽屉里点“开始”以后抽屉收起，开始了第一节", (await openDialog(page)) === "", `打开着的是「${await openDialog(page)}」`);
-      checks.expect("上课时右上角是“问辅导”", (await headerAction(page)) === "问辅导", await headerAction(page));
+      checks.expect("上课时右上角是“问辅导”", (await headerActions(page)) === "问辅导", await headerActions(page));
       // 故意把一道填空答成课程没有收的写法，第 7 条（改正答案后重判）要用它。
       const answered = await work(page, questions, { answers: { "os01.k1.q2": "执行" } });
       const text = await page.waitText("新课结束");
@@ -304,8 +306,21 @@ export const STEPS: Step[] = [
       // 整门课一行读的是做课的状态，学完一节以后由插件通知重读，比菜单晚到一点。
       const shown = await page.waitFor("整门课一行显示已学 1", (current) => learnView(current).parts?.learned === 1, 5_000).catch(async () => page.text());
       checks.expect("“整门课”一行立即显示已学 1", learnView(shown).parts?.learned === 1, `显示 ${/\d+ 部分[^\n]*/u.exec(shown)?.[0] ?? "（没有这一行）"}`);
-      const action = await headerAction(page);
-      checks.expect("右上角回到“做课”入口", action === "做课", `是「${action}」`);
+      // 结果画面上辅导和做课都进得去：反馈刚放出时正要问辅导，也可能要回去改课。
+      const actions = await headerActions(page);
+      checks.expect("结果画面上右上角有“问辅导”和“做课”两个入口", actions === "问辅导、做课", `是「${actions}」`);
+      model.script(TUTOR_REQUEST, [{ tools: [{ name: "learning_task", arguments: {} }] }, { text: TUTOR_REPLY }]);
+      const seen = model.toolResults.length;
+      await page.click({ name: "问辅导", selector: "header button" });
+      await until("辅导的抽屉打开", async () => (await openDialog(page)) === "辅导", 5_000);
+      await page.fill("消息", TUTOR_REQUEST);
+      await page.press("Enter");
+      await page.waitText(TUTOR_REPLY, 30_000);
+      const seenByTutor = model.toolResults.slice(seen).find((result) => result.tool === "learning_task")?.text ?? "";
+      checks.expect("辅导读到的是刚结束的这一节和它的最后一道题", seenByTutor.includes("这项任务已经结束") && seenByTutor.includes("下面是最后一道题"), seenByTutor.split("\n")[0]);
+      await page.shot("lesson-result-tutor");
+      await page.press("Escape");
+      await until("抽屉关上", async () => (await openDialog(page)) === "");
     },
   },
   {
@@ -353,7 +368,8 @@ export const STEPS: Step[] = [
       // 学过一节、回到菜单以后，从右上角回到原来那段做课的对话，接着说。
       await page.click({ name: "做课", selector: "header button" });
       await until("做课的抽屉打开", async () => (await openDialog(page)) === "做课", 5_000);
-      const earlier = await page.text();
+      // 右侧原来接着辅导的会话，换到做课时要读回那段对话。
+      const earlier = await page.waitText("第一节可以学了", 10_000).catch(async () => page.text());
       checks.expect("抽屉里是原来那段做课的对话", earlier.includes("第一节可以学了"));
       checks.expect("学过一节以后抽屉里不再放菜单", !(await page.has({ name: "开始", selector: "[role=dialog] button" })));
       await page.fill("消息", FIX_REQUEST);
@@ -378,20 +394,22 @@ export const STEPS: Step[] = [
   },
   {
     id: "abort",
-    title: "中止一节：回到菜单，右上角是“做课”，能回到做课的对话",
+    title: "中止一节：回到菜单，右上角有“问辅导”和“做课”，能回到做课的对话",
     async run({ page }, checks) {
       await page.click({ name: "开始", near: "进程控制块", selector: "button" });
       await page.waitText("看例题");
-      checks.expect("上课时右上角是“问辅导”", (await headerAction(page)) === "问辅导", await headerAction(page));
+      checks.expect("上课时右上角只有“问辅导”", (await headerActions(page)) === "问辅导", await headerActions(page));
       await page.click({ name: "中止新课", selector: "button" });
       await page.click({ name: /^中止$/u, selector: "[role=dialog] button" });
       const text = await page.waitText("已中止", 15_000);
+      checks.expect("学习者自己中止的只说“已中止。”，不跟理由", /^已中止。$/mu.test(text), /已中止[^\n]*/u.exec(text)?.[0]);
       checks.expect("中止以后回到菜单，第二节仍可开始", learnView(text).menu.includes("新课 进程控制块"), learnView(text).menu.join("；") || "菜单是空的");
-      const action = await headerAction(page);
-      checks.expect("中止以后右上角是“做课”", action === "做课", `是「${action}」`);
+      const actions = await headerActions(page);
+      checks.expect("中止以后右上角有“问辅导”和“做课”", actions === "问辅导、做课", `是「${actions}」`);
       await page.click({ name: "做课", selector: "header button" });
       await until("做课的抽屉打开", async () => (await openDialog(page)) === "做课", 5_000);
-      checks.expect("做课的对话接着上一次", (await page.text()).includes("改好了，“执行”现在也算对。"));
+      const resumed = await page.waitText("改好了，“执行”现在也算对。", 10_000).catch(async () => page.text());
+      checks.expect("做课的对话接着上一次", resumed.includes("改好了，“执行”现在也算对。"));
       await page.shot("abort-making");
       await page.press("Escape");
       await until("抽屉关上", async () => (await openDialog(page)) === "");
