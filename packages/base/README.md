@@ -144,7 +144,7 @@ npm run real-model-check --workspace=@repa/base -- \
 | Windows | `%APPDATA%\Repa`；缺少 `APPDATA` 时用用户目录下的 `AppData\Roaming\Repa` |
 | macOS | `~/Library/Application Support/Repa` |
 
-`agent/` 保存模型凭据、自定义模型、Agent 设置和应用 Skill，`mcp.json` 保存 [MCP 服务器](#mcp-服务器)的配置，`settings.json` 保存命令策略、最近空间、应用提示覆盖与备份设置，`backups/` 保存各空间的备份，`plugins/` 保存各空间已批准的[自写插件快照](#自写插件的快照与启用记录)。设置及提示覆盖读取时忽略未知可选字段，已知字段仍校验，接口输入和写入保持严格；加入备份设置之前保存的 `settings.json` 没有这一项，读取时取默认值。字段见[应用设置](../../docs/generated/persistence.md#app-settings)。
+`agent/` 保存模型凭据、自定义模型、Agent 设置和应用 Skill，`mcp.json` 保存 [MCP 服务器](#mcp-服务器)的配置，`settings.json` 保存命令策略、最近空间、应用提示覆盖与备份设置（`space.list` 只返回最近空间中文件夹仍在的那些，课程文件夹移走以后旧位置不再列出，记录本身不改），`backups/` 保存各空间的备份，`plugins/` 保存各空间已批准的[自写插件快照](#自写插件的快照与启用记录)。设置及提示覆盖读取时忽略未知可选字段，已知字段仍校验，接口输入和写入保持严格；加入备份设置之前保存的 `settings.json` 没有这一项，读取时取默认值。字段见[应用设置](../../docs/generated/persistence.md#app-settings)。
 
 ### 备份与恢复
 
@@ -427,7 +427,7 @@ onSubmit 在提问时的运行上下文中执行，写入记在该运行名下�
 
 初始化基线里的列表是最近一次算出的那一份，基线在同一段同步代码里生成，不再核对文件夹；需要当场的状态时调用 `plugin.list`。
 
-`space.create` 在给出的位置建空间（上级文件夹一并建好）再打开；带 `fresh: true` 时只在新的地方建：文件夹不存在或是空的，否则以 `directory_not_empty` 拒绝（同名的是文件时为 `not_directory`），已经打开的空间不受影响。Web 的第一屏用它在用户主目录的 `Repa/<名称>` 新建空间。
+`space.create` 在给出的位置建空间（上级文件夹一并建好）再打开；带 `fresh: true` 时只在新的地方建：文件夹不存在或是空的，否则以 `directory_not_empty` 拒绝（同名的是文件时为 `not_directory`），已经打开的空间不受影响。Web 的第一屏用它在学习者的 Repa 文件夹（缺省是用户主目录下的 `Repa`）里新建 `<名称>` 空间。
 
 后端每打开一次空间给出一个 `opening`，在进程内不重复，随打开或创建空间的结果和初始化基线的 `space` 交给前端；同一个空间关闭后再打开、切换到别的空间再回来都换新的，对已打开的空间再调用一次 `space.open` 则仍是原来的。`plugin.call` 必须带上调用方看到的那一次打开，不是当前这一次时以 `space_switched` 拒绝，不交给现在这个空间里同名的插件：前端在空间 A 里发出、到达时已切到空间 B 的调用因此不会落到 B 上。同一次打开里插件换了版本，调用交给现在的实例。
 
