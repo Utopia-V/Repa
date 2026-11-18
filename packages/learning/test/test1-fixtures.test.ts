@@ -10,7 +10,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { promisify } from "node:util";
 import { brotliDecompressSync } from "node:zlib";
 import { copySpace, PREFIX_LATER_MS, TIME_ZONE, type PrefixReading, type Reading } from "./fixtures/test1-readings.js";
 
@@ -105,6 +105,22 @@ function comparable(field: string, value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).filter(([key]) => !dropped.includes(key)));
 }
 
+/**
+ * 两份读数是否相同。小数允许末位的出入：记忆量经指数函数算出，同一份 V8 在不同平台上的结果会差最后一位
+ * （Windows 上 0.48574933424651034，Linux 上 0.4857493342465103），这不是读数变了。整数、字符串、结构必须完全相同。
+ */
+function sameReading(actual: unknown, expected: unknown): boolean {
+  if (typeof actual === "number" && typeof expected === "number") {
+    if (Number.isInteger(actual) || Number.isInteger(expected)) return actual === expected;
+    return Math.abs(actual - expected) <= 1e-12 * Math.max(1, Math.abs(actual), Math.abs(expected));
+  }
+  if (actual === null || expected === null || typeof actual !== "object" || typeof expected !== "object") return actual === expected;
+  if (Array.isArray(actual) !== Array.isArray(expected)) return false;
+  const left = Object.keys(actual), right = Object.keys(expected);
+  return left.length === right.length && left.every((key) => Object.hasOwn(expected, key)
+    && sameReading((actual as Record<string, unknown>)[key], (expected as Record<string, unknown>)[key]));
+}
+
 test("标准答案取数时的时区与现在取数的时区相同", () => {
   assert.equal(answers.timeZone, TIME_ZONE);
 });
@@ -115,7 +131,9 @@ for (const entry of answers.cases) {
     assert.ok(reading);
     for (const [field, expected] of Object.entries(entry.reading)) {
       await t.test(field, () => {
-        assert.deepEqual(comparable(field, reading[field]), comparable(field, expected));
+        const actual = comparable(field, reading[field]);
+        const wanted = comparable(field, expected);
+        if (!sameReading(actual, wanted)) assert.deepEqual(actual, wanted);
       });
     }
     assert.deepEqual(Object.keys(reading).sort(), Object.keys(entry.reading).sort());
@@ -140,7 +158,7 @@ for (const space of prefixAnswers.spaces) {
         for (const field of new Set([...Object.keys(got), ...Object.keys(want)])) {
           const left = comparable(field, got[field]);
           const right = comparable(field, want[field]);
-          if (!isDeepStrictEqual(left, right)) differences.push({ facts: expected.facts, clock, field, actual: left, expected: right });
+          if (!sameReading(left, right)) differences.push({ facts: expected.facts, clock, field, actual: left, expected: right });
         }
       }
     }
