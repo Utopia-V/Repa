@@ -63,8 +63,8 @@ function resultAt(evidence: TaskEvidence): number {
   }
   return Math.max(...times);
 }
-/** 课停在课程里已没有的知识点上时，讲解页的说明。界面文字待定。 */
-const REMOVED_PAGE = "〔待写〕";
+/** 课停在课程里已没有的知识点上时，讲解页的说明。 */
+const REMOVED_PAGE = "这一节当时要讲的内容已从课程中删去，无法继续。请中止这一节。";
 
 /** 判不了的原因，只在内存里；模型请求失败时带上底座的分类。 */
 type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelFailure };
