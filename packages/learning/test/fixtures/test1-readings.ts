@@ -18,10 +18,11 @@ import type { ClientCapabilities } from "@repa/base/protocol";
 import { connectLearning } from "../../src/flow.js";
 import { emptyFold, foldTask, taskEvidence, type TaskEvidence } from "../../src/flow-state.js";
 import { STUDENT_MODEL } from "../../src/parameters.js";
-import { createLearningPlugin } from "../../src/plugin.js";
+import { createLearningPlugin, legacyBaseline, test1Python } from "../../src/plugin.js";
+import { CourseStore } from "../../src/space-course.js";
 import type { CourseBuilding, LearningState, LearningSettings, Submission } from "../../src/protocol.js";
 import { LearningRecords } from "../../src/records.js";
-import { LearningSession } from "../../src/session.js";
+import { LearningSession, needsBaseline } from "../../src/session.js";
 import { DAY_MS, topicDue, topicMemory } from "../../src/student-model.js";
 import type { Fact } from "../../src/records-schema.js";
 
@@ -285,7 +286,7 @@ export interface PrefixReading {
  * 每个前缀单独写一份学习记录，末尾加一段不完整的行，学习记录就只读不写（与测试版读到半行时相同），打开时的补判不会写进去，
  * 读到的就是这个前缀本身。读数直接取自学习会话的 view，不经插件方法，所以也不触发按调用方能力的后台补判。
  */
-export async function readPrefixes(root: string, model = true): Promise<PrefixReading[]> {
+export async function readPrefixes(root: string, model = true, baseline = false): Promise<PrefixReading[]> {
   const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
   const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
   const facts = lines.map((line) => JSON.parse(line) as Fact);
@@ -312,9 +313,26 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
     const results: PrefixReading[] = [];
     for (let count = 0; count <= lines.length; count++) {
       const prefix = path.join(scratch, `${count}.jsonl`);
-      await writeFile(prefix, `${lines.slice(0, count).map((line) => `${line}\n`).join("")}{`);
-      const records = await LearningRecords.open(prefix);
       const start = facts[Math.max(0, count - 1)]?.at ?? now;
+      let written = lines.slice(0, count);
+      if (baseline) {
+        // 真实的基线选择：与插件首次打开时调用同一个 legacyBaseline，把它选出的基线接在前缀后面，按插件写入的样子。
+        // 末尾仍加半行，学习记录只读不写，打开时的补判不会写进去。
+        await writeFile(prefix, written.map((line) => `${line}\n`).join(""));
+        const complete = await LearningRecords.open(prefix);
+        if (needsBaseline(complete)) {
+          const choice = await legacyBaseline({
+            records: complete, store: new CourseStore(path.join(root, ".repa", "plugins", "learning")), files: opened.host.files, now: start, bundled: test1Python,
+          });
+          if (choice !== "broken") {
+            written = [...written, JSON.stringify({ seq: count + 1, at: start, type: "baseline", rules: "test1", ...(choice.structure ? { structure: choice.structure } : {}) })];
+          }
+        }
+        await complete.close();
+      }
+      await writeFile(prefix, `${written.map((line) => `${line}\n`).join("")}{`);
+      const records = await LearningRecords.open(prefix);
+      if (baseline && records.revision !== count && records.baseline === undefined) throw new Error(`第 ${count} 个前缀的基线没有读出来`);
       now = start;
       const prefixSession = await LearningSession.open(records, opened.course.course, opened.host);
       // 换课以后用新课读旧前缀时，可能停在新课里没有的知识点上，测试版此时读不出状态；报错也是读数。
@@ -330,7 +348,7 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
       now = start + PREFIX_LATER_MS;
       const later = await read();
       await prefixSession.retire();
-      if (records.revision !== count) throw new Error(`取数期间写下了事实：${count} → ${records.revision}`);
+      if (records.revision !== written.length) throw new Error(`取数期间写下了事实：${written.length} → ${records.revision}`);
       results.push({ facts: count, at, later });
     }
     if (errors.length > 0) throw errors[0];

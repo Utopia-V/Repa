@@ -72,9 +72,41 @@ const NOT_BUILT = "这个空间的课还没有做好";
  * 测试版 v0.1.0-test.1 随包的 Python 课的结构，从标签上的课程文件取出后冻结。旧日志的基线用它，而不是以后安装包里同名的新版：
  * 测试版当时就是按这一份解释学习记录的。生成方法与摘要见 legacy/README.md。
  */
-async function test1Python(): Promise<CourseStructure> {
+export async function test1Python(): Promise<CourseStructure> {
   const text = await readFile(new URL("../legacy/test1-python.json", import.meta.url), "utf8");
   return parse(CourseStructureSchema, JSON.parse(text));
+}
+
+/**
+ * 测试版打开这个空间时用哪门课的结构解释整段学习记录，照测试版的做法认：换用过的副本；没有换用过就是随包的课（bundled），
+ * 但空间里有 course/ 而随包的课没有做到一半的任务时，测试版不显示任何一门课（不带 structure）。副本读不出时为 broken：
+ * 测试版也读不出，不定基线。插件首次打开测试版的学习记录时按它写下基线；与测试版逐前缀比较的测试也调用它。
+ */
+export async function legacyBaseline(input: {
+  records: LearningRecords;
+  store: CourseStore;
+  files: Host["files"];
+  now: number;
+  bundled: () => Promise<CourseStructure>;
+}): Promise<{ structure?: CourseStructure } | "broken"> {
+  const active = await input.store.active();
+  if (active) {
+    try {
+      return { structure: courseStructure(await input.store.load(active)) };
+    } catch {
+      return "broken";
+    }
+  }
+  const bundled = await input.bundled();
+  if (await hasSpaceCourse(input.files)) {
+    const index = new StructureIndex(bundled);
+    const replay = new Replay(index, undefined, { upTo: input.records.revision, structure: index });
+    for (const fact of input.records.facts) replay.apply(fact);
+    replay.settle(input.now);
+    const evidence = replay.currentEvidence();
+    if (evidence === undefined || evidence.outcome !== undefined) return {};
+  }
+  return { structure: bundled };
 }
 
 /**
@@ -183,32 +215,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     });
   }
 
-  /**
-   * 测试版打开这个空间时用哪门课的结构解释整段学习记录，照测试版的做法认：换用过的副本；没有换用过就是随包的课，
-   * 但空间里有 course/ 而随包的课没有做到一半的任务时，测试版不显示任何一门课（undefined）。副本读不出时为 broken：
-   * 测试版也读不出，不把这种情形定成基线，下次打开或换用时再定。
-   */
-  async function test1Structure(): Promise<{ structure?: CourseStructure } | "broken"> {
-    const active = await store.active();
-    if (active) {
-      try {
-        return { structure: courseStructure(await store.load(active)) };
-      } catch {
-        return "broken";
-      }
-    }
+  const test1Structure = () => legacyBaseline({
+    records, store, files: host.files, now: host.now(),
     // 自定义来源（测试）就用它；缺省的随包课用冻结的测试版那一份。
-    const bundled = options.sources ? courseStructure(await loadCourseSources(sources, host.files)) : await test1Python();
-    if (await hasSpaceCourse(host.files)) {
-      const index = new StructureIndex(bundled);
-      const replay = new Replay(index, undefined, { upTo: records.revision, structure: index });
-      for (const fact of records.facts) replay.apply(fact);
-      replay.settle(host.now());
-      const evidence = replay.currentEvidence();
-      if (evidence === undefined || evidence.outcome !== undefined) return {};
-    }
-    return { structure: bundled };
-  }
+    bundled: async () => options.sources ? courseStructure(await loadCourseSources(sources, host.files)) : test1Python(),
+  });
 
   /**
    * 首次用记录结构的版本打开测试版留下的学习记录：先等一次空间备份成功，再在末尾追加旧日志基线。基线之前的任务此后一律按它计算。
