@@ -3,8 +3,9 @@ import type { Host } from "@repa/base/plugin";
 import { canRender, contentVersion, modelFailureOf, type ClientCapabilities, type Content, type Item, type ModelFailure } from "@repa/base/protocol";
 import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
-import { content, topicQuestions, type QuestionEntry } from "./check/items.js";
+import { content, type QuestionEntry } from "./check/items.js";
 import { CourseIndex, gradingNeed, needsModel, needsPython } from "./course-index.js";
+import { courseStructure, StructureIndex } from "./course-structure.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Question, Topic } from "./format/schema.js";
 import { mapAnswer, renderDelivery } from "./delivery.js";
@@ -66,6 +67,8 @@ type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelF
 
 /**
  * 一个空间里的学习会话：事实日志、当前课程、从事实重放出的状态，以及判分。教学方法和辅导共用它。
+ * 课程有两种读法：重放、菜单、进度和选题的决定只读课程结构（structure），题面、讲解、判分和能力检查读完整的课程内容（course）。
+ * 两者取自同一门当前课程。
  *
  * 判分没有结果（服务失败、模型没有把握、中途关闭）时什么也不写，这份作答尚无证据，不阻塞任务，也不算错。
  * 条件具备时自动补判：打开空间时，规则题当场补判或按改正后的答案重判；代码题等到声明 python.run 的前端来调用，
@@ -76,6 +79,7 @@ type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelF
 export class LearningSession {
   readonly replay: Replay;
   readonly course: CourseIndex;
+  readonly structure: StructureIndex;
   readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   private readonly day = dayFormat(this.timeZone);
   /** 需要判分的作答：还没判、按改正后的答案要重判，或申诉后待重判。 */
@@ -94,7 +98,8 @@ export class LearningSession {
     readonly host: Host,
   ) {
     this.course = new CourseIndex(resolved);
-    this.replay = new Replay(this.course);
+    this.structure = new StructureIndex(courseStructure(resolved));
+    this.replay = new Replay(this.structure);
   }
 
   /** 从头重放全部事实一次，再找出要补判和重判的作答；规则题当场判完。 */
@@ -297,10 +302,12 @@ export class LearningSession {
     return this.host.models.defaultModel() !== undefined;
   }
 
-  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。 */
+  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。哪些题在池里按结构，题目本身取自课程内容。 */
   pool(topicId: string, kind: TaskRecord["kind"]): QuestionEntry[] {
-    const topic = this.course.topics.get(topicId);
-    return topic ? topicQuestions(topic).filter((entry) => entry.pool === POOLS[kind]) : [];
+    return this.structure.pool(topicId, POOLS[kind]).flatMap((id) => {
+      const entry = this.course.questions.get(id);
+      return entry ? [entry] : [];
+    });
   }
 
   /**
@@ -358,15 +365,16 @@ export class LearningSession {
         if (kind !== "lesson") return available.length > 0;
         // 课要把每个没过的知识点的必做题都做完，所以这些题都得是调用方能用的。
         const inherited = fold.lessons.get(id) ?? [];
-        const practice = lessonPractice(this.course, id);
+        const practice = lessonPractice(this.structure, id);
         const usable = new Set(available.map((entry) => entry.question.id));
-        return this.course.topics.get(id)?.kps.every((kp) => {
+        return this.structure.topics.get(id)?.kps.every((kp) => {
           if (inherited.some((entry) => entry.kpId === kp.id && entry.completed)) return true;
           const needed = practice.get(kp.id)?.required ?? [];
           return needed.length > 0 && needed.every((question) => usable.has(question));
         }) ?? false;
       };
-      menu = progressMenu(learningMenu(this.course, fold, now, this.menuId(), supply, this.timeZone), this.replay, fold, this.course);
+      const title = (id: string) => this.course.topics.get(id)?.title ?? id;
+      menu = progressMenu(learningMenu(this.structure, fold, now, this.menuId(), supply, this.timeZone, title), this.replay, fold, this.structure);
     }
     let restriction: LearningState["restrictions"]["kind"] = "none";
     if (restricted && evidence) {
@@ -382,7 +390,7 @@ export class LearningSession {
         task: shown ? await this.task(shown) : null,
         menu,
         restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },
-        progress: progressView(this.replay, fold, this.course, now, this.timeZone),
+        progress: progressView(this.replay, fold, this.structure, now, this.timeZone),
       },
     };
   }

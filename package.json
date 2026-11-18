@@ -28,7 +28,7 @@
     "pretest": "npm run build:packages",
     "prestart": "npm run build:packages",
     "start": "npm --workspace=@repa/base run start -- serve --plugin ../materials",
-    "test": "npm run lint && npm run docs:check && npm run test:docs-scripts && npm run test --workspaces --if-present --ignore-scripts",
+    "test": "npm run lint && npm run check && npm run docs:check && npm run test:docs-scripts && npm run test --workspaces --if-present --ignore-scripts",
     "course:check": "npm run course:check --workspace=@repa/learning --",
     "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
     "course:confirm": "npm run course:confirm --workspace=@repa/learning --",

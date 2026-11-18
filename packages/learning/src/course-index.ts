@@ -1,5 +1,4 @@
 import { requiredCapabilities } from "@repa/base/protocol";
-import type { KnowledgeGraph } from "@repa/learning-model";
 import { draftItem, itemVersion, questionVersion, slotTests, topicQuestions, type QuestionEntry } from "./check/items.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Question, Topic } from "./format/schema.js";
@@ -28,17 +27,13 @@ export function needsPython(question: Question): boolean {
   return question.slots.some((slot) => slotTests(slot).length > 0);
 }
 
-/** 当前课程的查找表：按 id 找 topic 和题目，并缓存题面版本、题目版本与显示题目所需的能力（各算一次）。 */
+/**
+ * 当前课程内容的查找表：按 id 找 topic 和题目，并缓存题面版本、题目版本与显示题目所需的能力（各算一次）。
+ * 渲染题面、判分与能力检查用它；重放、菜单与进度只读课程结构，见 course-structure.ts。
+ */
 export class CourseIndex {
   readonly topics = new Map<string, Topic>();
   readonly questions = new Map<string, IndexedQuestion>();
-  /** 有测验题的 topic。 */
-  readonly quizTopics = new Set<string>();
-  /**
-   * 学生模型用的图：先修关系，以及各 topic 在课程里声明的包含关系（encompassings）。通过的信用沿包含关系传给被覆盖的 topic，
-   * 失败的负信用传给覆盖它的 topic（FIRe）；权重取课程里写的值，是 Repa 的假设。零权重的边不传信用，不放进图里。
-   */
-  readonly graph: KnowledgeGraph;
   private readonly versions = new Map<string, Promise<{ item: string; question: string }>>();
   private readonly capabilities = new Map<string, string[]>();
 
@@ -47,16 +42,8 @@ export class CourseIndex {
       this.topics.set(topic.id, topic);
       for (const entry of topicQuestions(topic)) {
         this.questions.set(entry.question.id, { ...entry, topic });
-        if (entry.pool === "quiz") this.quizTopics.add(topic.id);
       }
     }
-    this.graph = {
-      topics: course.topics.map((topic) => topic.id),
-      encompassings: course.topics.flatMap((topic) => (topic.encompassings ?? [])
-        .filter((edge) => edge.weight > 0)
-        .map((edge) => ({ advanced: topic.id, simple: edge.topic, weight: edge.weight }))),
-      prerequisites: course.topics.flatMap((topic) => topic.prerequisites.map((prerequisite) => ({ topic: topic.id, prerequisite }))),
-    };
   }
 
   /** 题面版本（学习者看到的）与题目版本（含判分方式，代码题还含判分用的运行前导）；题目不在当前课程里时返回 undefined。 */

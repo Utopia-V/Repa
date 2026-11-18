@@ -11,7 +11,8 @@ import { parse } from "@repa/base/protocol";
 import { ModelTestDriver } from "@repa/base/testing";
 import fc from "fast-check";
 import type { Static, TSchema } from "typebox";
-import { gradingNeed, needsModel, type CourseIndex } from "../src/course-index.js";
+import { gradingNeed, needsModel } from "../src/course-index.js";
+import type { StructureIndex } from "../src/course-structure.js";
 import {
   emptyFold,
   foldTask,
@@ -106,23 +107,23 @@ function inheritedOf(replay: Replay, task: TaskRecord) {
   if (task !== replay.current) return task.inherited;
   return task.kind === "lesson" ? replay.before().lessons.get(task.topicIds[0] ?? "") : undefined;
 }
-const evidenceOf = (replay: Replay, task: TaskRecord, course: CourseIndex): TaskEvidence =>
-  taskEvidence(task, course, inheritedOf(replay, task));
+const evidenceOf = (replay: Replay, task: TaskRecord, structure: StructureIndex): TaskEvidence =>
+  taskEvidence(task, structure, inheritedOf(replay, task));
 
 /** 从第一项任务重新叠加，不经增量更新；与 replay.before() 比较。 */
-function refold(replay: Replay, course: CourseIndex): Fold {
+function refold(replay: Replay, structure: StructureIndex): Fold {
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    fold = foldTask(fold, taskEvidence(task, course, fold.lessons.get(task.topicIds[0] ?? "")), course);
+    fold = foldTask(fold, taskEvidence(task, structure, fold.lessons.get(task.topicIds[0] ?? "")), structure);
   }
   return fold;
 }
 
 /** 重放出的全部学习状态。当前任务的证据取自重放本身，已结束的任务按它结束时记下的进度算。 */
-function snapshot(replay: Replay, course: CourseIndex) {
+function snapshot(replay: Replay, structure: StructureIndex) {
   return {
     tasks: replay.tasks.map((task) => {
-      const evidence = task === replay.current ? replay.currentEvidence() : taskEvidence(task, course, task.inherited);
+      const evidence = task === replay.current ? replay.currentEvidence() : taskEvidence(task, structure, task.inherited);
       assert.ok(evidence);
       const { outcome, kps, at } = evidence;
       return { seq: task.seq, outcome, kps, at, inherited: task.inherited, timedOut: task.timedOut, nextAt: task.nextAt };
@@ -139,12 +140,12 @@ function snapshot(replay: Replay, course: CourseIndex) {
 }
 
 /** 假定没判出结果的作答都判成 verdict 时，任务的结论。 */
-function outcomeIf(replay: Replay, task: TaskRecord, course: CourseIndex, verdict: Verdict) {
+function outcomeIf(replay: Replay, task: TaskRecord, structure: StructureIndex, verdict: Verdict) {
   const answered = task.answered.map((delivery): DeliveryRecord => (delivery.grades.length ? delivery : {
     ...delivery,
     grades: [{ type: "graded", seq: 0, at: 0, delivery: delivery.seq, version: "", verdict, slots: {} }],
   }));
-  return taskEvidence({ ...task, answered }, course, inheritedOf(replay, task)).outcome;
+  return taskEvidence({ ...task, answered }, structure, inheritedOf(replay, task)).outcome;
 }
 
 /**
@@ -156,8 +157,8 @@ class XpAudit {
   private readonly best = new Map<number, number>();
   private fed = 0;
 
-  constructor(private readonly course: CourseIndex, private readonly seen: Set<string>) {
-    this.replay = new Replay(course);
+  constructor(private readonly structure: StructureIndex, private readonly seen: Set<string>) {
+    this.replay = new Replay(structure);
   }
 
   feed(facts: readonly Parameters<Replay["apply"]>[0][], now: number): void {
@@ -178,15 +179,15 @@ class XpAudit {
   }
 
   private audit(): void {
-    const { replay, course } = this;
+    const { replay, structure } = this;
     assert.equal(replay.total, replay.awards.reduce((sum, award) => sum + award.xp, 0), "累计 XP 与各笔之和不符");
     assert.equal(replay.trigger, replay.awards.filter((award) => !award.quiz).reduce((sum, award) => sum + award.xp, 0), "测验门槛的累计与课和复习的 XP 不符");
     for (const task of replay.tasks) {
-      const evidence = evidenceOf(replay, task, course);
+      const evidence = evidenceOf(replay, task, structure);
       this.seen.add(task.kind);
       if (evidence.outcome) this.seen.add(evidence.outcome);
       if (isQuiz(task.kind) || evidence.attempts.every((attempt) => attempt.verdict !== undefined)) {
-        this.best.set(task.seq, Math.max(this.best.get(task.seq) ?? 0, reward(evidence, course)));
+        this.best.set(task.seq, Math.max(this.best.get(task.seq) ?? 0, reward(evidence, structure)));
       }
       const awarded = replay.awards.filter((award) => award.task === task.seq).reduce((sum, award) => sum + award.xp, 0);
       assert.equal(awarded, this.best.get(task.seq) ?? 0, `任务 ${task.seq}（${task.kind}，${evidence.outcome}）的 XP 不等于它到此刻的最高奖励`);
@@ -215,7 +216,7 @@ async function stable(f: Fixture): Promise<LearningState> {
 async function reopen(run: Run): Promise<void> {
   await run.f.reopen();
   await stable(run.f);
-  run.audit = new XpAudit(run.f.session().course, run.seen);
+  run.audit = new XpAudit(run.f.session().structure, run.seen);
 }
 
 /** 公开状态里与判分进程有关的部分（为什么中断）只在内存里，重开后不同，比较时去掉。 */
@@ -367,35 +368,35 @@ async function check(run: Run): Promise<void> {
   const { f, seen } = run;
   const state = await stable(f);
   const session = f.session();
-  const { replay: live, course } = session;
-  const cold = new Replay(course);
+  const { replay: live, structure } = session;
+  const cold = new Replay(structure);
   for (const fact of session.records.facts) cold.apply(fact);
   cold.settle(state.serverNow);
-  assert.deepEqual(snapshot(live, course), snapshot(cold, course), "现场状态与从事实重放的结果不同");
-  const prefix = refold(live, course);
+  assert.deepEqual(snapshot(live, structure), snapshot(cold, structure), "现场状态与从事实重放的结果不同");
+  const prefix = refold(live, structure);
   assert.deepEqual(live.before(), prefix, "增量叠加的学习状态与从头叠加的结果不同");
   const current = live.current;
   if (current) {
     // 当前的课与学生模型用同一份继承进度：更早任务的重判改变了它，课的进度和结论随之改变。
-    const expected = taskEvidence(current, course, current.kind === "lesson" ? prefix.lessons.get(current.topicIds[0] ?? "") : undefined);
+    const expected = taskEvidence(current, structure, current.kind === "lesson" ? prefix.lessons.get(current.topicIds[0] ?? "") : undefined);
     const actual = live.currentEvidence();
     assert.deepEqual([actual?.outcome, actual?.kps], [expected.outcome, expected.kps], "当前任务的证据与重算后的学习状态不一致");
-    assert.deepEqual(live.fold(), expected.outcome ? foldTask(prefix, expected, course) : prefix, "包括当前任务在内的学习状态与从头叠加的结果不同");
+    assert.deepEqual(live.fold(), expected.outcome ? foldTask(prefix, expected, structure) : prefix, "包括当前任务在内的学习状态与从头叠加的结果不同");
   }
   run.audit.feed(session.records.facts, state.serverNow);
   for (const task of live.tasks) {
-    const { outcome, attempts } = evidenceOf(live, task, course);
+    const { outcome, attempts } = evidenceOf(live, task, structure);
     // 复习的通过只看有证据的作答，待判的不计入，判出来以后重算（见 learning-flow.md），所以是暂定的。
     const provisional = task.kind === "review" && outcome === "passed";
     if (attempts.some((attempt) => attempt.verdict === undefined) && !provisional && (outcome === "passed" || outcome === "failed" || outcome === "timeout")) {
       // 没有证据不下结论：已经得出的结论，待判的作答怎样判都不能推翻。
       seen.add("待判时下结论");
-      assert.equal(outcomeIf(live, task, course, "correct"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判对就会改变`);
-      assert.equal(outcomeIf(live, task, course, "incorrect"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判错就会改变`);
+      assert.equal(outcomeIf(live, task, structure, "correct"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判对就会改变`);
+      assert.equal(outcomeIf(live, task, structure, "incorrect"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判错就会改变`);
     }
     if (outcome === "unresolved") {
       // 结论待定要有理由：待判的作答判对和判错，结论确实不同。
-      assert.notEqual(outcomeIf(live, task, course, "correct"), outcomeIf(live, task, course, "incorrect"), `任务 ${task.seq}（${task.kind}）结论待定，但待判的作答怎样判结论都相同`);
+      assert.notEqual(outcomeIf(live, task, structure, "correct"), outcomeIf(live, task, structure, "incorrect"), `任务 ${task.seq}（${task.kind}）结论待定，但待判的作答怎样判结论都相同`);
     }
   }
   if (live.recomputations > 0) seen.add("整段重算");
@@ -407,7 +408,7 @@ async function check(run: Run): Promise<void> {
     if (menu.availableAt !== undefined) {
       seen.add(fold.forced.size ? "补救休息到点再给" : "失败的课休息到点再给");
     } else {
-      const exhausted = !fold.forced.size && course.course.topics.every((entry) => fold.student[entry.id]);
+      const exhausted = !fold.forced.size && structure.order.every((entry) => fold.student[entry.id]);
       const shortage = live.pending !== undefined && !live.pending.topicIds.length;
       assert.ok(exhausted || shortage, `菜单为空也没有恢复时间：强制补救 ${JSON.stringify([...fold.forced])}，已学 ${Object.keys(fold.student).join("、")}`);
     }
@@ -424,7 +425,7 @@ test("随机的学习操作序列下：现场状态与从事实重放相同，�
         const topics = courseTopics();
         const f = await learningFixture({ after: (cleanup) => { cleanups.push(cleanup); } }, topics, { models: model });
         await f.state();
-        const run: Run = { f, model, topics, audit: new XpAudit(f.session().course, seen), clock: start, answers: 0, seen };
+        const run: Run = { f, model, topics, audit: new XpAudit(f.session().structure, seen), clock: start, answers: 0, seen };
         await learn(run, lessons);
         for (const op of operations) {
           try {

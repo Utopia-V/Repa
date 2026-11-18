@@ -17,7 +17,7 @@
 | Web 开发（学习者版本的后端：加载学习插件与课件转文字插件，带通用 Agent） | `npm run dev:web:learning` |
 | Desktop 开发 | `npm run dev:desktop` |
 | 全仓类型检查、测试与构建 | `npm run check`、`npm test`、`npm run build` |
-| lint 与依赖边界检查（`npm test` 会先运行） | `npm run lint` |
+| lint 与依赖边界检查（`npm test` 会先运行，随后运行全仓类型检查，测试文件的类型错误因此也会使它失败） | `npm run lint` |
 
 `dev:web` 与 `dev:web:learning` 起的后端继承环境变量，`REPA_HOME=/tmp/某个目录 npm run dev:web:learning` 就在临时的应用配置目录里运行，不碰真实的配置与凭据（模型凭据在其中的 `agent/auth.json`）。
 

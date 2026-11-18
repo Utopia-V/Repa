@@ -11,7 +11,7 @@ import { createAgentRuntimeForTest } from "../../base/dist/agent/runtime.js";
 import { ModelTestDriver } from "@repa/base/testing";
 import { INTERACTION_CAPABILITIES, parse } from "@repa/base/protocol";
 import { stringify } from "yaml";
-import { CourseIndex } from "../src/course-index.js";
+import { courseStructure, StructureIndex } from "../src/course-structure.js";
 import { connectLearning } from "../src/flow.js";
 import { emptyFold, type DeliveryRecord, type TaskRecord } from "../src/flow-state.js";
 import { LESSON_REST_MS } from "../src/parameters.js";
@@ -255,7 +255,7 @@ test("149／150 XP 触发一次测验，保留早期 topic；延后窗口允许�
   assert.equal((await f.state()).menu?.candidates.some((entry) => entry.kind === "retake"), false);
   await f.select("lesson", "t5");
   await f.finishTask();
-  const topics = sampleTopics(f.replay().tasks, await f.fold(), f.session().course, 2);
+  const topics = sampleTopics(f.replay().tasks, await f.fold(), f.session().structure, 2);
   assert.equal(topics.length, 5);
   assert.ok(topics.slice(0, 2).every((id) => ["t4", "t5"].includes(id)));
 });
@@ -445,10 +445,10 @@ test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛�
   // 剩余时长按 XP 计的学习量算，复习不另加。只有两天学过时不给估算。
   const awards = [1, 2, 3].map((days) => ({ task: 1, xp: 7, at: start - days * 86_400_000, quiz: false }));
   const replay = { awards, total: 21, goal: undefined } as unknown as Replay;
-  const progress = progressView(replay, await f.fold(), f.session().course, start, "UTC");
+  const progress = progressView(replay, await f.fold(), f.session().structure, start, "UTC");
   assert.equal(progress.day, "2026-10-12");
   assert.equal(progress.etaDate, "2026-11-13");
-  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.fold(), f.session().course, start, "UTC").etaDate, null);
+  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.fold(), f.session().structure, start, "UTC").etaDate, null);
   assert.equal((await f.state()).progress.etaDate, null);
 });
 
@@ -703,7 +703,7 @@ test("各题都答了而判分全部中断时交卷：测验结束但不下结�
   // 学生模型正好是交卷前的状态加上每个 topic 各一次通过，锚点是最后一份作答被收下的时间。
   assert.ok(graded.task?.startedAt);
   const at = Math.max(graded.task.startedAt, ...graded.task.submissions.map((submission) => submission.acceptedAt));
-  const graph = f.session().course.graph;
+  const graph = f.session().structure.graph;
   const expected = topics.reduce((student, id) => updateStudent(graph, student, { topicId: id, outcome: "pass", quality: 1 }, at), learned);
   assert.deepEqual((await f.fold()).student, expected);
   assert.equal((await f.fold()).forced.size, 0);
@@ -911,7 +911,7 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
     id, title: id, status: "complete", minutes: 5, prerequisites: [], sources: [],
     kps: [{ id: `${id}.k1`, title: id, quiz: [{ id: `${id}.k1.x1`, body: "1 + 1？", explanation: "二。", slots: [{ id: "answer", type: "text", key: "2" }] }] }],
   }));
-  const index = new CourseIndex({ course: { ...baseCourse, topics: ids }, topics, origins: {} });
+  const index = new StructureIndex(courseStructure({ course: { ...baseCourse, topics: ids }, topics, origins: {} }));
   const fold = emptyFold();
   fold.student = Object.fromEntries(ids.map((id) => [id, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
   let seq = 0;
