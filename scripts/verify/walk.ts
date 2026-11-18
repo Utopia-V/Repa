@@ -99,6 +99,7 @@ async function serve(app: App): Promise<void> {
     text: async () => page.text(),
     url: async () => page.url(),
     shot: async ([name]) => page.shot(name ?? `drive-${Date.now()}`),
+    size: async ([width, height]) => { await page.resize(Number(width ?? 1120), Number(height ?? 760)); return "已改视口大小"; },
     click: async ([name, near]) => { await page.click(near === undefined ? name ?? "" : { name: name ?? "", near }); return "已点"; },
     fill: async ([name, text, near]) => { await page.fill(name ?? "", text ?? "", near === undefined ? {} : { near }); return "已输入"; },
     press: async ([key]) => { await page.press(key as "Enter"); return "已按"; },

@@ -288,6 +288,24 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     void settled.finally(() => background.delete(settled));
   }
 
+  /**
+   * 整门课里哪些部分学过取自学习记录，学完一节写的是学习记录，不经过做课。所以每写一条学习记录都看一次：
+   * 学过的部分与最近一次交给前端的不同，就发 building.changed。前端还没读过做课的状态时不必发。
+   * 看的时候排在这次写入之后（learnedTopics 走记录的串行入口），读到的是写完的状态。
+   */
+  let reportedLearned: string | undefined;
+  const learnedKey = (learned: Set<string>) => [...learned].sort().join("\n");
+  records.listen(() => {
+    const ready = current;
+    if (reportedLearned === undefined || ready.kind !== "ready" || ready.space === undefined) return;
+    track((async () => {
+      const learned = learnedKey(await learnedTopics(ready.session));
+      if (current !== ready || learned === reportedLearned) return;
+      reportedLearned = learned;
+      announceBuilding();
+    })());
+  });
+
   /** 正在后台进行的展开；同一时刻只有一次。cancelled：在拿到运行的句柄之前就被要求取消。 */
   interface Expansion {
     topicIds: string[];
@@ -390,6 +408,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     // 随包的课不是在这个空间里做的，不算做课的状态。
     const ready = current.kind === "ready" && current.space !== undefined ? current : undefined;
     const learned = ready ? await learnedTopics(ready.session) : new Set<string>();
+    if (ready) reportedLearned = learnedKey(learned);
     const parts: CourseBuilding["parts"] = [];
     for (const id of ready?.course.course.topics ?? []) {
       const topic = ready?.course.topics.find((entry) => entry.id === id);

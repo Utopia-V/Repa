@@ -58,6 +58,8 @@ function Learn({ space }: { space: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   const current = learning.state?.task;
   const position = current ? `${current.taskId}:${current.phase.stage}:${"deliveryId" in current.phase ? current.phase.deliveryId : ""}` : "";
+  // 结束了的任务在当天仍随菜单显示结果，但已经不在进行。
+  const active = current != null && current.phase.stage !== "completed" && current.phase.stage !== "aborted";
   const openConcept = useCallback((kpId: string) => setConcept(kpId), []);
   const renderLink = useConceptLinks(openConcept);
 
@@ -65,12 +67,27 @@ function Learn({ space }: { space: string }) {
     if (learning.available === undefined && learning.status === "idle") void loadLearning();
   }, [learning.available, learning.status, loadLearning]);
 
-  // 窄屏时做课的对话在抽屉里：Agent 提问时它在等学习者回答，打开抽屉让问题被看到。
-  const makingOpen = !learning.state?.task && learning.building?.sessionId != null;
-  useMakingSession(makingOpen ? learning.building?.sessionId ?? undefined : undefined);
+  // 右侧有两种面板。任务在页面上（进行中，或结束、中止以后当天仍显示结果）时可以问辅导；没有进行中的任务而有做课的对话时
+  // 可以回到做课，接着原来那段对话改课。结果画面上两种都有，缺省是辅导：学习者刚从这一项出来，反馈刚放出。
+  const makingSession = learning.building?.sessionId ?? undefined;
+  const tutorShown = current != null;
+  const makingShown = !active && makingSession !== undefined;
+  // 学习者在结果画面上选过的面板，只对选的那一项任务有效；换了任务回到缺省。
+  const [chosen, setChosen] = useState<{ taskId: string | undefined; kind: "tutor" | "making" }>();
+  const preferred = chosen && chosen.taskId === current?.taskId ? chosen.kind : "tutor";
+  const panelKind = tutorShown && makingShown ? preferred : tutorShown ? "tutor" : makingShown ? "making" : undefined;
+  const choose = useCallback((kind: "tutor" | "making") => setChosen({ taskId: current?.taskId, kind }), [current?.taskId]);
+  useMakingSession(panelKind === "making" ? makingSession : undefined);
+  // 窄屏时做课的对话在抽屉里：Agent 提问时它在等学习者回答，换到做课并打开抽屉，让问题被看到。
   useEffect(() => {
-    if (asking && makingOpen) setPanelOpen(true);
-  }, [asking, makingOpen]);
+    if (!asking || !makingShown) return;
+    choose("making");
+    setPanelOpen(true);
+  }, [asking, makingShown, choose]);
+  // 开始了一项任务（例如在做课的抽屉里点了“开始”），收起抽屉，学习者看到的是任务本身。
+  useEffect(() => {
+    if (active) setPanelOpen(false);
+  }, [active]);
 
   // 换了任务、阶段或题目，从新画面的开头看起；同一画面里的刷新不动滚动位置。
   useEffect(() => {
@@ -96,27 +113,30 @@ function Learn({ space }: { space: string }) {
 
   const { task, menu, progress, restrictions } = state;
   const { building, settings } = learning;
-  const active = task !== null && task.phase.stage !== "completed" && task.phase.stage !== "aborted";
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
   // 做课：有了自制课或做课的对话以后显示整门课的全貌。
-  const makingSession = building?.sessionId ?? undefined;
   const making = building !== undefined && (building.course !== null || makingSession !== undefined);
   // 一个空间学一门课。还没有选定课的空间（没有自制课、没有做课的对话，也没有任何学习记录，或者根本没有可学的课）
   // 整页是做课的起点；已经在学随包课的空间照旧。
   const startable = building !== undefined && !making && !active && !bundledChosen && (state.revision === 0 || state.course === null);
-  // 只有轮廓、还没有能学的部分时，Agent 正在和学习者商量轮廓，菜单那句“没有可开始的任务”放在这里不对，不显示。
+  // 只有轮廓、还没有能学的部分时，Agent 正在和学习者商量轮廓，菜单那句“现在没有可以开始的内容”放在这里不对，不显示。
   const outlineOnly = making && !building.parts.some((part) => part.status !== "outline");
   // 还没有换用过自制课时，学的不是随包的那门：标题栏与起点一样，不显示随包课的课名和今日 XP。
   const plain = startable || (making && building.course === null);
   // 做课的 Agent 正在运行时，它和后台展开会同时改 course/，“先做”与“再试”先不让点。
   const makingRunning = makingSession !== undefined && conversation.sessionId === makingSession && conversation.run !== "idle";
-  // 右侧：有学习任务时是辅导，行为不变；没有任务而有做课的对话时是做课的对话。
-  const panel = task
-    ? { label: t("tutor.panel.label"), action: t("learn.tutor.action"), content: <TutorPanel allowed={restrictions.tutorAllowed} referenceAllowed={restrictions.referenceContentAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
-    : makingSession !== undefined
-      ? { label: t("making.panel.label"), action: t("learn.making.action"), content: <MakingPanel sessionId={makingSession} /> }
+  // 课第一次可以学、还一节都没有学过时，窄屏的做课抽屉里也放上菜单：学习者读完 Agent 的话，就地点“开始”。
+  const firstMenu = !wide && !active && progress.completedTopics === 0 && menu !== null && menu.candidates.length > 0 && learning.readAt !== undefined
+    ? <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />
+    : undefined;
+  const panel = panelKind === "making" && makingSession !== undefined
+    ? { label: t("making.panel.label"), content: <MakingPanel sessionId={makingSession}>{firstMenu}</MakingPanel> }
+    : panelKind === "tutor"
+      ? { label: t("tutor.panel.label"), content: <TutorPanel allowed={restrictions.tutorAllowed} referenceAllowed={restrictions.referenceContentAllowed} restriction={restrictions.kind} renderLink={renderLink} /> }
       : undefined;
-  const makingPanel = !task && makingSession !== undefined;
+  // 标题栏的入口：窄屏时每种面板一个，点了打开抽屉里的那一种；宽屏时面板常驻右侧，只给切到另一种的那一个。
+  const entries = ([["tutor", tutorShown, t("learn.tutor.action")], ["making", makingShown, t("learn.making.action")]] as const)
+    .filter(([kind, shown]) => shown && (!wide || kind !== panelKind));
 
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
@@ -127,8 +147,7 @@ function Learn({ space }: { space: string }) {
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
           <Progress value={goal} aria-label={t("learn.dailyGoal.progress.label")} />
         </div>}
-        {panel && !wide && <Button variant="tertiary" onClick={() => setPanelOpen(true)} leadingIcon={MessageCircle}>{panel.action}
-        </Button>}
+        {entries.map(([kind, , action]) => <Button key={kind} variant="tertiary" onClick={() => { choose(kind); setPanelOpen(true); }} leadingIcon={MessageCircle}>{action}</Button>)}
       </div>
     </header>
 
@@ -145,7 +164,7 @@ function Learn({ space }: { space: string }) {
             <div><Button variant="tertiary" onClick={() => { void refreshLearning(); }} leadingIcon={RefreshCw}>{t("learn.reload.action")}</Button></div>
           </div>}
           {task && <LearningTaskView task={task} renderLink={renderLink} />}
-          {active && <div className="flex justify-end">
+          {active && task && <div className="flex justify-end">
             <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>{t("learn.abort.action", { kindText: kindText[task.kind] })}</Button>
           </div>}
           {startable && <MakingStart
@@ -175,7 +194,7 @@ function Learn({ space }: { space: string }) {
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>{panel.label}</SheetTitle>
-          {!makingPanel && <SheetDescription>{t("learn.tutor.description")}</SheetDescription>}
+          {panelKind === "tutor" && <SheetDescription>{t("learn.tutor.description")}</SheetDescription>}
         </SheetHeader>
         {panel.content}
       </SheetContent>

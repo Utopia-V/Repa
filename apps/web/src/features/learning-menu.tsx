@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import type { LearningMenu } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
   const busy = useAppStore((state) => state.learning.busy !== undefined);
   const selectCandidate = useAppStore((state) => state.selectCandidate);
   const refreshLearning = useAppStore((state) => state.refreshLearning);
+  // 课刚做好时窄屏的做课抽屉里也有一份菜单，标题的 id 不能写死。
+  const titleId = useId();
 
   useEffect(() => {
     if (menu.availableAt === undefined) return;
@@ -29,10 +31,10 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
     return () => clearTimeout(timer);
   }, [menu.availableAt, serverNow, readAt, refreshLearning]);
 
-  return <section aria-labelledby="learning-menu-title" className="grid gap-3">
-    <h3 id="learning-menu-title" className="m-0 text-title weight-semibold">{t("learn.menu.title")}</h3>
+  return <section aria-labelledby={titleId} className="grid gap-3">
+    <h3 id={titleId} className="m-0 text-title weight-semibold">{t("learn.menu.title")}</h3>
     {menu.candidates.length === 0 && <p className="m-0 text-body text-muted-foreground">
-      {menu.unavailableReason ?? t("learn.menu.empty")}
+      {t("learn.menu.empty")}
       {menu.availableAt !== undefined && t("learn.menu.availableAt.hint", { availableAt: localTime(menu.availableAt, serverNow, readAt) })}
     </p>}
     <ul className="m-0 grid list-none gap-3 p-0">
