@@ -263,7 +263,7 @@ test("排除清单覆盖隐藏目录，Repa Skill 重新纳入且第三方参考
 
 test("入口只查 git 跟踪文件，失败非零并输出文件行号，修复后退出成功", async (t) => {
   const repo = await fixture(t, { "README.md": "hashes/fail.md", "untracked.md": "links/fail.md" });
-  await cp(import.meta.dirname, path.join(repo.root, "scripts/docs"), { recursive: true, filter: (source) => !source.includes("fixtures") });
+  await cp(import.meta.dirname, path.join(repo.root, "scripts/docs"), { recursive: true, filter: (source) => !path.relative(import.meta.dirname, source).split(path.sep).includes("fixtures") });
   await symlink(path.join(projectRoot, "node_modules"), path.join(repo.root, "node_modules"), "dir");
   execFileSync("git", ["init", "--quiet"], { cwd: repo.root });
   execFileSync("git", ["add", "README.md"], { cwd: repo.root });
