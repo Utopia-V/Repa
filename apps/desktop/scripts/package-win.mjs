@@ -37,7 +37,7 @@ await build({
       oneClick: false,
       allowToChangeInstallationDirectory: true,
       perMachine: false,
-      // 跳过“为哪位用户安装”那一页，见 installer.nsh。
+      // 跳过“为哪位用户安装”那一页；装完删掉 electron-builder 留在 C 盘的安装程序副本。见 installer.nsh。
       include: "scripts/installer.nsh",
     },
     // 只产出文件；发布到 GitHub Release 等由维护者决定，CI 里也不自动上传。
