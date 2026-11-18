@@ -243,13 +243,13 @@ it("判分的模型请求失败时按原因说明；key 无效时引导去设置
     return Promise.reject(new Error(method));
   });
   start(backend(learning).client);
-  expect(await screen.findByText(/^模型服务的账户余额不足，这份作答没能判出结果，不算错。/u)).toBeTruthy();
+  expect(await screen.findByText(t("learn.stage.ungraded.balance.description"))).toBeTruthy();
   expect(screen.queryByRole("link", { name: "去设置模型" })).toBeNull();
   cleanup();
 
   current = recovering("auth");
   start(backend(learning).client);
-  expect(await screen.findByText(/^API key 无效，这份作答没能判出结果/u)).toBeTruthy();
+  expect(await screen.findByText(t("learn.stage.ungraded.auth.description"))).toBeTruthy();
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   cleanup();
 

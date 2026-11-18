@@ -48,8 +48,8 @@ const FAILURE_TEXT: [ModelFailureScript, string][] = [
 
 /** 开放题判分失败时学习页应当出现的那句话，按假模型失败的方式；第三项为真时是点“再判一次”，否则是提交。 */
 const GRADING_FAILURE_TEXT: [ModelFailureScript, string, boolean][] = [
-  [402, "模型服务的账户余额不足，这份作答没能判出结果，不算错。充值后可以再判一次，也可以先做下一题，条件具备时会自动补判。", false],
-  ["disconnect", "无法连接模型服务，这份作答没能判出结果，不算错。检查网络后可以再判一次，也可以先做下一题，条件具备时会自动补判。", true],
+  [402, strings["learn.stage.ungraded.balance.description"], false],
+  ["disconnect", strings["learn.stage.ungraded.network.description"], true],
 ];
 
 /** 学习者请通用 Agent 给课加一部分轮廓；加上以后学过的都已学完，学习页随即在后台展开它。 */
