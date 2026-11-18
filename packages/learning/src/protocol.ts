@@ -313,7 +313,8 @@ export const LearningMenuSchema = object({
     id: identifier, kind, title: Type.String({ maxLength: 200 }), topicIds: Type.Array(identifier),
     originalTaskId: Type.Optional(identifier),
   }), { maxItems: 3 }),
-  unavailableReason: Type.Optional(Type.String({ maxLength: 500 })), availableAt: Type.Optional(timestamp),
+  // 没有候选时最早什么时候会有（没通过的课或复习休息结束）；说明的文字由界面持有。
+  availableAt: Type.Optional(timestamp),
 });
 /** 学习菜单。 */
 export type LearningMenu = Static<typeof LearningMenuSchema>;

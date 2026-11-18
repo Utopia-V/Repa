@@ -351,13 +351,23 @@ it("已经在学随包课的空间（有学习记录）不显示起点，与以�
   expect(screen.queryByRole("region", { name: "making.materials.title" })).toBeNull();
 });
 
-it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续写的文件在做课的对话里合成一行", async () => {
+it("菜单为空时用界面自己的说明，有恢复时间时写出几点以后可以继续", async () => {
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 5, menu: { menuId: "m1", candidates: [], availableAt: at + 30 * 60_000 } }),
+  });
+  start(fake.client);
+
+  const menu = within(await screen.findByRole("region", { name: "接下来" }));
+  expect(menu.getByText(/^现在没有可以开始的内容。 \d{2}:\d{2} 以后可以继续。$/u)).toBeTruthy();
+});
+
+it("只有轮廓时不显示菜单那句“现在没有可以开始的内容”；连续写的文件在做课的对话里合成一行", async () => {
   const done = (id: string, tool: string) => [
     { id: `a${id}`, type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: `c${id}`, name: tool, input: {} }] } },
     { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
   ];
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [], unavailableReason: "当前没有可开始的任务" } }),
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [] } }),
     "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
     "session.history": () => Promise.resolve([
       ...done("1", "materials_list"), ...done("2", "write"), ...done("3", "write"), ...done("4", "write"), ...done("5", "course_check"),
@@ -371,7 +381,7 @@ it("只有轮廓时不显示菜单那句“没有可开始的任务”；连续�
   expect(panel.getByText("toolActivity.count.label3")).toBeTruthy();
   expect(panel.getAllByText("写入文件")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
-  expect(screen.queryByText("当前没有可开始的任务")).toBeNull();
+  expect(screen.queryByText("现在没有可以开始的内容。")).toBeNull();
 });
 
 it("搜索和读网页在做课的对话里显示成界面文字，不显示工具的内部名字", async () => {

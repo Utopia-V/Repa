@@ -34,7 +34,7 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
   return <section aria-labelledby={titleId} className="grid gap-3">
     <h3 id={titleId} className="m-0 text-title weight-semibold">{t("learn.menu.title")}</h3>
     {menu.candidates.length === 0 && <p className="m-0 text-body text-muted-foreground">
-      {menu.unavailableReason ?? t("learn.menu.empty")}
+      {t("learn.menu.empty")}
       {menu.availableAt !== undefined && t("learn.menu.availableAt.hint", { availableAt: localTime(menu.availableAt, serverNow, readAt) })}
     </p>}
     <ul className="m-0 grid list-none gap-3 p-0">
