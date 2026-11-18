@@ -355,12 +355,25 @@ export class LearningSession {
     return this.host.models.defaultModel() !== undefined;
   }
 
-  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。哪些题在池里按结构，题目本身取自课程内容。 */
+  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。哪些题在池里按当前结构，题目本身取自课程内容。 */
   pool(topicId: string, kind: TaskRecord["kind"]): QuestionEntry[] {
-    return this.structure.pool(topicId, POOLS[kind]).flatMap((id) => {
+    return this.entries(this.structure.pool(topicId, POOLS[kind])).found;
+  }
+
+  /**
+   * 一项已开始的任务能出的题：题号取自任务自己的结构（结算认得的就是这些），题面取自课程内容。
+   * removed 是任务结构里有、课程内容里已没有的题的个数：它们出不了，也不能拿别的题顶替。
+   */
+  taskPool(task: TaskRecord, topicId: string): { found: QuestionEntry[]; removed: number } {
+    return this.entries(task.structure.pool(topicId, POOLS[task.kind]));
+  }
+
+  private entries(ids: string[]): { found: QuestionEntry[]; removed: number } {
+    const found = ids.flatMap((id) => {
       const entry = this.course.questions.get(id);
       return entry ? [entry] : [];
     });
+    return { found, removed: ids.length - found.length };
   }
 
   /**

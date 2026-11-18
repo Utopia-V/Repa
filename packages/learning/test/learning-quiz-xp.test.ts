@@ -385,6 +385,28 @@ test("任务带 topic 与知识点的标题：课里、受限的测验与复习�
   assert.deepEqual(review.task?.kps.map((kp) => kp.title), [kpTitle(`${wrong}.k1`)]);
 });
 
+test("准备中的测验按开始时的结构出题：开始以后课程把测验题全换了编号，重开时不拿结算认不出的新题顶替，明确报缺题；空卷不会通过", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  f.failStart(true);
+  await assert.rejects(f.select("quiz"));
+  assert.equal((await f.state()).task?.phase.stage, "preparing");
+  await f.writeTopics((topics) => {
+    for (const topic of topics) {
+      for (const kp of topic.kps) kp.quiz = (kp.quiz ?? []).map((question) => ({ ...question, id: `${question.id}9` }));
+    }
+  });
+  await f.reopen();
+  f.failStart(false);
+  await assert.rejects(f.call("task.resume", await f.guard()), (error: unknown) =>
+    error instanceof RpcError && error.data !== null && typeof error.data === "object"
+      && "code" in error.data && error.data.code === "questions_removed",
+  );
+  const state = await f.state();
+  assert.equal(state.task?.phase.stage, "preparing");
+  assert.equal(state.task?.deliveries.length, 0);
+});
+
 test("准备失败沿受限入口重开；截止前收下的开放题作答没判出结果时测验照样按时结束，重开补判后结果与 XP 随之更新", async (t) => {
   const f = await fixture(t, true);
   await f.qualify();
