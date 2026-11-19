@@ -19,92 +19,117 @@ function hangingBackend() {
   return { handle, calls };
 }
 
+/** 收尾完成之前可控的后端：finish() 让 close 正常结束。 */
+function closingBackend() {
+  const calls: string[] = [];
+  let finish: () => void = () => undefined;
+  const exited = new Promise<void>((resolve) => { finish = resolve; });
+  const handle = {
+    connection: { url: "ws://127.0.0.1:1/rpc", token: "t" },
+    closed: exited,
+    close: () => { calls.push("close"); return exited; },
+    kill: () => { calls.push("kill"); return Promise.resolve(); },
+  } satisfies RepaProcess;
+  return { handle, calls, finish };
+}
+
 function event() {
   const state = { prevented: false };
   return { state, preventDefault: () => { state.prevented = true; } };
 }
 
+/**
+ * 按 Electron 的次序模拟 Windows、Linux 上的应用：app.quit() 先发 before-quit，没被拦下才关窗口；
+ * 窗口的 close 事件交给 closeWindow，没被拦下就关掉窗口，最后一个窗口关掉以后应用退出。
+ */
+function simulatedApp(backend: () => Promise<RepaProcess> | undefined) {
+  const log: string[] = [];
+  const errors: unknown[] = [];
+  let exited: () => void = () => undefined;
+  const exit = new Promise<void>((resolve) => { exited = resolve; });
+  let windowOpen = true;
+  const closeWindow = () => {
+    const close = event();
+    handler.closeWindow(close);
+    if (close.state.prevented || !windowOpen) return;
+    windowOpen = false;
+    log.push("window closed");
+    quit();
+  };
+  const quit = () => {
+    const before = event();
+    handler.beforeQuit(before);
+    if (before.state.prevented) return;
+    if (windowOpen) {
+      // 窗口拦下 close 时 Electron 取消这次退出。
+      const close = event();
+      handler.closeWindow(close);
+      if (close.state.prevented) return;
+      windowOpen = false;
+      log.push("window closed");
+    }
+    log.push("exit");
+    exited();
+  };
+  const handler = createQuitHandler({
+    backend,
+    quit,
+    report: (error) => { errors.push(error); },
+    closing: () => { log.push("closing"); },
+  });
+  return { handler, log, errors, exit, closeWindow, quit };
+}
+
 describe("退出应用", () => {
-  it("后端收尾卡住时，第二次退出结束后端进程，应用随即退出", async () => {
+  it("关窗口时窗口留着，告诉页面正在收尾；后端收尾完以后才关窗口、退出", async () => {
+    const backend = closingBackend();
+    const app = simulatedApp(() => Promise.resolve(backend.handle));
+    app.closeWindow();
+    await Promise.resolve();
+    expect(app.log).toEqual(["closing"]);
+    expect(backend.calls).toEqual(["close"]);
+    expect(app.handler.quitting()).toBe(true);
+    backend.finish();
+    await app.exit;
+    expect(app.log).toEqual(["closing", "window closed", "exit"]);
+    expect(backend.calls).toEqual(["close"]);
+    expect(app.errors).toEqual([]);
+  });
+
+  it("后端收尾卡住时一直等，不会自己结束后端进程", async () => {
     const backend = hangingBackend();
-    let quits = 0;
-    let quitted: () => void = () => undefined;
-    const quit = new Promise<void>((resolve) => { quitted = resolve; });
-    const errors: unknown[] = [];
-    const handler = createQuitHandler({ backend: () => Promise.resolve(backend.handle), quit: () => { quits++; quitted(); }, report: (error) => { errors.push(error); } });
-    const first = event();
-    handler.beforeQuit(first);
-    expect(first.state.prevented).toBe(true);
-    expect(handler.quitting()).toBe(true);
+    const app = simulatedApp(() => Promise.resolve(backend.handle));
+    app.quit();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(backend.calls).toEqual(["close"]);
+    expect(app.log).toEqual(["closing"]);
+  });
+
+  it.each([
+    ["页面上的“立即退出”或再按一次退出快捷键", "quit"],
+    ["再关一次窗口", "closeWindow"],
+  ] as const)("收尾卡住时%s：结束后端进程，应用随即退出", async (_name, again) => {
+    const backend = hangingBackend();
+    const app = simulatedApp(() => Promise.resolve(backend.handle));
+    app.closeWindow();
     await Promise.resolve();
     expect(backend.calls).toEqual(["close"]);
-    const second = event();
-    handler.beforeQuit(second);
-    expect(second.state.prevented).toBe(true);
-    await quit;
-    expect(quits).toBe(1);
+    app[again]();
+    await app.exit;
     expect(backend.calls).toEqual(["close", "kill"]);
-    expect(errors).toHaveLength(1);
-    // 收尾结束以后应用自己发起的退出不再拦。
-    const last = event();
-    handler.beforeQuit(last);
-    expect(last.state.prevented).toBe(false);
-  });
-
-  it("后端收尾卡住、用户没有再退出（关掉窗口以后没有界面）：到期结束后端进程并报告原因，应用随即退出", async () => {
-    const backend = hangingBackend();
-    let expire: () => void = () => undefined;
-    let cancelled = false;
-    let quitted: () => void = () => undefined;
-    const quit = new Promise<void>((resolve) => { quitted = resolve; });
-    const errors: unknown[] = [];
-    const handler = createQuitHandler({
-      backend: () => Promise.resolve(backend.handle),
-      quit: () => { quitted(); },
-      report: (error) => { errors.push(error); },
-      deadline: (callback) => { expire = callback; return () => { cancelled = true; }; },
-    });
-    handler.beforeQuit(event());
-    await Promise.resolve();
-    expect(backend.calls).toEqual(["close"]);
-    expire();
-    await quit;
+    expect(app.log).toEqual(["closing", "window closed", "exit"]);
+    expect(String(app.errors[0])).toContain("SIGKILL");
+    // 正在结束时又请求一次，不再重复结束。
+    app.quit();
     expect(backend.calls).toEqual(["close", "kill"]);
-    expect(String(errors[0])).toContain("秒内没有收尾完");
-    expect(String(errors[1])).toContain("SIGKILL");
-    expect(cancelled).toBe(true);
   });
 
-  it("后端按时收尾时取消计时，不结束后端进程", async () => {
-    const calls: string[] = [];
-    const handle = {
-      connection: { url: "ws://127.0.0.1:1/rpc", token: "t" },
-      closed: Promise.resolve(),
-      close: () => { calls.push("close"); return Promise.resolve(); },
-      kill: () => { calls.push("kill"); return Promise.resolve(); },
-    } satisfies RepaProcess;
-    let expire: () => void = () => undefined;
-    let cancelled = false;
-    let quitted: () => void = () => undefined;
-    const quit = new Promise<void>((resolve) => { quitted = resolve; });
-    const handler = createQuitHandler({
-      backend: () => Promise.resolve(handle),
-      quit: () => { quitted(); },
-      report: () => undefined,
-      deadline: (callback) => { expire = callback; return () => { cancelled = true; }; },
-    });
-    handler.beforeQuit(event());
-    await quit;
-    expect(cancelled).toBe(true);
-    // 到期回调晚到也不再结束已经退出的后端。
-    expire();
-    expect(calls).toEqual(["close"]);
-  });
-
-  it("没有启动后端时直接退出", () => {
-    const handler = createQuitHandler({ backend: () => undefined, quit: () => undefined, report: () => undefined });
-    const only = event();
-    handler.beforeQuit(only);
-    expect(only.state.prevented).toBe(false);
+  it("没有启动后端时直接退出：窗口照常关掉，不通知页面", () => {
+    const app = simulatedApp(() => undefined);
+    app.closeWindow();
+    expect(app.log).toEqual(["window closed", "exit"]);
+    const quit = simulatedApp(() => undefined);
+    quit.quit();
+    expect(quit.log).toEqual(["window closed", "exit"]);
   });
 });
