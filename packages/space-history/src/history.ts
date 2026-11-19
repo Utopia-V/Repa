@@ -26,6 +26,19 @@ type File = Entry & { data: Buffer };
 // previous 是各路径在这次提交之前的条目；按运行撤回由此得到第一次修改前的内容。
 type Diff = { change: Change; previous: [string, Entry | undefined][] };
 const REVISION = /^[0-9a-f]{40}$/;
+// 历史库建库时固定为 SHA-1，对象名是 40 位十六进制；pack 的名字同样是 40 位十六进制的校验和。
+const LOOSE_OBJECT = /^objects\/[0-9a-f]{2}\/[0-9a-f]{38}$/;
+const PACK = /^objects\/pack\/pack-[0-9a-f]{40}\.pack$/;
+
+/**
+ * 历史库中名字由内容决定、写出以后不再改写的文件：松散对象 objects/<2 位>/<其余 38 位>，名字是解压后内容的哈希；
+ * pack 文件 objects/pack/pack-<40 位>.pack，名字是它内容的校验和。Git 写这两类文件都先写临时文件再改名，
+ * 同名文件已在时不重写，最多更新修改时间。relative 相对于历史库目录，以 / 分隔。
+ * 其余文件（引用、HEAD、.idx、.rev、.bitmap、.mtimes、commit-graph 等）会被改写或随 pack 替换，不在其中。
+ */
+export function isContentAddressed(relative: string): boolean {
+  return LOOSE_OBJECT.test(relative) || PACK.test(relative);
+}
 
 /** 调用方可以按 code 分支处理的历史错误。 */
 export type HistoryErrorCode =

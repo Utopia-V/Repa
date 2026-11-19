@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { Git, GitError } from "../src/git.js";
-import { openHistory } from "../src/index.js";
+import { isContentAddressed, openHistory } from "../src/index.js";
 
 async function fixture(t: TestContext, intercept?: (root: string, args: string[], run: () => Promise<Buffer>) => Promise<Buffer>) {
   const root = await mkdtemp(join(tmpdir(), "repa-history-maintenance-"));
@@ -209,4 +209,42 @@ test("维护失败保留重试机会，force 不绕过 Git 自身维护锁", asy
   await assertObjectsRetained(f.git, before);
   await writeFile(join(f.space, "after-failure.txt"), "后续快照\n");
   assert.equal((await f.history.snapshot()).committed, true);
+});
+
+// 历史库里全部普通文件，路径相对于库目录、以 / 分隔，连同内容。
+async function repositoryFiles(gitDir: string): Promise<Map<string, Buffer>> {
+  const files = new Map<string, Buffer>();
+  for (const entry of await readdir(gitDir, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const full = join(entry.parentPath, entry.name);
+    files.set(full.slice(gitDir.length + 1).split(/[\\/]/u).join("/"), await readFile(full));
+  }
+  return files;
+}
+
+test("按内容命名的只有松散对象与 .pack；它们在保存、维护以后仍在原路径时内容不变", async (t) => {
+  const f = await fixture(t);
+  await writeFile(join(f.space, "a.txt"), "第一版\n");
+  await f.history.snapshot();
+  await importBlobs(f.git, 0, 3, true);
+  const before = await repositoryFiles(f.gitDir);
+  const named = [...before.keys()].filter(isContentAddressed);
+  assert.ok(named.some((file) => /^objects\/[0-9a-f]{2}\//u.test(file)), "有松散对象");
+  assert.ok(named.some((file) => file.endsWith(".pack")), "有 pack");
+  for (const file of ["HEAD", "config", "refs/heads/history", "objects/pack/x.idx", "objects/info/packs"]) assert.equal(isContentAddressed(file), false, file);
+  for (const file of before.keys()) {
+    if (/\.(idx|rev|bitmap|mtimes)$/u.test(file) || file === "packed-refs" || file.startsWith("refs/")) assert.equal(isContentAddressed(file), false, file);
+  }
+
+  await writeFile(join(f.space, "a.txt"), "第一版\n");
+  await writeFile(join(f.space, "b.txt"), "新文件\n");
+  await f.history.snapshot();
+  assert.equal(await f.history.maintain({ force: true }), true);
+  await writeFile(join(f.space, "a.txt"), "第二版\n");
+  await f.history.snapshot();
+  const after = await repositoryFiles(f.gitDir);
+  for (const file of named) {
+    const now = after.get(file);
+    if (now !== undefined) assert.ok(now.equals(before.get(file)!), `${file} 原地改了内容`);
+  }
 });
