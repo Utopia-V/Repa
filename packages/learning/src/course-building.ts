@@ -15,7 +15,7 @@ import { COURSE_GUIDE } from "./course-tools.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import { expansionBrief } from "./expansion-brief.js";
 import { ExpansionFailureSchema, LearningSettingsSchema, type LearningSettings } from "./protocol.js";
-import { courseFolder, inLocation } from "./space-course.js";
+import { courseFolder } from "./space-course.js";
 
 /** 数据目录里各门课的做课记录所在的文件夹，每门课一份 <键>.json。 */
 export const BUILDING_FOLDER = "building";
@@ -113,14 +113,15 @@ export function expansionTask(course: ResolvedCourse, location: string, topicIds
 
 /**
  * 做课对话的第一条消息：以学习者的口吻说明要做什么，附上他写的要求。没有课件时写明这一点，他写的是想学什么。
+ * 这条消息学习者自己看得到，不写课的文件夹：是哪门课、在哪个文件夹，由每次运行的说明交给模型。
  * 怎样做课（包括没有课件时先问清需求）在插件说明与写课说明里。
  */
-export function beginText(materials: boolean, request: string | undefined, location: string): string {
+export function beginText(materials: boolean, request: string | undefined): string {
   const wishes = request?.trim();
   if (!materials) {
-    const text = `我手里没有课件，请帮我做一门课，课的文件夹是 ${location}/。`;
+    const text = "我手里没有课件，请帮我做一门课。";
     return wishes ? `${text}\n\n我想学的和我的情况：\n${wishes}` : text;
   }
-  const text = `我把课件放进了 ${inLocation(location, "materials")}/，请把它们做成一门课。`;
+  const text = "我把课件放进了 materials/，请把它们做成一门课。";
   return wishes ? `${text}\n\n我的情况和要求：\n${wishes}` : text;
 }

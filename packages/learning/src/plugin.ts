@@ -730,7 +730,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     if (!record.sessions.includes(input.sessionId)) record.sessions.push(input.sessionId);
     await save(entry.key);
     announceBuilding();
-    return { text: beginText(input.materials, input.request, entry.location) };
+    return { text: beginText(input.materials, input.request) };
   }
 
   /**

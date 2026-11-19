@@ -491,7 +491,8 @@ test("做课的对话：新空间里还没有课；前端建好会话以后 buil
   const session = await f.client.call("session.create", {});
   const seen = f.changes();
   const begun = await f.call("building.begin", { sessionId: session.id, materials: true, request: "  一月中旬考试，第六章不学。 " });
-  assert.ok(begun.text.includes("courses/space/materials/"));
+  // 第一条消息学习者自己看得到，不带课的文件夹；是哪门课由每次运行的说明交给模型。
+  assert.ok(begun.text.includes("materials/") && !begun.text.includes("courses/"));
   assert.equal((await f.building()).folder, "courses/space");
   assert.ok(begun.text.endsWith("一月中旬考试，第六章不学。"));
   assert.ok(f.changes() > seen);
