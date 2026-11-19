@@ -103,7 +103,7 @@ npm test
 npm run build
 ```
 
-改动涉及界面、学习流程或宿主时，再运行 `npm run verify`：它按桌面端的方式构建界面、启动真实的后端，用无界面浏览器把主要的学习者流程走一遍，约半分钟，不联网、不调用付费模型。用法、步骤和读结果的办法见 [verify Skill](../../.agents/skills/verify/SKILL.md)。
+改动涉及界面、学习流程或宿主时，再运行 `npm run verify`：它按桌面端的方式构建界面、启动真实的后端，用无界面浏览器把主要的学习者流程走一遍，约一分半，不联网、不调用付费模型。用法、步骤和读结果的办法见 [verify Skill](../../.agents/skills/verify/SKILL.md)。
 
 只验证底座或历史包时，使用所属说明中的[底座验证入口](../../packages/base/README.md#运行检查)与[空间历史验证入口](../../packages/space-history/README.md#验证入口)。普通测试使用临时目录、真实 Git、WebSocket、SDK 与脚本化模型提供方，真实模型核实使用单独入口并遵循已授权的资源范围。
 

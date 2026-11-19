@@ -4,11 +4,12 @@ import type { LearningMenu } from "@repa/learning/protocol";
 import { Button } from "@/components/ui/button";
 import { kindText } from "@/features/learning-task";
 import { useAppStore } from "@/hooks/use-app-store";
+import { localTime } from "@/lib/countdown";
 import { t } from "@/lib/strings";
 
 /** 后端的时间是服务端毫秒；按读取时的时差换算成本机时间显示。 */
-function localTime(serverTime: number, serverNow: number, readAt: number): string {
-  return new Date(serverTime - serverNow + readAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+function clockTime(serverTime: number, serverNow: number, readAt: number): string {
+  return new Date(localTime(serverTime, serverNow, readAt)).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
 /**
@@ -24,7 +25,7 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
 
   useEffect(() => {
     if (menu.availableAt === undefined) return;
-    const delay = Math.max(0, menu.availableAt - serverNow - (Date.now() - readAt));
+    const delay = Math.max(0, localTime(menu.availableAt, serverNow, readAt) - Date.now());
     // 定时器的上限约 24.8 天；更远的时间等页面再次打开时重新读取。
     if (delay > 2 ** 31 - 1) return;
     const timer = setTimeout(() => { void refreshLearning(); }, delay + 500);
@@ -35,7 +36,7 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
     <h3 id={titleId} className="m-0 text-title weight-semibold">{t("learn.menu.title")}</h3>
     {menu.candidates.length === 0 && <p className="m-0 text-body text-muted-foreground">
       {t("learn.menu.empty")}
-      {menu.availableAt !== undefined && t("learn.menu.availableAt.hint", { availableAt: localTime(menu.availableAt, serverNow, readAt) })}
+      {menu.availableAt !== undefined && t("learn.menu.availableAt.hint", { availableAt: clockTime(menu.availableAt, serverNow, readAt) })}
     </p>}
     <ul className="m-0 grid list-none gap-3 p-0">
       {menu.candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-4">

@@ -5,13 +5,13 @@ import { MessageCircle, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { ConceptCardDialog } from "@/features/concept-card";
 import { CourseOutline } from "@/features/course-outline";
 import { LearningMenuView } from "@/features/learning-menu";
-import { kindText, LearningTaskView, useConceptLinks } from "@/features/learning-task";
+import { kindText, LearningTaskView, quizUnanswered, useConceptLinks } from "@/features/learning-task";
 import { MakingPanel, useMakingSession } from "@/features/making-panel";
 import { MakingStart } from "@/features/making-start";
 import { TutorPanel } from "@/features/tutor-panel";
@@ -54,6 +54,8 @@ function Learn({ space }: { space: string }) {
   const asking = useAppStore((state) => state.asks.some((ask) => ask.closed === undefined));
   const conversation = useAppStore((state) => state.conversation);
   const [confirmAbort, setConfirmAbort] = useState(false);
+  const [confirmFinish, setConfirmFinish] = useState(false);
+  const finishQuiz = useAppStore((state) => state.finishQuiz);
   const wide = useWide();
   const scroller = useRef<HTMLDivElement>(null);
   const current = learning.state?.task;
@@ -113,6 +115,9 @@ function Learn({ space }: { space: string }) {
 
   const { task, menu, progress, restrictions } = state;
   const { building, settings } = learning;
+  // 测验开始以后按契约中止就是交卷，所以作答、判分中和判不出结果时只有“交卷”；准备阶段仍可中止准备，归还这次门槛。
+  const finishing = active && task !== null && (task.kind === "quiz" || task.kind === "retake") && task.phase.stage !== "preparing";
+  const unanswered = task ? quizUnanswered(task) : 0;
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
   // 做课：有了自制课或做课的对话以后显示整门课的全貌。
   const making = building !== undefined && (building.course !== null || makingSession !== undefined);
@@ -154,7 +159,7 @@ function Learn({ space }: { space: string }) {
     <div className="flex min-h-0 flex-1">
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-6 md:px-8">
-          {learning.replaced && <StatusNotice status="error" title={t("learn.stale.title")}><p>{t("learn.stale.description")}</p></StatusNotice>}
+          {learning.replaced && <StatusNotice status="error" title={learning.replaced === "unrecorded" ? t("learn.quiz.unrecorded.title") : t("learn.stale.title")} />}
           {/* 剩下的题都要模型判分而没有可用模型：任务保留，接上模型后再继续。 */}
           {errorCode(learning.actionError) === "model_required" ? <div className="grid gap-3">
             <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("learn.noModel.description")}</p></StatusNotice>
@@ -165,7 +170,10 @@ function Learn({ space }: { space: string }) {
           </div>}
           {task && <LearningTaskView task={task} renderLink={renderLink} />}
           {active && task && <div className="flex justify-end">
-            <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => setConfirmAbort(true)}>{t("learn.abort.action", { kindText: kindText[task.kind] })}</Button>
+            {/* 交卷始终在原来中止的位置、用同一个样式；题都答完时由“等交卷”的说明引导到这里。 */}
+            <Button variant="ghost" disabled={learning.busy !== undefined} onClick={() => (finishing ? setConfirmFinish(true) : setConfirmAbort(true))}>
+              {finishing ? t("learn.quiz.finish.action") : t("learn.abort.action", { kindText: kindText[task.kind] })}
+            </Button>
           </div>}
           {startable && <MakingStart
             onStarted={() => setPanelOpen(true)}
@@ -194,7 +202,6 @@ function Learn({ space }: { space: string }) {
       <SheetContent className="w-full sm:max-w-md">
         <SheetHeader>
           <SheetTitle>{panel.label}</SheetTitle>
-          {panelKind === "tutor" && <SheetDescription>{t("learn.tutor.description")}</SheetDescription>}
         </SheetHeader>
         {panel.content}
       </SheetContent>
@@ -204,11 +211,24 @@ function Learn({ space }: { space: string }) {
       {concept !== undefined && <ConceptCardDialog kpId={concept} renderLink={renderLink} />}
     </Dialog>
 
+    {/* 结构同中止的确认；交卷是正常结束，确认按钮不用危险操作的样式。没答的题算错，有的话说一句。 */}
+    <Dialog open={confirmFinish} onOpenChange={setConfirmFinish}>
+      {task && <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("learn.quiz.finish.title")}</DialogTitle>
+          {unanswered > 0 && <DialogDescription>{t("learn.quiz.finish.unanswered.description", { count: unanswered })}</DialogDescription>}
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="tertiary">{t("common.cancel.action")}</Button></DialogClose>
+          <Button onClick={() => { setConfirmFinish(false); void finishQuiz(); }}>{t("learn.quiz.finish.action")}</Button>
+        </DialogFooter>
+      </DialogContent>}
+    </Dialog>
+
     <Dialog open={confirmAbort} onOpenChange={setConfirmAbort}>
       {task && <DialogContent>
         <DialogHeader>
           <DialogTitle>{t("learn.abort.title", { kindText: kindText[task.kind] })}</DialogTitle>
-          <DialogDescription>{t("learn.abort.description")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild><Button variant="tertiary">{t("learn.abort.cancel.action")}</Button></DialogClose>

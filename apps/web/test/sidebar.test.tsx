@@ -101,7 +101,11 @@ it("空间下面列出它的会话，点击打开；新会话从任意页面开�
   await act(() => router.navigate("/settings"));
   fireEvent.click(within(sessions).getByRole("button", { name: "新会话" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/conversation"));
-  expect(await screen.findByText("这是一个新会话。说说你想学什么，或者直接提问。")).toBeTruthy();
+  // 进的是一段还没建立的空会话：对话页读完了、没有接着任何会话，记录区里一条也没有。
+  // 不能只看“b 的记录”不在页面上：上一步转到了设置页，那时它本来就不在。
+  await waitFor(() => expect(store.getState().conversation.status).toBe("ready"));
+  expect(store.getState().conversation.sessionId).toBeUndefined();
+  expect(screen.getByRole("region", { name: "对话记录" }).textContent).toBe("");
   expect(within(sessions).getByRole("button", { name: "新会话" }).getAttribute("aria-current")).toBe("true");
   expect(within(sessions).getByRole("button", { name: "极限怎么求" }).getAttribute("aria-current")).toBeNull();
 

@@ -1,0 +1,269 @@
+id: un03
+title: 时间单位
+status: complete
+minutes: 60
+summary: 小时、分钟、秒之间怎样换算。
+prerequisites: []
+sources:
+  - source: notes
+    where: 第三节
+    use: reference
+kps:
+  - id: un03.k1
+    title: 小时和分钟
+    card:
+      name: 小时和分钟
+      definition: 1 小时等于 60 分钟。
+      conditions:
+        - 小时换成分钟乘 60，反过来除以 60
+      example:
+        from: un03.k1.e0
+        text: 2 小时等于 120 分钟。
+    lesson: |
+      1 小时等于 60 分钟。从小时换成分钟乘 60，从分钟换成小时除以 60。
+    example:
+      id: un03.k1.e0
+      body: 2 小时等于多少分钟？
+      slots:
+        - id: value
+          type: choice
+          options:
+            - id: a
+              content: 200 分钟
+            - id: b
+              content: 120 分钟
+          key: b
+      explanation: 1 小时等于 60 分钟，2 小时就是 120 分钟。
+      manual:
+        - value
+    practice:
+      - id: un03.k1.q1
+        body: 3 小时等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 180 分钟
+              - id: b
+                content: 300 分钟
+            key: a
+        explanation: 1 小时等于 60 分钟，3 小时就是 180 分钟。
+        manual:
+          - value
+      - id: un03.k1.q2
+        body: 240 分钟等于多少小时？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 400 小时
+              - id: b
+                content: 4 小时
+            key: b
+        explanation: 60 分钟是 1 小时，240 分钟就是 4 小时。
+        manual:
+          - value
+      - id: un03.k1.q3
+        body: 5 小时等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 300 分钟
+              - id: b
+                content: 500 分钟
+            key: a
+        explanation: 1 小时等于 60 分钟，5 小时就是 300 分钟。
+        manual:
+          - value
+    review:
+      - id: un03.k1.r1
+        body: 6 小时等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 600 分钟
+              - id: b
+                content: 360 分钟
+            key: b
+        explanation: 1 小时等于 60 分钟，6 小时就是 360 分钟。
+        manual:
+          - value
+      - id: un03.k1.r2
+        body: 420 分钟等于多少小时？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 7 小时
+              - id: b
+                content: 700 小时
+            key: a
+        explanation: 60 分钟是 1 小时，420 分钟就是 7 小时。
+        manual:
+          - value
+    quiz:
+      - id: un03.k1.x1
+        body: 8 小时等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 800 分钟
+              - id: b
+                content: 480 分钟
+            key: b
+        explanation: 1 小时等于 60 分钟，8 小时就是 480 分钟。
+        manual:
+          - value
+      - id: un03.k1.x2
+        body: 540 分钟等于多少小时？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 9 小时
+              - id: b
+                content: 900 小时
+            key: a
+        explanation: 60 分钟是 1 小时，540 分钟就是 9 小时。
+        manual:
+          - value
+  - id: un03.k2
+    title: 分钟和秒
+    card:
+      name: 分钟和秒
+      definition: 1 分钟等于 60 秒。
+      conditions:
+        - 分钟换成秒乘 60，反过来除以 60
+      example:
+        from: un03.k2.e0
+        text: 2 分钟等于 120 秒。
+    lesson: |
+      1 分钟等于 60 秒。从分钟换成秒乘 60，从秒换成分钟除以 60。
+    example:
+      id: un03.k2.e0
+      body: 2 分钟等于多少秒？
+      slots:
+        - id: value
+          type: choice
+          options:
+            - id: a
+              content: 200 秒
+            - id: b
+              content: 120 秒
+          key: b
+      explanation: 1 分钟等于 60 秒，2 分钟就是 120 秒。
+      manual:
+        - value
+    practice:
+      - id: un03.k2.q1
+        body: 3 分钟等于多少秒？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 180 秒
+              - id: b
+                content: 300 秒
+            key: a
+        explanation: 1 分钟等于 60 秒，3 分钟就是 180 秒。
+        manual:
+          - value
+      - id: un03.k2.q2
+        body: 240 秒等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 400 分钟
+              - id: b
+                content: 4 分钟
+            key: b
+        explanation: 60 秒是 1 分钟，240 秒就是 4 分钟。
+        manual:
+          - value
+      - id: un03.k2.q3
+        body: 5 分钟等于多少秒？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 300 秒
+              - id: b
+                content: 500 秒
+            key: a
+        explanation: 1 分钟等于 60 秒，5 分钟就是 300 秒。
+        manual:
+          - value
+    review:
+      - id: un03.k2.r1
+        body: 6 分钟等于多少秒？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 600 秒
+              - id: b
+                content: 360 秒
+            key: b
+        explanation: 1 分钟等于 60 秒，6 分钟就是 360 秒。
+        manual:
+          - value
+      - id: un03.k2.r2
+        body: 420 秒等于多少分钟？
+        slots:
+          - id: value
+            type: choice
+            options:
+              - id: a
+                content: 7 分钟
+              - id: b
+                content: 700 分钟
+            key: a
+        explanation: 60 秒是 1 分钟，420 秒就是 7 分钟。
+        manual:
+          - value
+    quiz:
+      - id: un03.k2.x1
+        body: 宿主准备了 hours（小时数）。改好下面这一行，让 seconds 指向这么多小时一共有多少秒；换了 hours 也要照样对。
+        slots:
+          - id: code
+            type: code
+            language: python
+            maxLines: 3
+            starter: |
+              seconds = hours * 60
+            solution: |
+              seconds = hours * 60 * 60
+            accepts:
+              - seconds = hours * 3600
+            rejects:
+              - code: seconds = hours * 60
+                why: 只换成了分钟，还要再乘 60
+            tests:
+              - name: 两小时
+                setup: |
+                  hours = 2
+                expect:
+                  seconds: "7200"
+              - name: 五小时
+                hidden: true
+                setup: |
+                  hours = 5
+                expect:
+                  seconds: "18000"
+        explanation: |
+          1 小时是 60 分钟，1 分钟是 60 秒，所以要乘两次 60，也就是乘 3600。

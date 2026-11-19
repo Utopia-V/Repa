@@ -52,11 +52,14 @@ export type LearningView = {
   /** 读取状态失败的原因；已经有画面时仍显示旧画面。 */
   loadError?: unknown;
   /** 正在进行的任务操作，期间操作按钮不可用。 */
-  busy?: "select" | "advance" | "resume" | "abort" | "retry" | undefined;
+  busy?: "select" | "advance" | "resume" | "abort" | "finish" | "retry" | undefined;
   /** 最近一次任务操作的失败，下一次操作开始时清除。 */
   actionError?: unknown;
-  /** 操作时后端发现画面已经过时，换成了它给的当前状态；提示学习者看一眼再操作。 */
-  replaced: boolean;
+  /**
+   * 操作时后端发现画面已经过时，换成了它给的当前状态；提示学习者看一眼再操作。
+   * unrecorded：交上去的那份测验作答到得太晚，测验已经按截止时间结束，这一题没有计入。
+   */
+  replaced: false | "stale" | "unrecorded";
   outbox: Record<string, Outgoing>;
   /** 做课的状态：自制课的轮廓、后台展开、花费和做课的对话；还没读到时为 undefined。 */
   building?: CourseBuilding | undefined;
@@ -149,7 +152,7 @@ export function createLearningActions({ call, get, set }: Deps) {
       const current = staleState(error);
       if (current) {
         accept(current);
-        set((learning) => ({ ...learning, replaced: true }));
+        set((learning) => ({ ...learning, replaced: "stale" }));
       } else {
         set((learning) => ({ ...learning, actionError: error }));
         // 连接断了或超时：操作可能已经执行，重新读取状态确认。
@@ -189,7 +192,10 @@ export function createLearningActions({ call, get, set }: Deps) {
       if (current) {
         setOutbox(id, undefined);
         accept(current);
-        set((learning) => ({ ...learning, replaced: true }));
+        // 测验已经结束（多半是到了截止时间）：这份作答没有收下，要明说这一题没有计入，而不只是“画面已经更新”。
+        const task = current.task;
+        const ended = task?.taskId === outgoing.taskId && (task.kind === "quiz" || task.kind === "retake") && task.phase.stage === "completed";
+        set((learning) => ({ ...learning, replaced: ended ? "unrecorded" : "stale" }));
       } else if (errorCode(error) === "submission_conflict") {
         // 这个编号已经收下了另一份作答，以后端记下的为准。
         setOutbox(id, undefined);
@@ -334,6 +340,13 @@ export function createLearningActions({ call, get, set }: Deps) {
     },
     abortTask(): Promise<void> {
       return perform("abort", async () => await learningCall("task.abort", guard()));
+    },
+    /**
+     * 测验或重考交卷：后端不等判分，没答的算错、还没判出结果的不算对错，按已有作答结束这一场。
+     * 画面过时（例如已经到了截止时间）时换成后端给的当前状态；已经结束的场次再交，后端返回既有结果。
+     */
+    finishQuiz(): Promise<void> {
+      return perform("finish", async () => await learningCall("quiz.finish", guard()));
     },
     /** 判分没有完成的作答再判一次；返回的是这份提交的回执，任务状态随后重新读取。 */
     retryJudging(submissionId: string): Promise<void> {
