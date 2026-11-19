@@ -264,7 +264,12 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    */
   let reconciling: Promise<unknown> = Promise.resolve();
   function ownCourses(): Promise<{ key?: string; location: string; missing: boolean }[]> {
-    const work = reconciling.then(async () => {
+    const work = reconciling.then(reconcile);
+    reconciling = work.catch(() => undefined);
+    return work;
+  }
+  async function reconcile(): Promise<{ key?: string; location: string; missing: boolean }[]> {
+    {
       const own = entries.filter((entry): entry is CourseEntry & { location: string } => entry.location !== undefined);
       const known = new Set(own.map((entry) => entry.location));
       const loose = (await courseFolders()).filter((location) => !known.has(location));
@@ -276,7 +281,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         const copied = (await store.load(lost.copy).catch(() => undefined))?.course.id;
         if (copied !== undefined && copied === await declaredId(found)) {
           await persist(entries.map((entry) => (entry.key === lost.key ? { ...entry, location: found } : entry)));
-          return ownCourses();
+          return reconcile();
         }
       }
       const missing = new Set(gone.map((entry) => entry.key));
@@ -284,9 +289,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         ...own.map((entry) => ({ key: entry.key, location: entry.location, missing: missing.has(entry.key) })),
         ...loose.map((location) => ({ location, missing: false })),
       ];
-    });
-    reconciling = work.catch(() => undefined);
-    return work;
+    }
   }
 
   /** 新的键：不与登记里已有的、保留的键相同。 */
