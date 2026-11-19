@@ -1,6 +1,6 @@
 /**
  * 把应用目录里按锁文件装好的后端（node_modules）打成少数几个文件，见
- * .agents/notes/proposed/architecture/2026-11-18-backend-bundle.md。
+ * .agents/notes/implemented/architecture/2026-11-18-backend-bundle.md。
  *
  * Windows 上 Defender 逐个扫描新文件，代价按文件数计：一万多个小文件让安装多出约 40 秒，
  * 后端第一次启动读的约 1800 个文件让首次打开多出十几秒。打包后后端的代码在 node_modules/@repa/base/dist 下平铺的几十个文件里，
