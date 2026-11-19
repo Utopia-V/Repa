@@ -218,7 +218,8 @@ async function backups(app: App): Promise<string[]> {
   const root = path.join(app.repaHome, "backups");
   const result: string[] = [];
   for (const space of await readdir(root).catch(() => [])) {
-    for (const name of await readdir(path.join(root, space)).catch(() => [])) result.push(path.join(root, space, name));
+    // 以点开头的是正在写或正在删的临时目录，还不是一份备份。
+    for (const name of await readdir(path.join(root, space)).catch(() => [])) if (!name.startsWith(".")) result.push(path.join(root, space, name));
   }
   return result.sort((a, b) => path.basename(a).localeCompare(path.basename(b)));
 }
