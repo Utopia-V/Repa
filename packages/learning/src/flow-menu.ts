@@ -2,9 +2,9 @@ import type { Candidate as ModelCandidate } from "@repa/learning-model";
 import { scoped, unscoped } from "./course-key.js";
 import type { StructureIndex } from "./course-structure.js";
 import { topicEligible, type Fold } from "./flow-state.js";
-import { LESSON_REST_MS, MENU_SIZE, REVIEWS_BEFORE_LESSON, STUDENT_MODEL } from "./parameters.js";
+import { LESSON_REST_MS, MENU_COURSE_ORDER, MENU_SIZE, REVIEWS_BEFORE_LESSON, STUDENT_MODEL } from "./parameters.js";
 import type { LearningMenu } from "./protocol.js";
-import { chooseTasks } from "./student-model.js";
+import { chooseTasks, topicMemory } from "./student-model.js";
 
 type Candidate = LearningMenu["candidates"][number];
 
@@ -125,5 +125,33 @@ function buildMenu(
   if (!selected.length && availableAt !== undefined) {
     menu.availableAt = availableAt;
   }
+  return menu;
+}
+
+/**
+ * 一份菜单：各门课按各自的规则算出的菜单（learningMenu）并起来。只有一门课时就是它的菜单。几门课时按 MENU_COURSE_ORDER 排：
+ * 强制补救在前（它是全局的门：任何一门课有补救，各门课的菜单都只剩补救）；再是各门课的复习，按此刻的记忆从低到高；
+ * 再是新课，先给最久没学的那门（studied 是这门课最近一项任务的序号，没学过为 0），同一门课里保持它自己的次序。
+ * 连续复习够数以后先给一节课的规则照旧（REVIEWS_BEFORE_LESSON）。都没有候选时，最早恢复的时间取各门课里最早的。
+ */
+export function combinedMenu(parts: readonly { key: string; studied: number; menu: LearningMenu }[], fold: Fold, now: number, menuId: string): LearningMenu {
+  if (parts.length === 1 && parts[0]) return parts[0].menu;
+  const order = new Map(MENU_COURSE_ORDER.map((name, index) => [name, index]));
+  const rank = (candidate: Candidate) => {
+    if (fold.forced.has(scoped(candidate.course, candidate.topicIds[0] ?? ""))) return order.get("remediation") ?? 0;
+    return candidate.kind === "review" ? order.get("reviews-by-memory") ?? 1 : order.get("lessons-by-least-recent-course") ?? 2;
+  };
+  const studied = new Map(parts.map((part) => [part.key, part.studied]));
+  const memory = (candidate: Candidate) => topicMemory(fold.student, scoped(candidate.course, candidate.topicIds[0] ?? ""), now);
+  const ordered = parts.flatMap((part) => part.menu.candidates).sort((a, b) => rank(a) - rank(b)
+    || (a.kind === "review" && b.kind === "review" ? memory(a) - memory(b) : 0)
+    || (a.kind === "lesson" && b.kind === "lesson" ? (studied.get(a.course) ?? 0) - (studied.get(b.course) ?? 0) : 0));
+  if (!fold.forced.size && fold.consecutiveReviews >= REVIEWS_BEFORE_LESSON) {
+    const lesson = ordered.findIndex((entry) => entry.kind === "lesson");
+    if (lesson >= 0) ordered.unshift(...ordered.splice(lesson, 1));
+  }
+  const menu: LearningMenu = { menuId, candidates: ordered.slice(0, MENU_SIZE) };
+  const times = parts.flatMap((part) => (part.menu.availableAt === undefined ? [] : [part.menu.availableAt]));
+  if (!menu.candidates.length && times.length) menu.availableAt = Math.min(...times);
   return menu;
 }

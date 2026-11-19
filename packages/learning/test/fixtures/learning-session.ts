@@ -22,11 +22,18 @@ import {
   type LearningMethod,
   type LearningResult,
 } from "../../src/protocol.js";
-import type { LearningSession } from "../../src/session.js";
+import type { CourseContent, LearningSession } from "../../src/session.js";
 import { unscoped } from "../../src/course-key.js";
 import { emptyFold, type Fold } from "../../src/flow-state.js";
 
 export const start = 1_792_454_400_000;
+
+/** 只有一门课的会话里的那门课：键、课程内容与结构。夹具都只有一门课。 */
+export function sole(session: LearningSession): CourseContent {
+  const [only, ...rest] = session.courses.values();
+  assert.ok(only && rest.length === 0, "会话里不止一门课");
+  return only;
+}
 
 /** 学习状态去掉这门课的键：只留这门课的，键是课里的编号。 */
 export function bareFold(fold: Fold, key: string): Fold {
@@ -102,7 +109,7 @@ export const deliverySeq = (delivery: Delivery) => Number(delivery.deliveryId.sl
 /** 用课程里的标准答案作答，选项等换成这次交付的编号。 */
 export async function referenceAnswer(session: LearningSession, delivery: Delivery): Promise<LearnerResponse> {
   const record = session.replay.delivery(deliverySeq(delivery));
-  const entry = record && session.course.questions.get(record.questionId);
+  const entry = record && session.content(record.task.course)?.course.questions.get(record.questionId);
   assert.ok(record && entry);
   const { idMap } = await session.render(record);
   const response = referenceResponse(entry.question, delivery.item);
@@ -249,13 +256,13 @@ export async function learningFixture(t: { after(cleanup: () => Promise<void>): 
      */
     async fold() {
       await learning().view();
-      return bareFold(learning().replay.fold(), learning().key);
+      return bareFold(learning().replay.fold(), sole(learning()).key);
     },
     async rawFold() {
       await learning().view();
       return learning().replay.fold();
     },
-    student: async () => bareFold({ ...emptyFold(), student: (await learning().view()).student }, learning().key).student,
+    student: async () => bareFold({ ...emptyFold(), student: (await learning().view()).student }, sole(learning()).key).student,
     time: (value: number) => {
       now = value;
     },

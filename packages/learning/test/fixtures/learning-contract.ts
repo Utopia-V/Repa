@@ -25,17 +25,17 @@ export const accepted: Submission = {
   acceptedAt: now + 5_000, processing: { status: "accepted" }, gradeRevision: 0,
 };
 export const page: ContentPage = {
-  ref: { courseId: "python", topicId: "py01", kpId: "py01.k1", id: "py01.k1.card", version, kind: "card" },
+  ref: { course: "bundled-python", courseId: "python", topicId: "py01", kpId: "py01.k1", id: "py01.k1.card", version, kind: "card" },
   origin: {
     taskId: "lesson-1", deliveryId: delivery.deliveryId,
-    content: { courseId: "python", topicId: "py01", kpId: "py01.k1", id: "py01.k1.example", version, kind: "example" },
+    content: { course: "bundled-python", courseId: "python", topicId: "py01", kpId: "py01.k1", id: "py01.k1.example", version, kind: "example" },
   },
   offset: 0, total: 1, blocks: markdown("列表推导式：对每个元素计算一个新值。"),
 };
 export function lesson(): LearningState {
   return {
     revision: 1, serverNow: now, started: true,
-    course: { id: "python", title: "Python", version: "0.1.0" }, menu: null,
+    course: { id: "python", title: "Python", version: "0.1.0" }, courses: [], menu: null,
     restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
     progress: {
       day: "2026-10-20", timeZone: "Asia/Taipei", dailyGoalXp: 20, todayXp: 0, totalXp: 0,

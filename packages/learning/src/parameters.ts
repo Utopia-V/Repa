@@ -38,6 +38,12 @@ export const FAIL_QUALITY_FLOOR = 0.2;
 
 /** 菜单最多列几项。Repa 假设：MA 的采访说菜单最多五项、通常更少。前端契约 LearningMenuSchema 的项数上限与它相同，改大时一起改。 */
 export const MENU_SIZE = 3;
+/**
+ * 几门课并起来的菜单怎样排（见 flow-menu.ts 的 combinedMenu）：强制补救在前；再是各门课到期的复习，按此刻的记忆从低到高；
+ * 再是新课，先给最久没学的那门课（最近一项任务最早的）。Repa 假设，没有依据：MA 只公开了一门课里的选法，几门课之间怎样分配
+ * 没有公开。有了几门课同时学的作答数据（复习拖延、各课进度的分布）再校准。
+ */
+export const MENU_COURSE_ORDER = ["remediation", "reviews-by-memory", "lessons-by-least-recent-course"] as const;
 /** 连续做了几次复习以后，菜单先给一节合法的新课。MA 公开：The Math Academy Way 第 406 页，大约每三个复习插一节课。 */
 export const REVIEWS_BEFORE_LESSON = 3;
 

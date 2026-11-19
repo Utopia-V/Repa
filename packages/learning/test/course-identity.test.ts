@@ -71,9 +71,9 @@ async function fixture(t: TestContext) {
   /** 一次运行开始时取到的每次运行的说明（view）。 */
   const views = (sessionId: string) => withRun({ runId: randomUUID(), ancestorRunIds: [], sessionId, agent: "general" }, () => host.views());
   /** 上完一节课，作答都按参考答案。 */
-  const lesson = async (topic: string) => {
+  const lesson = async (topic: string, course?: string) => {
     let state = await call("state.get", {});
-    const candidate = state.menu?.candidates.find((entry) => entry.kind === "lesson" && entry.topicIds[0] === topic);
+    const candidate = state.menu?.candidates.find((entry) => entry.kind === "lesson" && entry.topicIds[0] === topic && (course === undefined || entry.course === course));
     assert.ok(state.menu && candidate, `菜单里没有 ${topic}`);
     state = await call("menu.select", { menuId: state.menu.menuId, candidateId: candidate.id });
     for (let step = 0; step < 40 && state.task && state.task.phase.stage !== "completed"; step++) {
@@ -95,7 +95,7 @@ async function fixture(t: TestContext) {
   return { root, call, tool, views, lesson, facts, registry };
 }
 
-test("两门课的 topic 与题目编号完全相同：随包课里学过的 os01，到了自己的课里仍是没学过的一节；任务记着课的键", async (t) => {
+test("两门课的 topic 与题目编号完全相同：随包课里学过的 os01，在自己的课里仍是没学过的一节；两门课并存，任务记着课的键", async (t) => {
   const f = await fixture(t);
   await f.call("courses.useBundled", {});
   assert.equal((await f.lesson("os01")).task?.phase.stage, "completed");
@@ -103,22 +103,25 @@ test("两门课的 topic 与题目编号完全相同：随包课里学过的 os0
 
   await writeExample(path.join(f.root, "courses", "操作系统", "course"), true);
   assert.match(await f.tool("course_use", { course: "courses/操作系统" }), /^已换用/u);
+  const own = (await f.registry()).find((entry) => entry.location === "courses/操作系统")?.key;
+  assert.ok(own && own !== "bundled-demo");
+  // 随包的课没有被取代：两门课都在登记里，都可学。
+  assert.deepEqual((await f.registry()).map((entry) => entry.key), ["bundled-demo", own]);
   const state = await f.call("state.get", {});
-  assert.equal(state.course?.id, "os-memory");
-  // 同号的 os01 属于另一门课：这门课一节也没学过，菜单给的是 os01 的新课，不是复习。
-  assert.equal(state.progress.completedTopics, 0);
-  assert.deepEqual(state.menu?.candidates.map((entry) => [entry.kind, entry.topicIds[0]]), [["lesson", "os01"], ["lesson", "os02"]]);
-  const key = (await f.registry())[0]?.key;
-  assert.ok(key && key !== "bundled-demo");
-  assert.equal(state.menu?.candidates[0]?.course, key);
-  // 随包的课被自己的课取代：登记里只剩这一门，在 courses/操作系统。
-  assert.deepEqual((await f.registry()).map((entry) => entry.location), ["courses/操作系统"]);
-  assert.deepEqual((await f.facts()).flatMap((fact) => (fact.type === "task" ? [fact.course.key] : [])), ["bundled-demo"]);
+  // 同号的 os01 属于另一门课：自己的课一节也没学过，随包课学过的那一节照算。
+  assert.deepEqual(state.courses.map((entry) => [entry.key, entry.completedTopics, entry.totalTopics]), [["bundled-demo", 1, 2], [own, 0, 2]]);
+  assert.equal(state.progress.completedTopics, 1);
+  assert.equal(state.progress.totalTopics, 4);
+  // 菜单里自己的课给的是 os01 的新课，不是复习。
+  assert.ok(state.menu?.candidates.some((entry) => entry.course === own && entry.kind === "lesson" && entry.topicIds[0] === "os01"));
+  assert.ok(!state.menu?.candidates.some((entry) => entry.course === own && entry.kind === "review"));
 
-  await f.lesson("os01");
+  assert.equal((await f.lesson("os01", own)).task?.course, own);
   const tasks = (await f.facts()).filter((fact) => fact.type === "task");
-  assert.deepEqual(tasks.map((fact) => fact.type === "task" && fact.course.key), ["bundled-demo", key]);
-  assert.equal((await f.call("state.get", {})).progress.completedTopics, 1);
+  assert.deepEqual(tasks.map((fact) => fact.type === "task" && fact.course.key), ["bundled-demo", own]);
+  const after = await f.call("state.get", {});
+  assert.deepEqual(after.courses.map((entry) => entry.completedTopics), [1, 1]);
+  assert.equal(after.progress.completedTopics, 2);
 });
 
 test("做课工具按位置取缺省：几门课时不写 course 就报错并列出有哪些；在一门课的做课运行里不写就是那门课，记进它自己的做课记录", async (t) => {
@@ -173,17 +176,23 @@ test("课程文件夹改名：证据唯一时自动接回；另有一个不认�
   assert.equal((await f.call("state.get", {})).course?.id, "os-memory");
 });
 
-test("新建第一门课：courses/<名>/ 带一份空的要求，登记成草稿；名字不能作文件夹名、或空间里已经有课时拒绝", async (t) => {
+test("新建课程：courses/<名>/ 带一份空的要求，登记成草稿；可以建几门；同名的就是那一门；名字不能作文件夹名时拒绝", async (t) => {
   const f = await fixture(t);
   const created = await f.call("courses.create", { name: "线性代数" });
   assert.deepEqual(created.courses.map((course) => [course.folder, course.learnable, course.bundled]), [["courses/线性代数", false, false]]);
-  assert.equal(created.canCreate, false);
+  assert.equal(created.canCreate, true);
   assert.equal(await readFile(path.join(f.root, "courses", "线性代数", "AGENTS.md"), "utf8"), "");
-  const building = await f.call("building.get", {});
-  assert.deepEqual([building.key, building.folder, building.course], [created.courses[0]?.key, "courses/线性代数", null]);
-  await assert.rejects(f.call("courses.create", { name: "概率论" }), (error: unknown) => error instanceof RepaFault && error.code === "course_exists");
+  const key = created.courses[0]?.key;
+  const building = await f.call("building.get", { course: key });
+  assert.deepEqual([building.key, building.folder, building.course], [key, "courses/线性代数", null]);
+  const second = await f.call("courses.create", { name: "概率论" });
+  assert.deepEqual(second.courses.map((course) => course.folder), ["courses/线性代数", "courses/概率论"]);
+  // 两门自己的课时，不写课的方法拿不准是哪门。
+  assert.equal((await f.call("building.get", {})).key, null);
+  const again = await f.call("courses.create", { name: "线性代数" });
+  assert.deepEqual(again.courses.map((course) => course.key), second.courses.map((course) => course.key));
   await assert.rejects(f.call("courses.create", { name: "a/b" }), (error: unknown) => error instanceof RepaFault && error.code === "invalid_name");
-  await assert.rejects(access(path.join(f.root, "courses", "概率论")));
+  await assert.rejects(access(path.join(f.root, "courses", "a")));
 });
 
 test("换课以后旧课的强制补救不再要求，也不挡新课的菜单；还在这门课里的照旧挡住", async () => {

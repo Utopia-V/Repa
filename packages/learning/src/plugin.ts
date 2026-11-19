@@ -25,6 +25,7 @@ import {
   learningMethods, type BuildingEvent, type CourseBuilding, type LearningCourses, type LearningInput, type LearningResult, type LearningState,
 } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
+import type { TaskRecord } from "./flow-state.js";
 import { LearningSession } from "./session.js";
 import {
   CHECKS, courseFolder, CourseStore, COURSES_FOLDER, inLocation, onlyAdds, readSpaceCourse, type CourseEntry,
@@ -54,12 +55,15 @@ export interface LearningPluginOptions {
   connect?: (session: LearningSession, host: Host) => Promise<Pick<PluginInstance, "methods" | "close">>;
 }
 
-/** 有一门可学的课：它在登记里的那一项、学习会话和绑在它上面的教学方法与辅导。 */
-interface Ready {
-  kind: "ready";
-  key: string;
+/** 空间里一门可学的课：它在登记里的那一项与课程内容。 */
+interface Learnable {
   entry: CourseEntry;
   course: ResolvedCourse;
+}
+/** 有可学的课：各门课（按键）、一个学习会话（一条主线）和绑在它上面的教学方法与辅导。 */
+interface Ready {
+  kind: "ready";
+  courses: Map<string, Learnable>;
   session: LearningSession;
   methods: Record<string, PluginMethod>;
   close?: () => Promise<void>;
@@ -139,9 +143,9 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   const bundledName = bundledSource ? path.basename(bundledSource.directory) : "python";
   const BUNDLED = bundledKey(bundledName);
 
-  /** 按一门课建好学习会话与教学方法。只读：补判由调用方在这门课发布以后调用 session.catchUp 写下。 */
-  async function build(course: ResolvedCourse, entry: CourseEntry): Promise<Ready> {
-    const session = await LearningSession.open(records, course, host, entry.key);
+  /** 按空间里可学的各门课建好一个学习会话与教学方法。只读：补判由调用方在课发布以后调用 session.catchUp 写下。 */
+  async function build(list: Learnable[]): Promise<Ready> {
+    const session = await LearningSession.open(records, list.map(({ entry, course }) => ({ key: entry.key, resolved: course })), host);
     try {
       const connected = await (options.connect
         ? options.connect(session, host)
@@ -149,9 +153,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       const tutor = await connectTutor(session);
       return {
         kind: "ready",
-        key: entry.key,
-        entry,
-        course,
+        courses: new Map(list.map((item) => [item.entry.key, item])),
         session,
         methods: { ...connected.methods, ...tutor.methods },
         ...(connected.close ? { close: connected.close } : {}),
@@ -163,13 +165,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     }
   }
 
-  /** 空间里的课出了问题只让这门课用不了：副本读不出、会话建不起来，都记成没有可学的课并写明原因。 */
-  async function buildSpace(entry: CourseEntry & { copy: string }): Promise<Current> {
-    try {
-      return await build(await store.load(entry.copy), entry);
-    } catch (error) {
-      return { kind: "unready", reason: `换用的课打不开：${error instanceof Error ? error.message : String(error)}` };
-    }
+  /** 一门课在登记里的那一项的内容：换用过的副本，或随包的课；还是草稿时为 undefined。副本读不出时抛出。 */
+  async function contentOf(entry: CourseEntry): Promise<ResolvedCourse | undefined> {
+    if (entry.copy !== undefined) return store.load(entry.copy);
+    if (entry.bundled !== undefined) return loadCourseSources(sources, host.files);
+    return undefined;
   }
 
   async function retire(ready: Ready): Promise<void> {
@@ -180,22 +180,22 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     }
   }
 
-  /** 学习者做到一半的任务（课、复习或测验开始了还没结束）涉及的 topic；没有这样的任务时为 undefined。 */
-  function taskTopics(session: LearningSession): Promise<string[] | undefined> {
+  /** 学习者做到一半的任务（课、复习或测验开始了还没结束）；没有这样的任务时为 undefined。 */
+  function taskInProgress(session: LearningSession): Promise<TaskRecord | undefined> {
     return session.records.serial(async () => {
       session.replay.settle(session.clock());
       const evidence = session.replay.currentEvidence();
-      return evidence !== undefined && evidence.outcome === undefined ? evidence.task.topicIds : undefined;
+      return evidence !== undefined && evidence.outcome === undefined ? evidence.task : undefined;
     });
   }
 
   /** 学习者在这门课里学过的 topic：学生模型里这门课有记录的，与进度里的 completedTopics 数的是同一些（只数还在课里的）。 */
-  function learnedTopics(ready: Ready): Promise<Set<string>> {
+  function learnedTopics(ready: Ready, key: string): Promise<Set<string>> {
     const { session } = ready;
     return session.records.serial(async () => {
       session.replay.settle(session.clock());
       return new Set(Object.keys(session.replay.fold().student).flatMap((id) => {
-        const topic = unscoped(ready.key, id);
+        const topic = unscoped(key, id);
         return topic === undefined ? [] : [topic];
       }));
     });
@@ -205,13 +205,32 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   // 课的登记：空间里有哪几门课、各在哪里、换用的是哪一份
   // ---------------------------------------------------------------------------
 
-  /** 登记里第一门可学的课：换用过的自制课，或随包的课。这一步一个空间同时只学一门。 */
+  /**
+   * 登记里可学的各门课（换用过的自制课与随包的课）一起建成一个会话。一门课的副本读不出时只让这门课用不了，别的课照常；
+   * 一门也学不了时记成没有可学的课并写明原因。
+   */
   async function learnable(entries: CourseEntry[]): Promise<Current> {
+    const list: Learnable[] = [];
+    let broken: string | undefined;
     for (const entry of entries) {
-      if (entry.copy !== undefined) return buildSpace({ ...entry, copy: entry.copy });
-      if (entry.bundled !== undefined) return build(await loadCourseSources(sources, host.files), entry);
+      try {
+        const course = await contentOf(entry);
+        if (course) list.push({ entry, course });
+      } catch (error) {
+        broken ??= `换用的课打不开：${error instanceof Error ? error.message : String(error)}`;
+      }
     }
-    return { kind: "unready", reason: NOT_BUILT };
+    if (list.length === 0) return { kind: "unready", reason: broken ?? NOT_BUILT };
+    try {
+      return await build(list);
+    } catch (error) {
+      return { kind: "unready", reason: `换用的课打不开：${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  /** 正在学的一门课；不在空间里、还没换用过或没有可学的课时为 undefined。 */
+  function learning(key: string | undefined): Learnable | undefined {
+    return current.kind === "ready" && key !== undefined ? current.courses.get(key) : undefined;
   }
 
   /** 空间里的课，按加入的先后。 */
@@ -421,11 +440,17 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    * 建不起来就报错，旧的课照常在用；原子写 course.json 发布；旧会话退下；新会话这时才按新的内容补判；最后删掉没有引用的副本。
    * 发布之前中断，重开仍是旧的课；发布之后中断，重开就是新的课，补判在打开时做。没有发布的课不会写下判分。
    */
-  async function adopt(next: CourseEntry[], entry: CourseEntry, read: () => Promise<ResolvedCourse>): Promise<void> {
+  async function adopt(next: CourseEntry[]): Promise<void> {
     if (current.kind === "ready") await current.session.idle();
     let ready: Ready;
     try {
-      ready = await build(await read(), entry);
+      const list: Learnable[] = [];
+      for (const entry of next) {
+        // 别的课的副本读不出只让那门课用不了，不挡这次换用。
+        const course = await contentOf(entry).catch(() => undefined);
+        if (course) list.push({ entry, course });
+      }
+      ready = await build(list);
     } catch (error) {
       throw new RepaFault("course_switch_failed", `检查通过，但换用出错，学的仍是原来的课：${error instanceof Error ? error.message : String(error)}`);
     }
@@ -449,25 +474,23 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   /**
-   * 换用一门自己的课检查过的这一份。学习者有做到一半的任务时，只有同一门课的新的一版只增不改（已展开的部分一字不差）才换，否则不换。
-   * 这一步空间里同时只学一门：在学随包的课时，换用自己的课就取代它；已经在学另一门自己的课时不换用。
-   * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
+   * 换用一门自己的课检查过的这一份，别的课照旧。学习者有做到一半的任务、而任务属于这门课时，只有新的一版只增不改
+   * （已展开的部分一字不差）才换，否则不换；任务属于别的课时照常换用。进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
   function switchTo(key: string, location: string, id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
       if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
-      if (current.kind === "ready" && current.key === key && current.entry.copy === id) return "unchanged";
-      if (current.kind === "ready" && current.key !== key && current.entry.location !== undefined) {
-        throw new RepaFault("second_course", `学习者正在学 ${current.entry.location} 的课，一个空间同时学几门课还没有做好，这一版没有换用。`);
-      }
+      const before = learning(key);
+      if (before?.entry.copy === id) return "unchanged";
       const candidate = await read();
-      if (current.kind === "ready" && await taskTopics(current.session) !== undefined && (current.key !== key || !onlyAdds(current.course, candidate))) return "busy";
+      if (current.kind === "ready") {
+        const task = await taskInProgress(current.session);
+        if (task?.course === key && (!before || !onlyAdds(before.course, candidate))) return "busy";
+      }
       await keep();
-      const replaced = current.kind === "ready" && current.key !== key ? current.key : undefined;
-      const base = entries.filter((item) => item.key !== replaced);
       const entry: CourseEntry = { key, location, copy: id };
-      const next = base.some((item) => item.key === key) ? base.map((item) => (item.key === key ? entry : item)) : [...base, entry];
-      await adopt(next, entry, () => store.load(id));
+      const next = entries.some((item) => item.key === key) ? entries.map((item) => (item.key === key ? entry : item)) : [...entries, entry];
+      await adopt(next);
       return "switched";
     });
   }
@@ -480,6 +503,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       serverNow: now,
       started: records.facts.some((fact) => fact.type === "task"),
       course: null,
+      courses: [],
       task: null,
       menu: null,
       restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false },
@@ -515,16 +539,24 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    * 学过的部分与最近一次交给前端的不同，就发 building.changed。前端还没读过做课的状态时不必发。
    * 看的时候排在这次写入之后（learnedTopics 走记录的串行入口），读到的是写完的状态。
    */
-  let reportedLearned: string | undefined;
+  /** 每门课最近一次交给前端的学过的部分，按课的键。 */
+  const reportedLearned = new Map<string, string>();
   const learnedKey = (learned: Set<string>) => [...learned].sort().join("\n");
   records.listen(() => {
     const ready = current;
-    if (reportedLearned === undefined || ready.kind !== "ready" || ready.entry.location === undefined) return;
+    if (reportedLearned.size === 0 || ready.kind !== "ready") return;
     track((async () => {
-      const learned = learnedKey(await learnedTopics(ready));
-      if (current !== ready || learned === reportedLearned) return;
-      reportedLearned = learned;
-      announceBuilding();
+      let changed = false;
+      for (const [key, reported] of reportedLearned) {
+        if (!ready.courses.has(key)) continue;
+        const learned = learnedKey(await learnedTopics(ready, key));
+        if (current !== ready) return;
+        if (learned !== reported) {
+          reportedLearned.set(key, learned);
+          changed = true;
+        }
+      }
+      if (changed) announceBuilding();
     })());
   });
 
@@ -563,10 +595,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    * 在后台让通用 Agent 展开这几部分。失败如实记下原因，不重试。运行结束时看当前换用的那一版：
    * 这几部分（还在课里的）都已不是轮廓才算展开了；Agent 合并或删掉了某一部分，那一部分就不再计较。
    */
-  function expand(ready: Ready & { entry: { location: string } }, record: BuildingRecord, topicIds: string[], learned: Set<string>): Expansion {
+  function expand(own: Own, record: BuildingRecord, topicIds: string[], learned: Set<string>): Expansion {
     let begun = () => {};
+    const key = own.entry.key;
     const entry: Expansion = {
-      key: ready.key, topicIds, startedAt: host.now(), cancelled: false, done: Promise.resolve(), started: new Promise((resolve) => { begun = resolve; }),
+      key, topicIds, startedAt: host.now(), cancelled: false, done: Promise.resolve(), started: new Promise((resolve) => { begun = resolve; }),
     };
     const last: NonNullable<BuildingRecord["last"]> = { topicIds, learned: learned.size, startedAt: entry.startedAt };
     record.last = last;
@@ -574,11 +607,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     entry.done = (async () => {
       let failure: NonNullable<BuildingRecord["last"]>["failure"];
       try {
-        await save(ready.key);
+        await save(key);
         announceBuilding();
         let work: AgentWork;
         try {
-          work = await host.models.runAgent({ text: expansionTask(ready.course, ready.entry.location, topicIds, [...learned]) });
+          work = await host.models.runAgent({ text: expansionTask(own.course, own.entry.location, topicIds, [...learned]) });
         } catch (error) {
           failure = failed(error);
           return;
@@ -588,7 +621,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         entry.work = work;
         last.sessionId = work.id;
         if (!record.sessions.includes(work.id)) record.sessions.push(work.id);
-        await save(ready.key);
+        await save(key);
         announceBuilding();
         if (entry.cancelled) await work.cancel();
         try {
@@ -598,15 +631,15 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
           failure = error instanceof RepaFault && error.code === "cancelled" ? { code: "cancelled" } : failed(error);
           return;
         }
-        const now = current;
-        const left = topicIds.filter((id) => now.kind !== "ready" || now.key !== ready.key || now.course.topics.find((topic) => topic.id === id)?.status === "outline");
+        const now = learning(key);
+        const left = topicIds.filter((id) => !now || now.course.topics.find((topic) => topic.id === id)?.status === "outline");
         if (left.length > 0) failure = { code: "not_expanded" };
       } finally {
         begun();
         last.endedAt = host.now();
         if (failure) last.failure = failure;
         if (expansion === entry) expansion = undefined;
-        await save(ready.key);
+        await save(key);
         announceBuilding();
       }
     })();
@@ -614,9 +647,11 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return entry;
   }
 
-  /** 正在学的是一门自己的课（不是随包的课）时就是它。 */
-  function ownReady(): (Ready & { entry: { location: string } }) | undefined {
-    return current.kind === "ready" && current.entry.location !== undefined ? current as Ready & { entry: { location: string } } : undefined;
+  /** 正在学的一门自己的课（换用过、有文件夹；随包的课不算）。 */
+  type Own = Learnable & { entry: { location: string } };
+  function own(key: string | undefined): Own | undefined {
+    const found = learning(key);
+    return found?.entry.location !== undefined ? found as Own : undefined;
   }
 
   /**
@@ -625,26 +660,32 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    */
   let considering = false;
   async function maybeExpand(): Promise<void> {
-    const ready = ownReady();
-    if (expansion || considering || !settings.autoExpand || !ready) return;
-    const outline = outlineTopics(ready.course);
-    if (outline.length === 0 || host.models.defaultModel() === undefined) return;
+    const ready = current;
+    if (expansion || considering || !settings.autoExpand || ready.kind !== "ready" || host.models.defaultModel() === undefined) return;
     considering = true;
     try {
-      const learned = await learnedTopics(ready);
-      const record = await recordOf(ready.key);
-      if (current !== ready || expansion) return;
-      // 还一节都没有展开时，第一段由对话里的 Agent 在学习者认可轮廓以后展开，不在后台抢先做。
-      const complete = completeTopics(ready.course);
-      if (complete.length === 0 || complete.filter((id) => !learned.has(id)).length > 1) return;
-      if (record.last?.learned === learned.size) return;
-      expand(ready, record, outline.slice(0, EXPANSION_SIZE), learned);
+      // 几门自己的课里，第一门学到了已展开部分尽头的课在后台展开；同一时刻只有一次展开。
+      for (const key of ready.courses.keys()) {
+        const course = own(key);
+        if (!course) continue;
+        const outline = outlineTopics(course.course);
+        if (outline.length === 0) continue;
+        const learned = await learnedTopics(ready, key);
+        const record = await recordOf(key);
+        if (current !== ready || expansion) return;
+        // 还一节都没有展开时，第一段由对话里的 Agent 在学习者认可轮廓以后展开，不在后台抢先做。
+        const complete = completeTopics(course.course);
+        if (complete.length === 0 || complete.filter((id) => !learned.has(id)).length > 1) continue;
+        if (record.last?.learned === learned.size) continue;
+        expand(course, record, outline.slice(0, EXPANSION_SIZE), learned);
+        return;
+      }
     } finally {
       considering = false;
     }
   }
 
-  /** 前端说的是哪门课：写了键就按键；没写时是正在学的那门自己的课，或空间里唯一的一门自己的课。 */
+  /** 前端说的是哪门课：写了键就按键；没写时是空间里唯一的一门自己的课。 */
   function making(key: string | undefined): (CourseEntry & { location: string }) | undefined {
     const own = entries.filter((entry): entry is CourseEntry & { location: string } => entry.location !== undefined);
     if (key !== undefined) {
@@ -652,17 +693,15 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       if (!found) throw new RepaFault("course_not_found", "空间里没有这门课", { course: key });
       return found;
     }
-    const ready = ownReady();
-    return ready ? own.find((entry) => entry.key === ready.key) : own.length === 1 ? own[0] : undefined;
+    return own.length === 1 ? own[0] : undefined;
   }
 
   async function buildingState(key?: string): Promise<CourseBuilding> {
     const entry = making(key);
     // 随包的课不是在这个空间里做的，不算做课的状态。
-    const ready = ownReady();
-    const shown = ready && entry && ready.key === entry.key ? ready : undefined;
-    const learned = shown ? await learnedTopics(shown) : new Set<string>();
-    if (shown) reportedLearned = learnedKey(learned);
+    const shown = own(entry?.key);
+    const learned = shown && current.kind === "ready" ? await learnedTopics(current, shown.entry.key) : new Set<string>();
+    if (shown) reportedLearned.set(shown.entry.key, learnedKey(learned));
     const parts: CourseBuilding["parts"] = [];
     for (const id of shown?.course.course.topics ?? []) {
       const topic = shown?.course.topics.find((item) => item.id === id);
@@ -704,14 +743,16 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     };
   }
 
-  /** 新建一门课：courses/<名>/，带一份空的要求（AGENTS.md），登记成草稿。这一步只在还没有课的空间里建第一门。 */
+  /**
+   * 在空间里新建一门课：courses/<名>/，带一份空的要求（AGENTS.md），登记成草稿。这个文件夹已经在了（例如学习者自己建的）时，
+   * 不动里面的文件，登记它；已经登记过就是那一门。
+   */
   async function createCourse(name: string): Promise<CourseEntry & { location: string }> {
     if (!validFolderName(name)) throw new RepaFault("invalid_name", "课程名称不能含 \\ / : * ? \" < > |，也不能以点或空格结尾。", { name });
-    if (entries.length > 0 || (await courseFolders()).length > 0) {
-      throw new RepaFault("course_exists", "此学习空间已有课程，目前一个学习空间只能建一门课程。");
-    }
     const location = `${COURSES_FOLDER}/${name}`;
-    await host.files.write(inLocation(location, "AGENTS.md"), "");
+    const known = entries.find((entry): entry is CourseEntry & { location: string } => entry.location === location);
+    if (known) return known;
+    if (!(await courseFolders()).includes(location)) await host.files.write(inLocation(location, "AGENTS.md"), "");
     const entry = await register(location);
     await recordOf(entry.key);
     announceBuilding();
@@ -738,11 +779,12 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    * 先读完学过的部分，此后到开始展开之间不再等待，两次同时到达的要求只有一次能开始。
    */
   async function requestExpansion(input: LearningInput<"building.expand">): Promise<CourseBuilding> {
-    const before = ownReady();
-    const learned = before ? await learnedTopics(before) : undefined;
-    const record = before ? await recordOf(before.key) : undefined;
-    const ready = ownReady();
-    if (!ready || ready !== before || learned === undefined || record === undefined || (input.course !== undefined && input.course !== ready.key)) {
+    const key = making(input.course)?.key;
+    const before = current;
+    const learned = own(key) && before.kind === "ready" && key !== undefined ? await learnedTopics(before, key) : undefined;
+    const record = key !== undefined ? await recordOf(key) : undefined;
+    const ready = own(key);
+    if (!ready || current !== before || learned === undefined || record === undefined) {
       throw new RepaFault("course_unavailable", "空间里还没有换用过一门自制的课");
     }
     if (expansion) throw new RepaFault("expansion_running", "已经有一次展开在进行", { topicIds: expansion.topicIds });
@@ -753,7 +795,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     if (unknown.length > 0) throw new RepaFault("not_outline", "这些部分不在课里，或已经展开了", { topicIds: unknown });
     if (topicIds.length === 0) throw new RepaFault("nothing_to_expand", "课里已经没有轮廓部分");
     expand(ready, record, topicIds, learned);
-    return buildingState(ready.key);
+    return buildingState(ready.entry.key);
   }
 
   async function cancelExpansion(input: LearningInput<"building.cancel">): Promise<CourseBuilding> {
@@ -766,7 +808,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return buildingState(input.course);
   }
 
-  /** 空间里的课：登记里的，正在学的那门带清单里的标题。canCreate：能不能在这里新建一门课（这一步只建第一门）。 */
+  /** 空间里的课：登记里的，可学的带清单里的标题。canCreate：能不能在这里新建一门课。 */
   async function coursesState(): Promise<LearningCourses> {
     const own = await ownCourses();
     const missing = new Set(own.filter((entry) => entry.missing && entry.key !== undefined).map((entry) => entry.key));
@@ -775,24 +817,20 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
         key: entry.key,
         folder: entry.location ?? null,
         bundled: entry.bundled !== undefined,
-        title: current.kind === "ready" && current.key === entry.key ? current.course.course.title : null,
+        title: learning(entry.key)?.course.course.title ?? null,
         learnable: entry.copy !== undefined || entry.bundled !== undefined,
         missing: missing.has(entry.key),
       })),
-      canCreate: entries.length === 0 && own.length === 0,
+      canCreate: true,
     };
   }
 
-  /**
-   * 学习者选了随包的课：它成为空间里的一门课。这一步一个空间同时只学一门，已有可学的课时不再加。
-   */
+  /** 学习者选了随包的课：它成为空间里的一门课，与别的课一起学。已经在空间里就什么也不做。 */
   function chooseBundled(): Promise<void> {
     return exclusive(async () => {
       if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
-      if (current.kind === "ready" && current.key === BUNDLED) return;
-      if (current.kind === "ready") throw new RepaFault("course_exists", "此学习空间已有正在学习的课程，目前不能同时学习自带的课程。");
-      const entry: CourseEntry = { key: BUNDLED, bundled: bundledName };
-      await adopt([...entries, entry], entry, () => loadCourseSources(sources, host.files));
+      if (entries.some((entry) => entry.key === BUNDLED)) return;
+      await adopt([...entries, { key: BUNDLED, bundled: bundledName }]);
     });
   }
 
@@ -849,7 +887,9 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
 
   const exported = connectExport(host, () => ({
     recordsFormat: LEARNING_FORMAT_VERSION,
-    courses: current.kind === "ready" ? [{ key: current.key, id: current.course.course.id, version: current.course.course.version }] : [],
+    courses: current.kind === "ready"
+      ? [...current.courses.values()].map(({ entry, course }) => ({ key: entry.key, id: course.course.id, version: course.course.version }))
+      : [],
   }));
   const methods: Record<string, PluginMethod> = { ...exported.methods, ...buildingMethods };
   for (const name of Object.keys(learningMethods) as (keyof typeof learningMethods)[]) {
@@ -898,8 +938,8 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     async view() {
       if (current.kind !== "ready") return undefined;
       const view = await current.tutor.hooks.view();
-      // 辅导讲的是这门课的题：带上这门课的要求。随包的课没有文件夹，也就没有另外的要求。
-      const location = current.entry.location;
+      // 辅导讲的是当前任务所属那门课的题：带上那门课的要求，别的课的不放。随包的课没有文件夹，也就没有另外的要求。
+      const location = learning(current.session.replay.current?.course)?.entry.location;
       if (location === undefined) return view;
       return [view, await requirements(location)].filter((part) => part !== undefined).join("\n\n");
     },
@@ -927,13 +967,14 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     const folder = entry?.location === undefined ? "这门课的 course" : courseFolder(entry.location);
     if (current.kind === "unready") {
       text = current.reason === NOT_BUILT ? `还没有可学的课，${folder}/ 还没有换用过一门通过检查的课` : current.reason;
-    } else if (key !== undefined && current.key !== key) {
-      text = `学习者现在学的不是这门课，${folder}/ 还没有换用过一门通过检查的课`;
+    } else if (!learning(key)) {
+      text = `${folder}/ 还没有换用过一门通过检查的课`;
     } else {
-      const course = current.course.course;
-      const origin = current.entry.location === undefined ? "随包的课程" : `${courseFolder(current.entry.location)}/ 换用过的那一版`;
-      const learned = [...await learnedTopics(current)];
-      text = `${origin}，课程 ${course.id} ${course.version}，topic ${current.course.topics.length} 个，其中轮廓 ${outlineTopics(current.course).length} 个`
+      const shown = learning(key) as Learnable;
+      const course = shown.course.course;
+      const origin = shown.entry.location === undefined ? "随包的课程" : `${courseFolder(shown.entry.location)}/ 换用过的那一版`;
+      const learned = [...await learnedTopics(current, shown.entry.key)];
+      text = `${origin}，课程 ${course.id} ${course.version}，topic ${shown.course.topics.length} 个，其中轮廓 ${outlineTopics(shown.course).length} 个`
         + `；学过的：${learned.length > 0 ? learned.join("、") : "还没有"}`;
     }
     if (expansion) text += `；后台正在展开 ${expansion.topicIds.join("、")}`;
@@ -991,14 +1032,15 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       async brief(written, topicIds) {
         const { key, location } = await target(written);
         const ready = current;
-        if (ready.kind !== "ready" || ready.key !== key) {
+        const shown = learning(key);
+        if (ready.kind !== "ready" || !shown) {
           return `学习者还没有可学的课，${courseFolder(location)}/ 还没有换用过一门通过检查的课，前面没有讲过的概念。`;
         }
-        const unknown = topicIds.filter((id) => !ready.course.topics.some((topic) => topic.id === id));
+        const unknown = topicIds.filter((id) => !shown.course.topics.some((topic) => topic.id === id));
         if (unknown.length > 0) {
           throw new RepaFault("invalid_input", `学习者现在学的这一版里没有 ${unknown.join("、")}；新加的部分先用 course_use 换用，再取它的轮廓`);
         }
-        return expansionBrief(ready.course, location, topicIds, await learnedTopics(ready));
+        return expansionBrief(shown.course, location, topicIds, await learnedTopics(ready, key));
       },
     }),
   ];

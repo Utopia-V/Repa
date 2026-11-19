@@ -40,7 +40,7 @@ export interface PendingQuiz {
   n: number;
   atXp: number;
   topicIds: string[];
-  /** 题单所属的课：选 topic 时用的那门课的键。 */
+  /** 题单所属的课：选 topic 时用的那门课的键；所有课都没有可考的内容（topicIds 为空）时为空串。 */
   course: string;
 }
 
@@ -87,14 +87,20 @@ export class Replay {
   private readonly structures = new Map<number, StructureIndex>();
   /** 最近重放的事实序号。 */
   private position = 0;
+  /** 上一场测验确定题单时 awards 的长度：本窗口的非测验 XP 从这里算起，见 pick。 */
+  private windowStart = 0;
+  /** 每门课最近一次作答的事实序号：测验选课时增量相同的，取最近有作答的那门。 */
+  private readonly answeredAt = new Map<string, number>();
+  private readonly courses: ReadonlyMap<string, StructureIndex>;
 
-  /** key 与 structure 是当前的课，只用于为新的测验选 topic。 */
+  /** courses 是空间里现在的课（键与它现在的结构），只用于为新的测验选课和 topic。 */
   constructor(
-    private readonly key: string,
-    private readonly structure: StructureIndex,
+    courses: Iterable<readonly [string, StructureIndex]>,
     private readonly model: ModelConfig = STUDENT_MODEL,
     private readonly legacy?: Legacy,
-  ) {}
+  ) {
+    this.courses = new Map(courses);
+  }
 
   get current(): TaskRecord | undefined {
     return this.tasks.at(-1);
@@ -225,6 +231,7 @@ export class Replay {
       case "answered": {
         const delivery = this.deliveryOf(fact.delivery);
         delivery.answer = fact;
+        this.answeredAt.set(delivery.task.course, fact.seq);
         delivery.task.answered.push(delivery);
         changed = delivery.task;
         break;
@@ -348,14 +355,31 @@ export class Replay {
     }
   }
 
-  /** 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。新的测验从当前结构选 topic（对照用的 legacy 之内按它的结构）。 */
+  /**
+   * 为第 n 场测验选课和 topic（规则见 plan 的测验一条）：一场只从一门课出题；在有可考已学内容（学过、带测验题的 topic）的课里，
+   * 取本窗口非测验 XP 增量最多的那门，并列取最近有作答的（按事实序号），再并列按课的键。窗口是相邻两次确定题单之间：
+   * 题单确定（选出了 topic）时窗口才重新起算，所以每笔 XP 恰好参与一次选课；准备中中止、延后都不另起窗口。
+   * 所有课都没有可考的内容时题单为空：保留门槛、不消费场次，等有了再选。对照用的 legacy 之内按它的结构与课。
+   */
   private pick(n: number): { topicIds: string[]; course: string } {
     const fold = this.fold();
-    const [structure, course] = this.legacy && this.position <= this.legacy.upTo ? [this.legacy.structure, this.legacy.key] : [this.structure, this.key];
-    if (!structure.order.some((topic) => fold.student[scoped(course, topic.id)] && structure.quizTopics.has(topic.id))) {
-      return { topicIds: [], course };
+    const options = this.legacy && this.position <= this.legacy.upTo ? [[this.legacy.key, this.legacy.structure] as const] : [...this.courses];
+    const examinable = options.filter(([key, structure]) =>
+      structure.order.some((topic) => fold.student[scoped(key, topic.id)] && structure.quizTopics.has(topic.id)));
+    if (examinable.length === 0) return { topicIds: [], course: "" };
+    const increment = new Map<string, number>();
+    for (const award of this.awards.slice(this.windowStart)) {
+      const course = this.taskIndex.get(award.task)?.course;
+      if (!award.quiz && course !== undefined) increment.set(course, (increment.get(course) ?? 0) + award.xp);
     }
+    const [chosen] = [...examinable].sort(([left], [right]) =>
+      (increment.get(right) ?? 0) - (increment.get(left) ?? 0)
+      || (this.answeredAt.get(right) ?? 0) - (this.answeredAt.get(left) ?? 0)
+      || (left < right ? -1 : left > right ? 1 : 0));
+    if (!chosen) return { topicIds: [], course: "" };
+    const [course, structure] = chosen;
     this.samplings++;
+    this.windowStart = this.awards.length;
     return { topicIds: sampleTopics(this.tasks, fold, structure, course, n), course };
   }
 

@@ -28,7 +28,7 @@ import { DAY_MS } from "../src/student-model.js";
 import { TUTOR_AGENT } from "../src/tutor.js";
 import { requireReferenceAccess } from "../src/tutor-content.js";
 import { recoveryTrace } from "./fixtures/learning-contract.js";
-import { referenceAnswer } from "./fixtures/learning-session.js";
+import { referenceAnswer, sole } from "./fixtures/learning-session.js";
 import type { Course, Question, Topic } from "../src/format/schema.js";
 
 function deferred() {
@@ -789,8 +789,8 @@ test("视图按学生模型的时间排先修并写出它们的概念：时钟�
   f.time(start - DAY_MS);
   await f.select("lesson", "t03");
   const { student } = await f.session().view();
-  const t01 = student[scoped(f.session().key, "t01")];
-  const t02 = student[scoped(f.session().key, "t02")];
+  const t01 = student[scoped(sole(f.session()).key, "t01")];
+  const t02 = student[scoped(sole(f.session()).key, "t02")];
   assert.ok(t01 && t02);
   assert.ok(t02.memory < t01.memory && t02.interval < t01.interval);
   // 用最后一条事实的原始时间算，间隔短的 t02 被回拨抬得更高，排序就会颠倒；学生模型的时间不倒退，t02 仍是较弱的那个。

@@ -17,10 +17,10 @@ export interface ReferenceContent {
 }
 
 /** 只索引作者的讲解、例题和概念卡；正式题目的私有定义不进入读取路径。 */
-export async function referenceContent(course: ResolvedCourse): Promise<ReferenceContent[]> {
+export async function referenceContent(course: ResolvedCourse, key: string): Promise<ReferenceContent[]> {
   const entries: ReferenceContent[] = [];
   for (const topic of course.topics) {
-    const base = { courseId: course.course.id, topicId: topic.id };
+    const base = { course: key, courseId: course.course.id, topicId: topic.id };
     entries.push({
       // 核对记录不是内容：补写记录不换掉 topic 页面的版本。
       ref: { ...base, kind: "topic", id: topic.id, version: await contentVersion(topicContent(topic)) },
@@ -75,30 +75,31 @@ export function requireReferenceAccess(view: LearningView): LearningView {
  * 只提供当前课程里的内容；课程换版以后，旧版本的引用按不存在处理。
  */
 export async function visibleContent(session: LearningSession, view: LearningView, index: ReferenceContent[]): Promise<ContentPage[]> {
-  // 只看这门课的任务：别的课里同号的题与 topic 不是这里的内容。
+  // 只看空间里还在的课的任务；题与 topic 都按“课的键加编号”对应：两门课的编号可以相同。
   const tasks = session.replay.tasks.filter((task) => session.owns(task));
   const currentTask = view.state.task;
   const originalDeliveries = new Map<string, { taskId: string; deliveryId: string }>();
   for (const task of tasks) {
     for (const delivery of task.deliveries) {
-      if (!originalDeliveries.has(delivery.questionId)) {
-        originalDeliveries.set(delivery.questionId, { taskId: taskId(task), deliveryId: deliveryId(delivery) });
+      const key = scoped(task.course, delivery.questionId);
+      if (!originalDeliveries.has(key)) {
+        originalDeliveries.set(key, { taskId: taskId(task), deliveryId: deliveryId(delivery) });
       }
     }
   }
   const pages: ContentPage[] = [];
   for (const entry of index) {
-    const learned = view.student[scoped(session.key, entry.ref.topicId)];
-    const active = currentTask?.topics.some((topic) => topic.id === entry.ref.topicId);
+    const learned = view.student[scoped(entry.ref.course, entry.ref.topicId)];
+    const active = currentTask?.course === entry.ref.course && currentTask.topics.some((topic) => topic.id === entry.ref.topicId);
     if (!learned && !active) {
       continue;
     }
-    const originTask = tasks.find((task) => task.topicIds.includes(entry.ref.topicId));
+    const originTask = tasks.find((task) => task.course === entry.ref.course && task.topicIds.includes(entry.ref.topicId));
     if (!originTask) {
       continue;
     }
     let origin: ContentPage["origin"] = { taskId: taskId(originTask), content: entry.originRef ?? entry.ref };
-    const original = entry.from && originalDeliveries.get(entry.from);
+    const original = entry.from && originalDeliveries.get(scoped(entry.ref.course, entry.from));
     if (original) {
       origin = { ...original, content: entry.originRef ?? entry.ref };
     }
@@ -112,12 +113,13 @@ export async function visibleContent(session: LearningSession, view: LearningVie
       }
       const blocks = content(question.question.explanation);
       const ref: ContentRef = {
-        courseId: session.course.course.course.id,
+        course: task.course,
+        courseId: session.content(task.course)?.course.course.course.id ?? task.structure.data.course.id,
         topicId: question.topic.id,
         kpId: question.kp.id,
         kind: "explanation",
         id: `${deliveryId(delivery)}.explanation`,
-        version: await session.explanationVersion(delivery.questionId, blocks),
+        version: await session.explanationVersion(task.course, delivery.questionId, blocks),
       };
       pages.push({
         ref,

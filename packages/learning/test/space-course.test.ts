@@ -30,7 +30,7 @@ import { TUTOR_AGENT } from "../src/tutor.js";
 import { demoCourse, runtimeUnavailable, withoutLearnerCode } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
 import { keySolver, promptOf, withRecords } from "./fixtures/confirmations.js";
-import { referenceAnswer, start } from "./fixtures/learning-session.js";
+import { referenceAnswer, start, sole } from "./fixtures/learning-session.js";
 import { PAGE_RUNTIME, pythonFrontend, verifiedAnswers } from "./fixtures/python-frontend.js";
 
 /** 写课说明里的完整例子：不含代码题，也是这里的示例课。 */
@@ -510,7 +510,7 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
   assert.deepEqual(await readdir(path.join(f.dataDir, "courses")), [choice.courses[0]?.copy]);
 });
 
-test("建了自己的课时随包课还有做到一半的任务：course_use 不换用，重开空间仍学随包课、任务照旧", async (t) => {
+test("随包课还有做到一半的任务时换用自己的课：两门课并存，进行中的随包课任务照旧，重开以后也是", async (t) => {
   const f = await fixture(t);
   await f.call("courses.useBundled", {});
   const shown = await f.state();
@@ -521,11 +521,12 @@ test("建了自己的课时随包课还有做到一半的任务：course_use 不
   const before = await f.state();
 
   await f.writeExample();
-  assert.match((await f.tool("course_use")).text, /^检查通过，但没有换用/u);
+  assert.match((await f.tool("course_use")).text, /^已换用/u);
   await f.reopen();
   const after = await f.state();
   assert.equal(after.course?.id, "python");
   assert.deepEqual(after.task, before.task);
+  assert.deepEqual(after.courses.map((course) => course.id), ["python", "os-memory"]);
 });
 
 // course 是指向自己的符号链接时，底座的空间监听在 Node 24 的 Linux 上抛出未捕获的 ELOOP（#145），这里改用指向空间之外的链接。
@@ -637,7 +638,7 @@ test("换用时旧的一版还在补判一份作答：等它写完再按新的�
   await until(() => structured() === 3, "新的一版没有按改过的 rubric 重判");
   regrade.succeed({ verdict: "incorrect", reason: "按新 rubric" });
   await session.idle();
-  const versions = await session.course.versionsOf("os01.k1.q1");
+  const versions = await sole(session).course.versionsOf("os01.k1.q1");
   assert.equal(session.replay.delivery(seq)?.grades.at(-1)?.version, versions?.question);
 });
 

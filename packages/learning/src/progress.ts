@@ -90,11 +90,12 @@ export function sampleTopics(tasks: TaskRecord[], fold: Fold, structure: Structu
  * ETA_WINDOW_DAYS 个完整本地自然日里平均每天的学习量，得出还要几天，再写成日期。学习量按 XP 计：MA 公开 1 XP 约合一分钟专注学习，
  * 与课的预计用时同一单位。其中至少 ETA_MIN_ACTIVE_DAYS 天学过才给出。
  */
-export function progressView(replay: Replay, fold: Fold, structure: StructureIndex, key: string, now: number, timeZone: string): LearningProgress {
+export function progressView(replay: Replay, fold: Fold, courses: readonly (readonly [string, StructureIndex])[], now: number, timeZone: string): LearningProgress {
   const format = dayFormat(timeZone);
   const day = format.format(now);
-  // 完成的节与总节数都取这门课现在的结构里还在的节：别的课学过的、这门课已经删掉的都不算。
-  const completedTopics = structure.order.filter((topic) => fold.student[scoped(key, topic.id)]).length;
+  // 完成的节与总节数按课分别算，都取那门课现在的结构里还在的节（课已经删掉的不算），这里是各门课的合计；XP 与日目标属于人。
+  const completedTopics = courses.reduce((sum, [key, structure]) => sum + structure.order.filter((topic) => fold.student[scoped(key, topic.id)]).length, 0);
+  const totalTopics = courses.reduce((sum, [, structure]) => sum + structure.order.length, 0);
   const daily = new Map<string, number>();
   for (const award of replay.awards) {
     const date = format.format(award.at);
@@ -105,9 +106,9 @@ export function progressView(replay: Replay, fold: Fold, structure: StructureInd
     totals.push(daily.get(addDays(day, -back)) ?? 0);
   }
   const average = totals.reduce((sum, value) => sum + value, 0) / ETA_WINDOW_DAYS;
-  const remaining = structure.order
+  const remaining = courses.reduce((sum, [key, structure]) => sum + structure.order
     .filter((topic) => !fold.student[scoped(key, topic.id)] || fold.forced.get(scoped(key, topic.id)) === "lesson")
-    .reduce((sum, topic) => sum + topic.minutes, 0);
+    .reduce((minutes, topic) => minutes + topic.minutes, 0), 0);
   const estimable = totals.filter((value) => value > 0).length >= ETA_MIN_ACTIVE_DAYS && average > 0;
   return {
     day,
@@ -116,8 +117,8 @@ export function progressView(replay: Replay, fold: Fold, structure: StructureInd
     todayXp: daily.get(day) ?? 0,
     totalXp: replay.total,
     completedTopics,
-    totalTopics: structure.order.length,
-    completionRate: Math.min(1, completedTopics / (structure.order.length || 1)),
+    totalTopics,
+    completionRate: Math.min(1, completedTopics / (totalTopics || 1)),
     etaDate: estimable ? addDays(day, Math.ceil(remaining / average)) : null,
   };
 }
@@ -139,36 +140,32 @@ export function emptyProgress(goal: number | undefined, now: number, timeZone: s
 
 /**
  * 在常规菜单上加入测验和换题重考。有强制补救时常规菜单只含补救（见 flow-menu.ts），测验和重考等补救做完再给。fold 的补救只含还要求的义务。
- * key 是当前的课：别的课的题单与原测验在这门课里做不了，不进菜单，也不挡它。
+ * present 是空间里的课：题单或原测验所属的课不在了，就不进菜单，也不挡别的任务。所有课都没有可考的内容（题单为空）时保留门槛，
+ * 不出测验，也不挡别的学习任务。
  */
-export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, key: string): LearningMenu {
+export function progressMenu(menu: LearningMenu, replay: Replay, fold: Fold, present: ReadonlySet<string>): LearningMenu {
   if (fold.forced.size) {
     return menu;
   }
-  const pending = replay.pending?.course === key ? replay.pending : undefined;
-  if (pending && !pending.topicIds.length) {
-    // 已到测验门槛，但学过的 topic 没有可出的测验题：菜单为空，等课程补上题目。
-    menu.candidates = [];
-    delete menu.availableAt;
-  } else if (pending) {
-    const candidate = { id: `quiz-${pending.n}`, kind: "quiz" as const, title: "测验", topicIds: pending.topicIds, course: key };
+  const pending = replay.pending !== undefined && present.has(replay.pending.course) ? replay.pending : undefined;
+  if (pending && pending.topicIds.length) {
+    const candidate = { id: `quiz-${pending.n}`, kind: "quiz" as const, title: "测验", topicIds: pending.topicIds, course: pending.course };
     menu.candidates = [candidate, ...replay.quizOnly() ? [] : menu.candidates].slice(0, MENU_SIZE);
     delete menu.availableAt;
-  } else {
+  } else if (!replay.pending) {
     const quizzes = replay.tasks.filter((task) => isQuiz(task.kind));
     const original = quizzes.map((task) => taskEvidence(task, task.inherited)).findLast((entry) => isCompleted(entry.outcome));
-    const own = original?.task.course === key;
     const retaken = new Set(replay.tasks
       .filter((task) => task.kind === "retake" && !(task.endedAt !== undefined && task.deliveries.length === 0))
       .map((task) => task.retakes));
     // 有 topic 答错或没答才要换题重考；还没判出结果的、题目已从课程删除的都不算。
-    if (original && own && original.task.topicIds.some((id) => quizResult(original.task, original.attempts, id) === "fail") && !retaken.has(original.task.seq)) {
+    if (original && present.has(original.task.course) && original.task.topicIds.some((id) => quizResult(original.task, original.attempts, id) === "fail") && !retaken.has(original.task.seq)) {
       menu.candidates = [{
         id: `retake-${original.task.seq}`,
         kind: "retake" as const,
         title: "换题重考",
         topicIds: original.task.topicIds,
-        course: key,
+        course: original.task.course,
         originalTaskId: taskId(original.task),
       }, ...menu.candidates].slice(0, MENU_SIZE);
       delete menu.availableAt;

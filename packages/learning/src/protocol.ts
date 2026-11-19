@@ -217,7 +217,8 @@ export type TaskStage = Static<typeof TaskStageSchema>;
 
 /** id 是公开内容身份，version 是该内容的摘要，不是内部题号映射。 */
 export const ContentRefSchema = object({
-  courseId: identifier, topicId: identifier, kpId: Type.Optional(identifier),
+  // course 是内容所属的课在空间里的键：两门课的编号可以相同。courseId 是那门课清单里的 id。
+  course: CourseKeySchema, courseId: identifier, topicId: identifier, kpId: Type.Optional(identifier),
   id: identifier, version: reference.properties.version,
   kind: Type.Enum(["topic", "kp", "lesson", "example", "card", "explanation"]),
 });
@@ -337,7 +338,11 @@ export type LearningProgress = Static<typeof LearningProgressSchema>;
 export const LearningStateSchema = object({
   // revision 只表示学习记录的位置（事实条数），不表示学习者开始过没有：started 是学习记录里有没有任务。
   revision: count, serverNow: timestamp, started: Type.Boolean(),
+  // course 是画面上这项任务所属的课，没有任务时是空间里的第一门；courses 是空间里可学的各门课，带各自学过几节、共几节。
   course: Type.Union([object({ id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
+  courses: Type.Array(object({
+    key: CourseKeySchema, id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String(), completedTopics: count, totalTopics: count,
+  })),
   task: Type.Union([LearningTaskSchema, Type.Null()]), menu: Type.Union([LearningMenuSchema, Type.Null()]),
   restrictions: object({
     kind: Type.Enum(["none", "review", "quiz"]), tutorAllowed: Type.Boolean(), referenceContentAllowed: Type.Boolean(),

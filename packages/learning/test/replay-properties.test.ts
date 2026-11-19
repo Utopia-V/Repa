@@ -30,7 +30,7 @@ import type { LearningState } from "../src/protocol.js";
 import type { GradedSlot } from "../src/records-schema.js";
 import { Replay } from "../src/replay.js";
 import { DAY_MS } from "../src/student-model.js";
-import { learningFixture, start, topic } from "./fixtures/learning-session.js";
+import { learningFixture, start, topic, sole } from "./fixtures/learning-session.js";
 
 const RUNS = Number(process.env.REPA_PROPERTY_RUNS ?? 100);
 const SEED = Number(process.env.REPA_PROPERTY_SEED ?? 20261103);
@@ -159,7 +159,7 @@ class XpAudit {
   private fed = 0;
 
   constructor(key: string, structure: StructureIndex, private readonly seen: Set<string>) {
-    this.replay = new Replay(key, structure);
+    this.replay = new Replay([[key, structure]]);
   }
 
   feed(facts: readonly Parameters<Replay["apply"]>[0][], now: number): void {
@@ -217,7 +217,7 @@ async function stable(f: Fixture): Promise<LearningState> {
 async function reopen(run: Run): Promise<void> {
   await run.f.reopen();
   await stable(run.f);
-  run.audit = new XpAudit(run.f.session().key, run.f.session().structure, run.seen);
+  run.audit = new XpAudit(sole(run.f.session()).key, sole(run.f.session()).structure, run.seen);
 }
 
 /** 公开状态里与判分进程有关的部分（为什么中断）只在内存里，重开后不同，比较时去掉。 */
@@ -237,7 +237,7 @@ async function answer(run: Run, op: Operation, quiz: boolean): Promise<void> {
   const input = await f.input();
   const seq = Number(input.deliveryId.slice(1));
   const record = f.session().replay.delivery(seq);
-  const entry = record && f.session().course.questions.get(record.questionId);
+  const entry = record && sole(f.session()).course.questions.get(record.questionId);
   assert.ok(entry);
   const { item } = input.response;
   let response = input.response;
@@ -353,7 +353,7 @@ async function perform(run: Run, op: Operation): Promise<void> {
       await f.writeTopics(run.topics);
       await reopen(run);
       for (const delivery of f.session().replay.allDeliveries()) {
-        const question = f.session().course.questions.get(delivery.questionId)?.question;
+        const question = sole(f.session()).course.questions.get(delivery.questionId)?.question;
         const definition = question?.slots[0];
         if (!delivery.answer || !question || gradingNeed(question) !== "rule" || definition?.type !== "text") continue;
         const correct = !delivery.answer.dontKnow && textOf(delivery) === definition.key;
@@ -369,8 +369,9 @@ async function check(run: Run): Promise<void> {
   const { f, seen } = run;
   const state = await stable(f);
   const session = f.session();
-  const { replay: live, structure } = session;
-  const cold = new Replay(session.key, structure);
+  const { replay: live } = session;
+  const { structure } = sole(session);
+  const cold = new Replay(session.structures());
   for (const fact of session.records.facts) cold.apply(fact);
   cold.settle(state.serverNow);
   assert.deepEqual(snapshot(live), snapshot(cold), "现场状态与从事实重放的结果不同");
@@ -409,7 +410,7 @@ async function check(run: Run): Promise<void> {
     if (menu.availableAt !== undefined) {
       seen.add(fold.forced.size ? "补救休息到点再给" : "失败的课休息到点再给");
     } else {
-      const exhausted = !fold.forced.size && structure.order.every((entry) => fold.student[scoped(session.key, entry.id)]);
+      const exhausted = !fold.forced.size && structure.order.every((entry) => fold.student[scoped(sole(session).key, entry.id)]);
       const shortage = live.pending !== undefined && !live.pending.topicIds.length;
       assert.ok(exhausted || shortage, `菜单为空也没有恢复时间：强制补救 ${JSON.stringify([...fold.forced])}，已学 ${Object.keys(fold.student).join("、")}`);
     }
@@ -426,7 +427,7 @@ test("随机的学习操作序列下：现场状态与从事实重放相同，�
         const topics = courseTopics();
         const f = await learningFixture({ after: (cleanup) => { cleanups.push(cleanup); } }, topics, { models: model });
         await f.state();
-        const run: Run = { f, model, topics, audit: new XpAudit(f.session().key, f.session().structure, seen), clock: start, answers: 0, seen };
+        const run: Run = { f, model, topics, audit: new XpAudit(sole(f.session()).key, sole(f.session()).structure, seen), clock: start, answers: 0, seen };
         await learn(run, lessons);
         for (const op of operations) {
           try {

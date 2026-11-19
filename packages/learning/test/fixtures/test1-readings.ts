@@ -279,7 +279,7 @@ async function oracle(root: string, facts: Fact[], clock: { now: number }, model
     models,
     services: { call: () => Promise.reject(new RepaFault("service_unavailable", "没有前端")) },
   } as unknown as Host;
-  return LearningSession.open(frozenRecords(facts), resolved, host, ORACLE_KEY, { upTo: facts.length, structure: new StructureIndex(structure), key: ORACLE_KEY });
+  return LearningSession.open(frozenRecords(facts), [{ key: ORACLE_KEY, resolved }], host, { upTo: facts.length, structure: new StructureIndex(structure), key: ORACLE_KEY });
 }
 
 /** 一个空间学习记录的全部事实。 */

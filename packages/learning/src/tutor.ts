@@ -15,7 +15,7 @@ import {
 import type { LearningSession } from "./session.js";
 import { topicMemory } from "./student-model.js";
 import { currentDelivery, referenceContent, requireReferenceAccess, visibleContent } from "./tutor-content.js";
-import { pagedText, pagesText, searchText, taskText, viewText } from "./tutor-text.js";
+import { contentName, pagedText, pagesText, searchText, taskText, viewText, type CourseLookup } from "./tutor-text.js";
 
 export const TUTOR_AGENT = "learning-tutor";
 /** 前端的 content.search 与 content.read 一次返回的上限；给模型的工具输出由底座的上限约束，不用它。 */
@@ -90,8 +90,11 @@ export function tutorAgent(hooks: () => TutorHooks): AgentDefinition {
 }
 
 export async function connectTutor(session: LearningSession): Promise<Tutor> {
-  const index = await referenceContent(session.course.course);
-  const titles = new Map(index.map((entry) => [entry.ref.id, entry.title]));
+  const index = (await Promise.all([...session.courses.values()].map((content) => referenceContent(content.resolved, content.key)))).flat();
+  // 标题按“课的键加编号”找；给模型看的编号在几门课时带上课的键（contentName）。
+  const titles = new Map(index.map((entry) => [contentName(entry.ref, true), entry.title]));
+  const courses: CourseLookup = (key) => session.content(key)?.course;
+  const qualified = session.courses.size > 1;
   const methods: Record<string, PluginMethod> = {};
   /**
    * 按当前状态授权以后读内容。授权和取内容与学习记录的写入走同一个串行入口，
@@ -128,7 +131,7 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
   const search = register("content.search", async ({ query, offset, limit }) => access((pages) => {
     const needle = query.toLocaleLowerCase("zh-CN");
     const hits = pages.flatMap((page) => {
-      const title = titles.get(page.ref.id) ?? "已释放题解";
+      const title = titles.get(contentName(page.ref, true)) ?? "已释放题解";
       const text = page.blocks.map((block) => block.type === "image" ? block.alt : block.text).join("\n");
       const searchable = `${page.ref.id} ${title} ${text}`.toLocaleLowerCase("zh-CN");
       if (!searchable.includes(needle)) {
@@ -180,7 +183,8 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
         const { line: from = 1 } = parse(TaskParametersSchema, raw);
         return session.records.serial(async () => {
           const view = requireReferenceAccess(await session.view());
-          return { text: pagedText(taskText(view.state.task, session.course), from, TUTOR_TOOLS[0].name) };
+          const task = view.state.task;
+          return { text: pagedText(taskText(task, task ? courses(task.course) : undefined), from, TUTOR_TOOLS[0].name) };
         });
       },
     },
@@ -189,7 +193,7 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
       async execute(raw) {
         const { line: from = 1, ...input } = { offset: 0, limit: 10, ...parse(SearchParametersSchema, raw) };
         const result = await search(input);
-        return { text: pagedText(searchText(input.query, input.offset, result ?? { hits: [], nextOffset: null }, titles, session.course), from, TUTOR_TOOLS[1].name) };
+        return { text: pagedText(searchText(input.query, input.offset, result ?? { hits: [], nextOffset: null }, titles, courses, qualified), from, TUTOR_TOOLS[1].name) };
       },
     },
     {
@@ -198,13 +202,13 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
         const { ids: requested, line: from = 1 } = parse(ReadParametersSchema, raw);
         const ids = [...new Set(requested)];
         const pages = await access((visible) => {
-          const missing = ids.filter((id) => !visible.some((page) => page.ref.id === id));
+          const missing = ids.filter((id) => !visible.some((page) => contentName(page.ref, qualified) === id));
           if (missing.length) {
             throw new RepaFault("invalid_input", `没有编号为 ${missing.join("、")} 的内容，或者还没学到；用 learning_search 查找能读的内容`);
           }
-          return ids.flatMap((id) => visible.filter((page) => page.ref.id === id));
+          return ids.flatMap((id) => visible.filter((page) => contentName(page.ref, qualified) === id));
         });
-        return { text: pagedText(pagesText(pages, titles, session.course), from, TUTOR_TOOLS[2].name) };
+        return { text: pagedText(pagesText(pages, titles, courses, qualified), from, TUTOR_TOOLS[2].name) };
       },
     },
   ];
@@ -243,7 +247,10 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
         const view = await session.view();
         const task = view.state.task;
         const delivery = currentDelivery(task ?? null);
-        const topic = session.course.topics.get(task?.topics[0]?.id ?? "");
+        // 辅导讲的是这项任务所属那门课的题。
+        const course = task ? courses(task.course) : undefined;
+        const key = task?.course ?? "";
+        const topic = course?.topics.get(task?.topics[0]?.id ?? "");
         const phase = task?.phase;
         const shownKp = phase?.stage === "explanation" || phase?.stage === "example" ? phase.page.ref.kpId : undefined;
         const kpId = shownKp ?? delivery?.kpId ?? task?.kps.find((entry) => !entry.completed)?.kpId;
@@ -252,11 +259,11 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
         // 先修排序用最后一条事实的时间，状态不变时视图文本不变，不打乱提示缓存；时钟回拨时与学生模型一样不让时间倒退。
         const time = session.records.facts.at(-1)?.at ?? view.state.serverNow;
         const weak = (topic?.prerequisites ?? [])
-          .filter((id) => view.student[scoped(session.key, id)] !== undefined)
-          .map((id) => ({ id, memory: topicMemory(view.student, scoped(session.key, id), time) }))
+          .filter((id) => view.student[scoped(key, id)] !== undefined)
+          .map((id) => ({ id, memory: topicMemory(view.student, scoped(key, id), time) }))
           .sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id))
           .slice(0, 3);
-        return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id), view.state.restrictions.referenceContentAllowed);
+        return viewText(task ?? null, course, kp, weak.map((entry) => entry.id), view.state.restrictions.referenceContentAllowed);
       },
     },
   };

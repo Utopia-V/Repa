@@ -75,7 +75,8 @@ export async function connectLearning(
     if (task.kind === "lesson" && (invalidShownKp || rewound)) {
       throw stale("当前交付已失去课内资格，请中止后重新选择");
     }
-    if (!session.owns(task) || !topicEligible(session.structure, session.gate(session.before()), task.course, task.topicIds[0] ?? "", task.kind, session.clock())) {
+    const structure = session.content(task.course)?.structure;
+    if (!structure || !topicEligible(structure, session.gate(session.before()), task.course, task.topicIds[0] ?? "", task.kind, session.clock())) {
       throw stale("任务已失去学习资格，请中止当前任务后重新选择");
     }
   }
@@ -89,7 +90,8 @@ export async function connectLearning(
   async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
     const task = evidence.task;
     const id = topicId ?? task.topicIds[0] ?? "";
-    const topic = session.owns(task) ? session.course.topics.get(id) : undefined;
+    const content = session.content(task.course);
+    const topic = content?.course.topics.get(id);
     const { found, removed } = session.taskPool(task, id);
     let pool = found;
     if (task.retakes !== undefined) {
@@ -114,7 +116,7 @@ export async function connectLearning(
     if (!topic || !pool.length) {
       throw new RepaFault("insufficient_items", "当前题池题量不足，无法交付或换题重考");
     }
-    const usable = session.usable(capabilities);
+    const usable = session.usable(task.course, capabilities);
     let candidates = pool.filter((entry) => usable(entry.question, topic));
     if (task.kind === "review") {
       const rotation = evidence.kps.filter((kp) => candidates.some((entry) => entry.kp.id === kp.kpId));
@@ -126,7 +128,7 @@ export async function connectLearning(
     }
     if (task.kind === "lesson") {
       // 开放题不计入必做，答完必做题这个知识点就判定了；所以最后一道必做题之前，先出还能出的开放题，有模型时它们才不会被跳过。
-      const isOpen = (candidate: (typeof candidates)[number]) => session.structure.questions.get(candidate.question.id)?.open === true;
+      const isOpen = (candidate: (typeof candidates)[number]) => content?.structure.questions.get(candidate.question.id)?.open === true;
       const required = candidates.filter((candidate) => !isOpen(candidate));
       const open = candidates.filter(isOpen);
       if (required.length === 1 && open.length > 0) {
@@ -138,7 +140,7 @@ export async function connectLearning(
       : candidates.find((candidate) => session.replay.firstDelivered(task.course, candidate.question.id) === undefined) ?? candidates[0];
     if (!entry) {
       const first = pool[0];
-      const missing = first ? session.missing(first.question, topic, capabilities) : [];
+      const missing = first ? session.missing(task.course, first.question, topic, capabilities) : [];
       if (missing.length) {
         throw new RepaFault("missing_capability", "前端不支持当前题目", { reason: "missing_capability", missing, taskId: taskId(task) });
       }
@@ -189,7 +191,8 @@ export async function connectLearning(
     await session.write(async () => {
       const state = await session.state(capabilities);
       const candidate = state.menu?.candidates.find((entry) => entry.id === input.candidateId);
-      if (!candidate || state.menu?.menuId !== input.menuId || candidate.course !== session.key) {
+      const structure = candidate && session.content(candidate.course)?.structure;
+      if (!candidate || !structure || state.menu?.menuId !== input.menuId) {
         throw stale("菜单已失效");
       }
       restricted = candidate.kind !== "lesson";
@@ -197,8 +200,8 @@ export async function connectLearning(
       return session.taskFacts({
         type: "task", kind: candidate.kind, topics: candidate.topicIds,
         ...(original === undefined ? {} : { retakes: original }),
-        ...(candidate.kind === "lesson" ? lessonRequirement(session.structure, candidate.topicIds[0] ?? "") : {}),
-      });
+        ...(candidate.kind === "lesson" ? lessonRequirement(structure, candidate.topicIds[0] ?? "") : {}),
+      }, candidate.course);
     });
     if (restricted) {
       await startRestricted(capabilities);
@@ -405,12 +408,13 @@ export async function connectLearning(
     if (!delivery || delivery.task !== current()?.task) {
       throw stale("这份交付不在当前任务里");
     }
-    const entry = session.course.questions.get(delivery.questionId);
+    const course = session.content(delivery.task.course)?.course;
+    const entry = course?.questions.get(delivery.questionId);
     const slot = entry?.question.slots.find((candidate) => candidate.id === input.slotId);
     if (!entry || slot?.type !== "code") {
       throw new RepaFault("invalid_input", "只有代码作答位可以试运行");
     }
-    const batch = trialBatch(entry.question, slot, entry.topic, session.course.course.course.runtime?.prelude ?? "", input.code);
+    const batch = trialBatch(entry.question, slot, entry.topic, course?.course.course.runtime?.prelude ?? "", input.code);
     if (!batch) {
       throw new RepaFault("service_failed", "题目的测试用到的数据夹具缺失");
     }

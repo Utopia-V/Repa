@@ -14,7 +14,7 @@ import { Replay } from "../src/replay.js";
 import { connectTutor } from "../src/tutor.js";
 import type { Question } from "../src/format/schema.js";
 import { updateStudent } from "../src/student-model.js";
-import { bareFold, clientCapabilities, deliverySeq, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
+import { bareFold, clientCapabilities, deliverySeq, learningFixture as fixture, start, topic, sole } from "./fixtures/learning-session.js";
 import { scoped } from "../src/course-key.js";
 
 const stale = (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state";
@@ -218,7 +218,7 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const session = f.session();
   const bytes = await readFile(session.records.file);
   const replay = (facts: readonly Fact[]) => {
-    const result = new Replay(session.key, session.structure);
+    const result = new Replay(session.structures());
     for (const fact of facts) result.apply(fact);
     return result;
   };
@@ -226,13 +226,13 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const removed = facts.find((fact) => fact.type === "answered");
   assert.ok(removed?.type === "answered");
   const copy = facts.filter((fact) => !((fact.type === "answered" || fact.type === "graded") && fact.delivery === removed.delivery));
-  const actual = learningMenu(session.structure, session.key, replay(facts).fold(), start, "menu", () => true, "UTC", (id) => id);
+  const actual = learningMenu(sole(session).structure, sole(session).key, replay(facts).fold(), start, "menu", () => true, "UTC", (id) => id);
   const counterfactual = replay(copy);
-  const alternative = learningMenu(session.structure, session.key, counterfactual.fold(), start, "menu", () => true, "UTC", (id) => id);
+  const alternative = learningMenu(sole(session).structure, sole(session).key, counterfactual.fold(), start, "menu", () => true, "UTC", (id) => id);
   assert.deepEqual(actual.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   assert.deepEqual(alternative.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
-  assert.equal(counterfactual.fold().student[scoped(session.key, "t01")], undefined);
-  assert.deepEqual(bareFold(replay(facts).fold(), session.key).student, await f.student());
+  assert.equal(counterfactual.fold().student[scoped(sole(session).key, "t01")], undefined);
+  assert.deepEqual(bareFold(replay(facts).fold(), sole(session).key).student, await f.student());
   assert.deepEqual(await readFile(session.records.file), bytes);
   if (process.env.REPA_LEARNING_EVIDENCE) {
     const parent = process.env.REPA_LEARNING_EVIDENCE;
@@ -620,7 +620,7 @@ test("菜单相近项不同列，刷新和任务前后保留候选身份；连�
   const siblings = menu.menu?.candidates.filter((entry) => ["t02", "t03"].includes(entry.topicIds[0] ?? ""));
   assert.equal(siblings?.length, 1);
   const fold = await f.rawFold();
-  const decision = learningMenu(f.session().structure, f.session().key, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC", (id) => id);
+  const decision = learningMenu(sole(f.session()).structure, sole(f.session()).key, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC", (id) => id);
   assert.equal(decision.candidates[0]?.kind, "lesson");
 });
 
@@ -749,7 +749,7 @@ for (const wrong of [3, 1]) {
     if (wrong === 3) {
       // 就算余下两题都答对，也只有两题对，到不了通过线：这份失败的证据照常计入。
       assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
-      const expected = updateStudent(f.session().structure.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
+      const expected = updateStudent(sole(f.session()).structure.graph, learned, { topicId: "t01", outcome: "fail", quality: 1 }, start + 86_400_000);
       assert.deepEqual(await f.student(), expected);
     } else {
       // 学习者自己中止：不另附原因，界面只说“已中止。”。
@@ -907,7 +907,7 @@ for (const delay of [0, 600_000]) {
     const receipt = await work;
     assert.equal(receipt.status, "recorded");
     assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
-    const expected = updateStudent(f.session().structure.graph, student, { topicId: "t01", outcome: "fail", quality: 1 }, acceptedAt);
+    const expected = updateStudent(sole(f.session()).structure.graph, student, { topicId: "t01", outcome: "fail", quality: 1 }, acceptedAt);
     assert.deepEqual(await f.student(), expected);
     await f.reopen();
     assert.deepEqual(await f.student(), expected);

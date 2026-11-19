@@ -21,7 +21,7 @@ import type { LearningSession } from "../src/session.js";
 import { chooseTasks, updateStudent } from "../src/student-model.js";
 import { now } from "./fixtures/learning-contract.js";
 import { clock, course, graph, openSession, topic } from "./fixtures/learning-records.js";
-import { learningFixture, start, topic as testTopic } from "./fixtures/learning-session.js";
+import { learningFixture, sole, start, topic as testTopic } from "./fixtures/learning-session.js";
 
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -323,7 +323,7 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   await space.close();
   space = await openSpace(path.join(root, "space"), { watch: false });
   host = await openPluginHost({ space, plugins: [plugin], now: () => start, models, emit: () => {}, onError: (error) => { throw error; } });
-  assert.equal(session?.course.topics.get("t01")?.title, "修订后的覆盖标题");
+  assert.equal(session && sole(session).course.topics.get("t01")?.title, "修订后的覆盖标题");
   assert.deepEqual((await session?.view())?.student, student);
   const reopened = await call("submission.get", { submissionId: input.submissionId });
   assert.deepEqual(reopened, result);

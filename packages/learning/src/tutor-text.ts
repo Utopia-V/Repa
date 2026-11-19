@@ -59,12 +59,23 @@ const STAGES: Record<Exclude<Phase["stage"], "completed">, string> = {
   aborted: "学习者中止了这项任务",
 };
 
-function topicTitle(course: CourseIndex, topicId: string): string {
-  return course.topics.get(topicId)?.title ?? topicId;
+function topicTitle(course: CourseIndex | undefined, topicId: string): string {
+  return course?.topics.get(topicId)?.title ?? topicId;
 }
 
-function kpTitle(course: CourseIndex, topicId: string, kpId: string): string {
-  return course.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.title ?? kpId;
+function kpTitle(course: CourseIndex | undefined, topicId: string, kpId: string): string {
+  return course?.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.title ?? kpId;
+}
+
+/** 按课的键取那门课的内容。 */
+export type CourseLookup = (key: string) => CourseIndex | undefined;
+
+/**
+ * 给模型看的内容编号：空间里只有一门课时就是内容自己的编号；几门课时前面加上课的键，两门课的编号可以相同。
+ * learning_read 收到的编号按同一个写法对回去。
+ */
+export function contentName(ref: ContentRef, qualified: boolean): string {
+  return qualified ? `${ref.course}:${ref.id}` : ref.id;
 }
 
 function taskName(task: LearningTask): string {
@@ -239,7 +250,7 @@ function questionText(delivery: Delivery, submission: Submission | undefined): s
 }
 
 /** learning_task 的文字：学习者正在读的讲解或例题，或者正在做的题连同作答、判分结果和题解。 */
-export function taskText(task: LearningTask | null, course: CourseIndex): string {
+export function taskText(task: LearningTask | null, course: CourseIndex | undefined): string {
   if (!task) return "学习者还没有开始任何任务。";
   const head = [taskName(task)];
   const phase = task.phase;
@@ -261,7 +272,8 @@ export function taskText(task: LearningTask | null, course: CourseIndex): string
 }
 
 /** 一项内容的名字：属于哪个知识点、是什么，以及所在的课。titles 是内容索引里的标题，用于概念卡的名称。 */
-function pageName(ref: ContentRef, titles: ReadonlyMap<string, string>, course: CourseIndex): string {
+function pageName(ref: ContentRef, titles: ReadonlyMap<string, string>, courses: CourseLookup): string {
+  const course = courses(ref.course);
   const topic = `课「${topicTitle(course, ref.topicId)}」`;
   if (ref.kind === "topic" || ref.kpId === undefined) return `${topic}的引言与小结`;
   const kp = `知识点 ${ref.kpId}「${kpTitle(course, ref.topicId, ref.kpId)}」`;
@@ -269,7 +281,7 @@ function pageName(ref: ContentRef, titles: ReadonlyMap<string, string>, course: 
     kp: "",
     lesson: "的讲解",
     example: "的例题",
-    card: `的概念卡「${titles.get(ref.id) ?? ""}」`,
+    card: `的概念卡「${titles.get(contentName(ref, true)) ?? ""}」`,
     explanation: "一道题的题解",
   }[ref.kind];
   return `${kp}${what}，${topic}`;
@@ -278,11 +290,11 @@ function pageName(ref: ContentRef, titles: ReadonlyMap<string, string>, course: 
 /** learning_search 的文字：每条结果一行编号与名字，下一行是摘录。 */
 export function searchText(
   query: string, offset: number, result: LearningResult<"content.search">,
-  titles: ReadonlyMap<string, string>, course: CourseIndex,
+  titles: ReadonlyMap<string, string>, courses: CourseLookup, qualified = false,
 ): string {
   if (!result.hits.length) return offset > 0 ? "没有更多结果。" : `学过的内容里没有找到「${query}」。`;
   const lines = result.hits.flatMap((hit) => [
-    `- \`${hit.ref.id}\` ${pageName(hit.ref, titles, course)}`,
+    `- \`${contentName(hit.ref, qualified)}\` ${pageName(hit.ref, titles, courses)}`,
     `  ${hit.snippet.replace(/\s+/g, " ").trim()}`,
   ]);
   if (result.nextOffset !== null) lines.push(`还有更多结果，用 offset=${result.nextOffset} 继续。`);
@@ -290,18 +302,19 @@ export function searchText(
 }
 
 /** 一项内容在材料里的出处：所在 topic 登记的来源与位置，例如“「操作系统第一章」第 12–15 张”。 */
-function sourcesText(ref: ContentRef, course: CourseIndex): string | undefined {
-  const uses = course.topics.get(ref.topicId)?.sources ?? [];
-  if (uses.length === 0) return undefined;
+function sourcesText(ref: ContentRef, courses: CourseLookup): string | undefined {
+  const course = courses(ref.course);
+  const uses = course?.topics.get(ref.topicId)?.sources ?? [];
+  if (uses.length === 0 || !course) return undefined;
   const registered = course.course.course.sources;
   return `出处：${uses.map((use) => `「${registered[use.source]?.title ?? use.source}」${use.where}`).join("；")}`;
 }
 
 /** learning_read 的文字：每项内容一个标题和出处，下面是全文。 */
-export function pagesText(pages: ContentPage[], titles: ReadonlyMap<string, string>, course: CourseIndex): string {
+export function pagesText(pages: ContentPage[], titles: ReadonlyMap<string, string>, courses: CourseLookup, qualified = false): string {
   return pages.map((page) => {
-    const source = sourcesText(page.ref, course);
-    return `# \`${page.ref.id}\` ${pageName(page.ref, titles, course)}${source ? `\n${source}` : ""}\n\n${contentText(page.blocks) || "（没有内容）"}`;
+    const source = sourcesText(page.ref, courses);
+    return `# \`${contentName(page.ref, qualified)}\` ${pageName(page.ref, titles, courses)}${source ? `\n${source}` : ""}\n\n${contentText(page.blocks) || "（没有内容）"}`;
   }).join("\n\n");
 }
 
@@ -336,7 +349,7 @@ export function pagedText(text: string, line: number, tool: string): string {
  * 辅导提到时不必先搜索就能顺带讲一句、写成概念链接；不能看参考内容时（作答期间）只写名称，与 learning_search 的授权一致。
  */
 export function viewText(
-  task: LearningTask | null, course: CourseIndex, kp: KpProgress | undefined, prerequisites: string[], concepts: boolean,
+  task: LearningTask | null, course: CourseIndex | undefined, kp: KpProgress | undefined, prerequisites: string[], concepts: boolean,
 ): string {
   if (!task) return "学习者还没有开始任何任务。";
   const phase = task.phase;
@@ -350,7 +363,7 @@ export function viewText(
   } else if (prerequisites.length) {
     lines.push("学过的直接先修，学生模型估计的记忆由弱到强，各自的概念（括号里是知识点编号）：");
     for (const id of prerequisites) {
-      const kps = course.topics.get(id)?.kps ?? [];
+      const kps = course?.topics.get(id)?.kps ?? [];
       lines.push(`- 「${topicTitle(course, id)}」：${kps.map((entry) => `${entry.card?.name ?? entry.title}（${entry.id}）`).join("、")}`);
     }
   }
