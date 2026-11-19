@@ -179,7 +179,10 @@ function history(replay: Replay) {
   return { outcomes, awards: replay.awards, student: replay.fold().student };
 }
 
-test("空间里有还没换用的 course/、随包课没有做到一半的任务：测试版不显示任何一门课，基线不带结构，升级以后同样没有可学的课；之后首次换用自制课，随包课那段成绩不补进 XP", async (t) => {
+/** 换用要先运行课里的 Python 核对；测试里没有应用页面，只有 Linux 沙箱能运行。 */
+const NEEDS_SANDBOX = { skip: process.platform === "linux" ? false : "换用要运行课里的 Python 核对，测试里只有 Linux 沙箱能运行" };
+
+test("空间里有还没换用的 course/、随包课没有做到一半的任务：测试版不显示任何一门课，基线不带结构，升级以后同样没有可学的课；之后首次换用自制课，随包课那段成绩不补进 XP", NEEDS_SANDBOX, async (t) => {
   const f = await fixture(t, "snapshots/先学 Python 再学进程/python-only");
   await cp(path.join(FIXTURE, "home/Repa/先学 Python 再学进程/course"), path.join(f.root, "course"), { recursive: true });
   await f.open();
@@ -216,9 +219,10 @@ test("基线之前的任务按基线的结构算，不随当前的课变：同�
 });
 
 test("冻结的测试版随包课结构没有被改动：摘要与生成时记下的相同，测试版数据里出过的 Python 题都在其中", async () => {
-  const text = await readFile(fileURLToPath(new URL("../legacy/test1-python.json", import.meta.url)));
+  // Windows 上检出时换行可能变成 CRLF，内容没变：摘要按 LF 的文本算，与生成时记下的一致。
+  const text = (await readFile(fileURLToPath(new URL("../legacy/test1-python.json", import.meta.url)), "utf8")).replaceAll("\r\n", "\n");
   assert.equal(createHash("sha256").update(text).digest("hex"), "2789be368efad2f4f28faa05be4a589381961d9140f8db734f43aaaf79ab5906");
-  const index = new StructureIndex(JSON.parse(text.toString("utf8")));
+  const index = new StructureIndex(JSON.parse(text));
   for (const source of ["home/Repa/Python 入门", "home/Repa/Python 测验"]) {
     const facts = (await readFile(path.join(FIXTURE, source, LOG), "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
     for (const fact of facts) if (fact.type === "delivered") assert.ok(index.questions.has(fact.question), fact.question);
@@ -253,7 +257,7 @@ test("基线不推进学习时钟：戊进行中的测验，先在截止以后�
   assert.equal(state.progress.totalXp, 161);
 });
 
-test("活动副本读不出时不定基线，换用也拒绝并说明是副本坏了；副本修好以后，基线照旧取原来的课，学过的 XP 都在", async (t) => {
+test("活动副本读不出时不定基线，换用也拒绝并说明是副本坏了；副本修好以后，基线照旧取原来的课，学过的 XP 都在", NEEDS_SANDBOX, async (t) => {
   const f = await fixture(t, "home/Repa/操作系统 走查");
   const data = path.join(f.root, ".repa", "plugins", "learning");
   const active = (JSON.parse(await readFile(path.join(data, "course.json"), "utf8")) as { active: string }).active;
