@@ -5,7 +5,7 @@
  */
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Kp, Topic } from "./format/schema.js";
-import { courseFolder } from "./space-course.js";
+import { courseFolder, inLocation } from "./space-course.js";
 
 /**
  * 更早的部分最多列多少个概念名，按先修图上离要展开的部分由近到远取整个部分。四十多节、每节三个知识点的课学到第三十节时
@@ -27,18 +27,18 @@ function conceptName(kp: Kp): string {
   return kp.card?.name ?? kp.title;
 }
 
-/** 出处：材料的标题、文件或网址，和在其中的位置。 */
-function sourcesLine(course: ResolvedCourse, topic: Topic): string {
+/** 出处：材料的标题、文件或网址，和在其中的位置。课件写成空间里的路径（课的文件夹加清单里写的相对路径），materials_read 照着就能读。 */
+function sourcesLine(course: ResolvedCourse, location: string, topic: Topic): string {
   if (topic.sources.length === 0) return "出处：没有登记";
   return `出处：${topic.sources.map((use) => {
     const source = course.course.sources[use.source];
-    const address = source?.file ?? use.url ?? source?.url;
+    const address = (source?.file === undefined ? undefined : inLocation(location, source.file)) ?? use.url ?? source?.url;
     return `「${source?.title ?? use.source}」${address === undefined ? "" : `（${address}）`}${use.where}`;
   }).join("；")}`;
 }
 
 /** 要展开的一部分：名称、范围、出处、直接先修和轮廓里估计的知识点。 */
-function partText(course: ResolvedCourse, topic: Topic, parts: ReadonlySet<string>, topics: ReadonlyMap<string, Topic>): string {
+function partText(course: ResolvedCourse, location: string, topic: Topic, parts: ReadonlySet<string>, topics: ReadonlyMap<string, Topic>): string {
   const prerequisites = topic.prerequisites.map((id) => {
     const prerequisite = topics.get(id);
     const name = prerequisite ? named(prerequisite) : id;
@@ -47,7 +47,7 @@ function partText(course: ResolvedCourse, topic: Topic, parts: ReadonlySet<strin
   return [
     named(topic),
     ...(topic.summary === undefined ? [] : [`范围：${topic.summary}`]),
-    sourcesLine(course, topic),
+    sourcesLine(course, location, topic),
     `直接先修：${prerequisites.length > 0 ? prerequisites.join("、") : "没有"}`,
     `出轮廓时、细读出处之前估计的知识点（细读以后按出处实际讲的增删）：${topic.kps.map((kp) => `${kp.id} ${kp.title}`).join("；")}`,
   ].join("\n");
@@ -104,7 +104,7 @@ export function expansionBrief(course: ResolvedCourse, location: string, topicId
     "## 要展开的部分",
     ...topicIds.flatMap((id) => {
       const topic = topics.get(id);
-      return topic ? [partText(course, topic, parts, topics)] : [];
+      return topic ? [partText(course, location, topic, parts, topics)] : [];
     }),
     "## 学习者在这之前学到的概念",
   ];

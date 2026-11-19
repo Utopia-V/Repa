@@ -1,5 +1,5 @@
 /**
- * 课件插件给前端的方法：列出 materials/ 里的课件，把本机的文件复制进来。
+ * 课件插件给前端的方法：列出一门课的 materials/ 里的课件，把本机的文件复制进来。
  *
  * 本文件经 @repa/materials/protocol 导出，只依赖 typebox 与 @repa/base/protocol，浏览器里也能用。
  * 规则与学习插件的协议相同：插件按当前版本严格校验，前端经 readMaterialsResult 宽松读取。
@@ -37,12 +37,12 @@ export type Material = Static<typeof MaterialSchema>;
 const MaterialsListSchema = object({ files: Type.Array(MaterialSchema) });
 
 /**
- * 本表是 materials 插件方法的 input/result，经底座的 plugin.call 调用。
- * add 把本机的文件（绝对路径）复制进 materials/，文件名不变；返回复制以后的列表。
+ * 本表是 materials 插件方法的 input/result，经底座的 plugin.call 调用。folder 是课的文件夹（相对空间根，courses/<名>），
+ * 课件在其中的 materials/。add 把本机的文件（绝对路径）复制进去，文件名不变；返回复制以后的列表。
  */
 export const materialsMethods = {
-  list: { input: object({}), result: MaterialsListSchema },
-  add: { input: object({ paths: Type.Array(identifier, { minItems: 1, maxItems: 100 }) }), result: MaterialsListSchema },
+  list: { input: object({ folder: identifier }), result: MaterialsListSchema },
+  add: { input: object({ folder: identifier, paths: Type.Array(identifier, { minItems: 1, maxItems: 100 }) }), result: MaterialsListSchema },
 } as const;
 /** materials 插件的方法名。 */
 export type MaterialsMethod = keyof typeof materialsMethods;

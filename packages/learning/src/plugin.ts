@@ -447,21 +447,23 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
 
   /**
    * 换用一门自己的课检查过的这一份。学习者有做到一半的任务时，只有同一门课的新的一版只增不改（已展开的部分一字不差）才换，否则不换。
-   * 这一步空间里同时只学一门，已经在学另一门课（自己的或随包的）时不换用。
+   * 这一步空间里同时只学一门：在学随包的课时，换用自己的课就取代它；已经在学另一门自己的课时不换用。
    * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
   function switchTo(key: string, location: string, id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
       if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
       if (current.kind === "ready" && current.key === key && current.entry.copy === id) return "unchanged";
-      if (current.kind === "ready" && current.key !== key) {
-        throw new RepaFault("second_course", `学习者正在学 ${current.entry.location ?? "随包"}的课，一个空间同时学几门课还没有做好，这一版没有换用。`);
+      if (current.kind === "ready" && current.key !== key && current.entry.location !== undefined) {
+        throw new RepaFault("second_course", `学习者正在学 ${current.entry.location} 的课，一个空间同时学几门课还没有做好，这一版没有换用。`);
       }
       const candidate = await read();
-      if (current.kind === "ready" && await taskTopics(current.session) !== undefined && !onlyAdds(current.course, candidate)) return "busy";
+      if (current.kind === "ready" && await taskTopics(current.session) !== undefined && (current.key !== key || !onlyAdds(current.course, candidate))) return "busy";
       await keep();
+      const replaced = current.kind === "ready" && current.key !== key ? current.key : undefined;
+      const base = entries.filter((item) => item.key !== replaced);
       const entry: CourseEntry = { key, location, copy: id };
-      const next = entries.some((item) => item.key === key) ? entries.map((item) => (item.key === key ? entry : item)) : [...entries, entry];
+      const next = base.some((item) => item.key === key) ? base.map((item) => (item.key === key ? entry : item)) : [...base, entry];
       await adopt(next, entry, () => store.load(id));
       return "switched";
     });

@@ -19,7 +19,7 @@ import { Replay } from "../src/replay.js";
 import { DAY_MS } from "../src/student-model.js";
 import { RUNTIME, runtimeUnavailable } from "./demo-course.js";
 import { skipUnavailableEnvironment } from "./environment.js";
-import { course, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
+import { bareFold, course, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -678,10 +678,10 @@ test("只把事实文件和格式标记搬到新空间，打开后从事实重�
   assert.deepEqual(await f.fold(), fold);
   assert.deepEqual(f.session().replay.awards, awards);
   // 不经插件，直接把事实交给重放也得到同样的学习状态。
-  const replay = new Replay(f.session().structure);
+  const replay = new Replay(f.session().key, f.session().structure);
   for (const fact of facts) replay.apply(fact);
   replay.settle(start + 86_400_000);
-  assert.deepEqual(replay.fold(), fold);
+  assert.deepEqual(bareFold(replay.fold(), f.session().key), fold);
   assert.deepEqual(replay.awards, awards);
 });
 
@@ -698,9 +698,9 @@ test("换一组学生模型参数重放同一份事实，得出不同的预测�
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
   const facts: readonly Fact[] = [...f.session().records.facts];
   const replay = (model?: ModelConfig) => {
-    const result = new Replay(f.session().structure, model);
+    const result = new Replay(f.session().key, f.session().structure, model);
     for (const fact of facts) result.apply(fact);
-    return result.fold().student;
+    return bareFold(result.fold(), f.session().key).student;
   };
   assert.deepEqual(replay(), await f.student());
   // 间隔增长更快的一组参数：同样的作答，复习以后的理想间隔更长，第三天按它不到期，按默认参数已经到期。
@@ -771,7 +771,7 @@ test("每项任务记下开始时的课程标识与版本：课程改版以后�
   await f.reopen();
   await f.select("t02");
   const tasks = f.session().records.facts.flatMap((fact) => (fact.type === "task" ? [fact.course] : []));
-  assert.deepEqual(tasks, [{ id: course.id, version: "1.0.0" }, { id: course.id, version: "1.1.0" }]);
+  assert.deepEqual(tasks, [{ key: f.session().key, id: course.id, version: "1.0.0" }, { key: f.session().key, id: course.id, version: "1.1.0" }]);
 });
 
 test("课按开始时的结构判定：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课仍出这道题，做完照常通过", async (t) => {

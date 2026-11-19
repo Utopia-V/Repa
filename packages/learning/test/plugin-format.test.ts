@@ -29,6 +29,7 @@ test("学习插件为空的新空间直接写当前的版本 5；重开兼容可
   host = await open();
   assert.deepEqual(host.disabled(), []);
   assert.equal(await readFile(format, "utf8"), marker);
+  await host.call("learning", "courses.useBundled", {}, { capabilities: {} });
   await host.call("learning", "progress.setGoal", { dailyGoalXp: 30 }, { capabilities: {} });
   assert.equal(await readFile(format, "utf8"), marker);
 });

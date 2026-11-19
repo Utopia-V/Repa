@@ -120,6 +120,8 @@ async function fixture(t: TestContext) {
     return reopened;
   };
   const state = () => call("state.get", {});
+  // 新空间里没有课：学习者选了随包的课（这里是测试的课）。
+  await call("courses.useBundled", {});
   async function startLesson() {
     const current = await state();
     const candidate = current.menu?.candidates.find((entry) => entry.kind === "lesson");
@@ -188,7 +190,7 @@ test("一键导出的 zip 只含白名单中的文件，没有选择包含会话
   assert.deepEqual(JSON.parse(zip.get("learning.json") ?? ""), {
     pluginVersion: await version("../repa-plugin.json"),
     recordsFormat: LEARNING_FORMAT_VERSION,
-    course: { id: course.id, version: course.version },
+    courses: [{ key: "bundled-course", id: course.id, version: course.version }],
   });
   const manifest: unknown = JSON.parse(zip.get("manifest.json") ?? "");
   assert.ok(manifest !== null && typeof manifest === "object" && "repa" in manifest && "plugin" in manifest && "sessions" in manifest);
@@ -280,7 +282,7 @@ test("两次预览同时在途、先发起的后完成：后发起的那份可�
       if (pending.size === 2) bothArrived();
     }),
   } as unknown as Host;
-  const { methods } = connectExport(host, () => ({ recordsFormat: 1, course: null }));
+  const { methods } = connectExport(host, () => ({ recordsFormat: 1, courses: [] }));
   const call = (name: string, input: unknown) => methods?.[name]?.invoke(input, {}) as Promise<{ exportId: string }>;
   const prepared = (name: string): PreparedExport => ({ files: [], write: () => { written.push(name); return Promise.resolve(`/exports/${name}.zip`); } });
   const withSessions = call("export.prepare", { sessions: true });

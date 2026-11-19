@@ -460,7 +460,7 @@ export class LearningSession {
         revision: this.records.revision,
         serverNow: now,
         started: this.replay.tasks.length > 0,
-        course: { key: this.key, id: course.id, title: course.title, version: course.version },
+        course: { id: course.id, title: course.title, version: course.version },
         task: shown ? await this.task(shown) : null,
         menu,
         restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },

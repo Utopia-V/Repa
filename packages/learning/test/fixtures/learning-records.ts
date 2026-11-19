@@ -43,7 +43,7 @@ export async function openSession(file: string, directory: string, models: Model
     services: { call: async () => { throw new Error("没有前端服务"); } },
     emit: () => {},
   } as unknown as Host;
-  const session = await LearningSession.open(records, resolved, host);
+  const session = await LearningSession.open(records, resolved, host, "test");
   await session.catchUp();
   const { methods } = await connectLearning(session);
   const caller = { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: [] } };

@@ -337,8 +337,7 @@ export type LearningProgress = Static<typeof LearningProgressSchema>;
 export const LearningStateSchema = object({
   // revision 只表示学习记录的位置（事实条数），不表示学习者开始过没有：started 是学习记录里有没有任务。
   revision: count, serverNow: timestamp, started: Type.Boolean(),
-  // course 是正在学的课：key 是它在空间里的键，id、title、version 取自它的清单。
-  course: Type.Union([object({ key: CourseKeySchema, id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
+  course: Type.Union([object({ id: identifier, title: Type.String({ maxLength: 200 }), version: Type.String() }), Type.Null()]),
   task: Type.Union([LearningTaskSchema, Type.Null()]), menu: Type.Union([LearningMenuSchema, Type.Null()]),
   restrictions: object({
     kind: Type.Enum(["none", "review", "quiz"]), tutorAllowed: Type.Boolean(), referenceContentAllowed: Type.Boolean(),

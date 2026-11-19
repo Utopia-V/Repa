@@ -16,6 +16,7 @@ import { RepaFault } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { ModelTestDriver } from "@repa/base/testing";
 import type { ClientCapabilities } from "@repa/base/protocol";
+import { scoped, unscoped } from "../../src/course-key.js";
 import { loadCourseSources, type ResolvedCourse } from "../../src/course-sources.js";
 import { courseStructure, StructureIndex, type CourseStructure } from "../../src/course-structure.js";
 import { emptyFold, foldTask, taskEvidence, type TaskEvidence } from "../../src/flow-state.js";
@@ -71,7 +72,7 @@ function tasks(session: LearningSession) {
   const evidences: TaskEvidence[] = [];
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    const evidence = taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? ""));
+    const evidence = taskEvidence(task, fold.lessons.get(scoped(task.course, task.topicIds[0] ?? "")));
     evidences.push(evidence);
     fold = foldTask(fold, evidence, STUDENT_MODEL);
   }
@@ -106,7 +107,7 @@ function student(fold: ReturnType<LearningSession["replay"]["fold"]>, now: numbe
   return Object.fromEntries(Object.keys(model).sort().map((id) => {
     const state = model[id]!;
     const dueDay = state.lastRepetitionDay + state.interval * Math.log2(state.memory / STUDENT_MODEL.dueMemory);
-    return [id, {
+    return [unscoped(ORACLE_KEY, id) ?? `?${id}`, {
       repNum: state.repNum, memory: state.memory, speed: state.speed, lastRepetitionDay: state.lastRepetitionDay, interval: state.interval,
       memoryNow: topicMemory(model, id, now), dueNow: topicDue(model, id, now), dueAt: Math.round(dueDay * DAY_MS),
     }];
@@ -191,10 +192,10 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
     awards: replay.awards.map((award) => ({ task: award.task, xp: award.xp, at: award.at, quiz: award.quiz })),
     xp: { total: replay.total, quizTrigger: replay.trigger },
     student: student(fold, state.serverNow),
-    lessonProgress: fold.lessons,
-    lessonFailures: fold.failures,
-    reviewFailures: fold.reviewFailures,
-    remediation: fold.forced,
+    lessonProgress: bare(fold.lessons),
+    lessonFailures: bare(fold.failures),
+    reviewFailures: bare(fold.reviewFailures),
+    remediation: bare(fold.forced),
     consecutiveReviews: fold.consecutiveReviews,
     quiz: {
       started: replay.consumed,
@@ -254,6 +255,18 @@ async function loadSpaceCourse(root: string): Promise<{ resolved: ResolvedCourse
   };
 }
 
+/**
+ * 对照时这门课的键。测试版的任务没有记课的键，全部归它；学习状态的键因此带上“oracle:”，取数时去掉（见 bare），
+ * 学习者看不到这些键，标准答案里是测试版的裸编号。
+ */
+const ORACLE_KEY = "oracle";
+
+/** 学习状态的键去掉对照的课的键，得到测试版的裸编号。 */
+function bare<T>(map: Map<string, T> | Record<string, T>): Map<string, T> {
+  const entries = map instanceof Map ? [...map] : Object.entries(map);
+  return new Map(entries.map(([key, value]) => [unscoped(ORACLE_KEY, key) ?? `?${key}`, value]));
+}
+
 /** 一份对照用的学习会话：facts 是学习记录，时钟由 clock.now 给出，model 为假时没有可用的模型（与试用者删掉了 key 时相同）。 */
 async function oracle(root: string, facts: Fact[], clock: { now: number }, model: boolean) {
   const { resolved, structure } = await spaceCourse(root);
@@ -266,7 +279,7 @@ async function oracle(root: string, facts: Fact[], clock: { now: number }, model
     models,
     services: { call: () => Promise.reject(new RepaFault("service_unavailable", "没有前端")) },
   } as unknown as Host;
-  return LearningSession.open(frozenRecords(facts), resolved, host, { upTo: facts.length, structure: new StructureIndex(structure) });
+  return LearningSession.open(frozenRecords(facts), resolved, host, ORACLE_KEY, { upTo: facts.length, structure: new StructureIndex(structure), key: ORACLE_KEY });
 }
 
 /** 一个空间学习记录的全部事实。 */

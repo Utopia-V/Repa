@@ -30,7 +30,7 @@ const delivery: Delivery = { deliveryId: "d3", submissionId: "s3", item, topicId
 
 function task(phase: LearningTask["phase"], extra: Partial<LearningTask> = {}): LearningTask {
   return {
-    taskId: "t1", kind: "lesson", topics: [{ id: "py01", title: "数字、文字和缺省值不是一回事" }], phase, startedAt: 1, deadlineAt: null,
+    taskId: "t1", kind: "lesson", course: "c1", topics: [{ id: "py01", title: "数字、文字和缺省值不是一回事" }], phase, startedAt: 1, deadlineAt: null,
     kps: [{ kpId: "py01.k1", title: "int、float、str 的行为差别", attempts: 0, consecutiveCorrect: 0, completed: false }],
     deliveries: [], submissions: [], ...extra,
   };

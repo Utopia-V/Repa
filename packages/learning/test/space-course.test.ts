@@ -52,7 +52,7 @@ function lastToolResult(context: TranscriptContext): string {
 
 /** 改写空间 course/ 里的一个 topic 文件。 */
 async function editTopic(root: string, id: string, change: (topic: Record<string, unknown>) => void) {
-  const file = path.join(root, "course", "topics", `${id}.yaml`);
+  const file = path.join(root, "courses", "space", "course", "topics", `${id}.yaml`);
   const value = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
   change(value);
   await writeFile(file, stringify(value, { aliasDuplicateObjects: false }));
@@ -60,7 +60,7 @@ async function editTopic(root: string, id: string, change: (topic: Record<string
 
 /** 给空间 course/ 里每个 topic 补上当前的核对记录，就像 course_confirm 全部一致以后那样；用于不关心核对的场景。 */
 async function recordTopics(root: string) {
-  const directory = path.join(root, "course", "topics");
+  const directory = path.join(root, "courses", "space", "course", "topics");
   for (const name of await readdir(directory)) {
     const file = path.join(directory, name);
     await writeFile(file, await withRecords(await readFile(file, "utf8")));
@@ -217,7 +217,7 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
     dataDir: path.join(root, ".repa", "plugins", "learning"),
     /** 把示例课复制成空间里的 course/，模拟做课的 Agent 写好、核对过的课；records 为 false 时还没有核对。 */
     async writeExample(records = true) {
-      await cp(EXAMPLE, path.join(root, "course"), { recursive: true });
+      await cp(EXAMPLE, path.join(root, "courses", "space", "course"), { recursive: true });
       if (records) await recordTopics(root);
     },
     confirm,
@@ -232,8 +232,12 @@ async function fixture(t: TestContext, options: FixtureOptions = {}) {
   };
 }
 
-test("空间里没有 course/ 时学的是随包的 Python 课", async (t) => {
+test("新空间里没有课，随包的课不自动出现；学习者选了自带的 Python 课以后学的是它", async (t) => {
   const f = await fixture(t);
+  assert.equal((await f.state()).course, null);
+  assert.deepEqual((await f.call("courses.list", {})).courses, []);
+  const listed = await f.call("courses.useBundled", {});
+  assert.deepEqual(listed.courses, [{ key: "bundled-python", folder: null, bundled: true, title: listed.courses[0]?.title ?? null, learnable: true, missing: false }]);
   const shown = await f.state();
   assert.equal(shown.course?.id, "python");
   assert.ok(shown.menu && shown.menu.candidates.length > 0);
@@ -241,7 +245,7 @@ test("空间里没有 course/ 时学的是随包的 Python 课", async (t) => {
 
 test("course/ 在而还没有换用过课：插件照常打开，状态里没有课，开始任务、读内容和辅导提问都说课还没有做好", async (t) => {
   const f = await fixture(t);
-  await mkdir(path.join(f.root, "course"));
+  await mkdir(path.join(f.root, "courses", "space", "course"), { recursive: true });
   await f.reopen();
   const shown = await f.state();
   assert.equal(shown.course, null);
@@ -263,11 +267,11 @@ test("不含代码题的示例课：course_check 通过且不运行 Python，cou
   const f = await fixture(t);
   await f.writeExample();
   const checked = await f.tool("course_check");
-  assert.match(checked.text, /^course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 1 个、骨架 1 个，题目 12 道。$/mu);
+  assert.match(checked.text, /^courses\/space\/course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 1 个、骨架 1 个，题目 12 道。$/mu);
   assert.match(checked.text, /没有运行 Python/u);
   assert.match(checked.text, /由程序判分的题 12 道都有当前的核对记录/u);
-  // 只检查不换用：学的仍是随包的课。
-  assert.equal((await f.state()).course?.id, "python");
+  // 只检查不换用：还没有可学的课。
+  assert.equal((await f.state()).course, null);
 
   const used = await f.tool("course_use");
   assert.match(used.text, /^已换用/u);
@@ -289,14 +293,14 @@ test("还没有核对的课：course_check 照常通过并报出个数，course_
   const f = await fixture(t);
   await f.writeExample(false);
   const checked = await f.tool("course_check");
-  assert.match(checked.text, /^course\/ 通过检查/mu);
+  assert.match(checked.text, /^courses\/space\/course\/ 通过检查/mu);
   assert.match(checked.text, /由程序判分的题 12 道，其中 12 道还没有当前的核对记录：用 course_confirm 核对，没有核对完的课 course_use 不换用。/u);
   const refused = await f.tool("course_use");
   assert.match(refused.text, /^没有换用：12 道题还没有当前的核对记录（os01\.k1\.e0、os01\.k1\.q1、[^）\n]*os01\.k2\.x1）。用 course_confirm 核对 os01，改到没有不一致，再运行 course_use。/u);
-  assert.equal((await f.state()).course?.id, "python");
+  assert.equal((await f.state()).course, null);
 
   const before = await f.call("building.get", {});
-  const solve = await keySolver(path.join(f.root, "course"));
+  const solve = await keySolver(path.join(f.root, "courses", "space", "course"));
   const confirmed = await f.confirm(["os01", "os02"], solve);
   // 每道题一次请求；os02 还是轮廓，没有题。
   assert.equal(confirmed.requests.length, 12);
@@ -316,7 +320,7 @@ test("还没有核对的课：course_check 照常通过并报出个数，course_
     for (const explanation of explanations) assert.ok(!request.prompt.includes(explanation), explanation);
   }
 
-  const written = parseYaml(await readFile(path.join(f.root, "course", "topics", "os01.yaml"), "utf8")) as { verified: { scope: string; model: string; date: string }[] };
+  const written = parseYaml(await readFile(path.join(f.root, "courses", "space", "course", "topics", "os01.yaml"), "utf8")) as { verified: { scope: string; model: string; date: string }[] };
   assert.equal(written.verified.length, 12);
   assert.ok(written.verified.every((record) => record.scope === "question-lesson-v1" && /^course-[^/]+\/test$/u.test(record.model) && record.date === localDate(1_792_454_400_000)));
   assert.match((await f.tool("course_check")).text, /由程序判分的题 12 道都有当前的核对记录/u);
@@ -332,7 +336,7 @@ test("还没有核对的课：course_check 照常通过并报出个数，course_
 test("独立作答与标准答案不一致：交回题目编号、作答、标准答案和模型的说明，不记录、不换用；答对但指出题目有问题的同样不记录；改了题面只重新核对没有记录的，改了讲解这个知识点的题都要重新核对，改解析不用", async (t) => {
   const f = await fixture(t);
   await f.writeExample(false);
-  const course = path.join(f.root, "course");
+  const course = path.join(f.root, "courses", "space", "course");
   // os01.k1.q1 的选项按出现顺序是 a 就绪、b 运行、c 阻塞；独立作答的一方选了阻塞，并说明题面哪里不清楚。
   // os01.k1.q2 答对了，但指出题面要求的字数与可接受的答案对不上：同样不记录。
   const solve = await keySolver(course, {
@@ -343,7 +347,7 @@ test("独立作答与标准答案不一致：交回题目编号、作答、标�
   assert.equal(first.requests.length, 12);
   assert.match(first.text, /一致并已记下 10 道，没有通过 2 道。\n\n与标准答案不一致的题（独立作答的一方只看了讲解和题面）：\n- os01\.k1\.q1：state 作答 "blocked"，标准答案 "ready"。说明：题面没说进程在不在等事件\n\n作答与标准答案一致，但独立作答的一方指出题目有问题（没有记录）：\n- os01\.k1\.q2：题面要求写两个字，可接受的答案里有三个字的$/u);
   assert.match((await f.tool("course_use")).text, /^没有换用：2 道题还没有当前的核对记录（os01\.k1\.q1、os01\.k1\.q2）。/u);
-  assert.equal((await f.state()).course?.id, "python");
+  assert.equal((await f.state()).course, null);
 
   // 改了 os01.k1.q1 的题面：重新核对的只有它和上次没有记录的 os01.k1.q2。
   await f.editTopic("os01", (topic) => {
@@ -373,7 +377,7 @@ test("独立作答与标准答案不一致：交回题目编号、作答、标�
 test("部分核对请求失败：如实列出没有核对成的题，已经一致的照样记下；再核对只发还没有记录的", async (t) => {
   const f = await fixture(t);
   await f.writeExample(false);
-  const solve = await keySolver(path.join(f.root, "course"));
+  const solve = await keySolver(path.join(f.root, "courses", "space", "course"));
   // os01.k1.r1 的请求额度用完失败；os01.k2.q2 两次都答得不合格式。
   const first = await f.confirm(["os01"], (prompt) => {
     if (prompt.includes("进程在等磁盘读完")) return undefined;
@@ -383,7 +387,7 @@ test("部分核对请求失败：如实列出没有核对成的题，已经一�
   assert.equal(first.requests.length, 13);
   assert.match(first.text, /这次发请求 13 次，一致并已记下 10 道，没有通过 2 道。/u);
   assert.match(first.text, /没有核对成的题（没有记录；再运行 course_confirm 只会核对还没有记录的题）：\n- os01\.k1\.r1：请求失败：[^\n]*额度用完了\n- os01\.k2\.q2：模型两次的输出都不合格式：输出不是要求的 JSON$/u);
-  const written = parseYaml(await readFile(path.join(f.root, "course", "topics", "os01.yaml"), "utf8")) as { verified: unknown[] };
+  const written = parseYaml(await readFile(path.join(f.root, "courses", "space", "course", "topics", "os01.yaml"), "utf8")) as { verified: unknown[] };
   assert.equal(written.verified.length, 10);
 
   const second = await f.confirm(["os01"], solve);
@@ -400,11 +404,11 @@ test("给学习者正在学的 topic 换写核对记录不算改了它：上课�
   const before = await f.state();
 
   // 只换了 os01 末尾的核对记录（例如别的模型重新核对过），并升了版本。
-  const file = path.join(f.root, "course", "topics", "os01.yaml");
+  const file = path.join(f.root, "courses", "space", "course", "topics", "os01.yaml");
   const text = await readFile(file, "utf8");
   assert.ok(text.includes("model: test/key"));
   await writeFile(file, text.replaceAll("model: test/key", "model: other/model"));
-  const manifest = path.join(f.root, "course", "course.yaml");
+  const manifest = path.join(f.root, "courses", "space", "course", "course.yaml");
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace("version: 1.0.0", "version: 1.0.1"));
   assert.match((await f.tool("course_use")).text, /^已换用/u);
   const after = await f.state();
@@ -441,7 +445,7 @@ test("course/ 写坏时 course_check 逐处写明文件、行和改法，分页�
   assert.match(unverified.text, /\[unverified_slot\] 作答位 state 既没有 verify 程序核对，也没有列进 manual：[^\n]*列进这道题的 manual/u);
 
   // 问题多到一页放不下：分页列出，末尾写明下一页的 offset。
-  const draft = path.join(f.root, "course", "topics");
+  const draft = path.join(f.root, "courses", "space", "course", "topics");
   for (let index = 3; index < 50; index++) {
     await writeFile(path.join(draft, `x${index}.yaml`), "id: x\n");
   }
@@ -456,7 +460,7 @@ test("course/ 写坏时 course_check 逐处写明文件、行和改法，分页�
   const choice = await readFile(path.join(f.dataDir, "course.json"), "utf8");
   const refused = await f.tool("course_use");
   assert.match(refused.text, /^没有换用。/u);
-  assert.match(refused.text, /学习者现在学的：course\/ 换用过的那一版，课程 os-memory 1\.0\.0/u);
+  assert.match(refused.text, /学习者现在学的：courses\/space\/course\/ 换用过的那一版，课程 os-memory 1\.0\.0/u);
   assert.equal((await f.state()).course?.id, "os-memory");
   assert.equal(await readFile(path.join(f.dataDir, "course.json"), "utf8"), choice);
   await f.reopen();
@@ -475,7 +479,7 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
   assert.ok(delivered);
 
   // 做课的 Agent 改了正在出的这道题的题面，并升了版本。
-  const manifest = path.join(f.root, "course", "course.yaml");
+  const manifest = path.join(f.root, "courses", "space", "course", "course.yaml");
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace("version: 1.0.0", "version: 1.1.0"));
   await f.editTopic("os01", (topic) => {
     for (const question of pool(topic, 0, "practice")) question.body = `${String(question.body)}（改过）`;
@@ -499,14 +503,16 @@ test("学习者上课到一半时 course_use 不换用；重开空间仍是这�
   assert.equal(after.course?.version, "1.1.0");
   // 学习记录没有丢：上完的这节课照算。
   assert.equal(after.progress.completedTopics, 1);
-  const choice = JSON.parse(await readFile(path.join(f.dataDir, "course.json"), "utf8")) as { active: string };
-  assert.deepEqual(Object.keys(choice), ["active"]);
+  const choice = JSON.parse(await readFile(path.join(f.dataDir, "course.json"), "utf8")) as { courses: { key: string; location: string; copy: string }[] };
+  assert.equal(choice.courses.length, 1);
+  assert.equal(choice.courses[0]?.location, "courses/space");
   // 不再用的副本已删掉，只留正在用的一份。
-  assert.deepEqual(await readdir(path.join(f.dataDir, "courses")), [choice.active]);
+  assert.deepEqual(await readdir(path.join(f.dataDir, "courses")), [choice.courses[0]?.copy]);
 });
 
-test("建了 course/ 时随包课还有做到一半的任务：course_use 不换用，重开空间仍学随包课、任务照旧", async (t) => {
+test("建了自己的课时随包课还有做到一半的任务：course_use 不换用，重开空间仍学随包课、任务照旧", async (t) => {
   const f = await fixture(t);
+  await f.call("courses.useBundled", {});
   const shown = await f.state();
   const candidate = shown.menu?.candidates[0];
   assert.ok(shown.menu && candidate);
@@ -528,7 +534,8 @@ test("course 指向空间之外，读不了：学习插件照常打开，状态�
   const outside = path.join(path.dirname(f.root), "outside");
   await mkdir(outside);
   // junction 只在 Windows 上起作用，那里建它不要管理员权限；别的系统上忽略这个参数，建的是普通符号链接。
-  await symlink(outside, path.join(f.root, "course"), "junction");
+  await mkdir(path.join(f.root, "courses", "space"), { recursive: true });
+  await symlink(outside, path.join(f.root, "courses", "space", "course"), "junction");
   await f.reopen();
   const shown = await f.state();
   assert.equal(shown.course, null);
@@ -540,7 +547,7 @@ test("换用时旧的一版还在补判一份作答：等它写完再按新的�
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-space-course-")));
   const root = path.join(directory, "space");
   let space = await createSpace(root, { watch: false });
-  await cp(EXAMPLE, path.join(root, "course"), { recursive: true });
+  await cp(EXAMPLE, path.join(root, "courses", "space", "course"), { recursive: true });
   // 第一道练习改成开放作答，由模型按 rubric 判分。
   const rubric = (label: string) => editTopic(root, "os01", (topic) => {
     const question = pool(topic, 0, "practice")[0];
@@ -638,8 +645,8 @@ test("换用的副本坏了：学习插件和空间照常打开，状态里没�
   const f = await fixture(t);
   await f.writeExample();
   await f.tool("course_use");
-  const choice = JSON.parse(await readFile(path.join(f.dataDir, "course.json"), "utf8")) as { active: string };
-  await writeFile(path.join(f.dataDir, "courses", choice.active, "course.yaml"), "id: [\n");
+  const choice = JSON.parse(await readFile(path.join(f.dataDir, "course.json"), "utf8")) as { courses: { copy: string }[] };
+  await writeFile(path.join(f.dataDir, "courses", choice.courses[0]?.copy ?? "", "course.yaml"), "id: [\n");
   await f.reopen();
   const shown = await f.state();
   assert.equal(shown.course, null);
@@ -656,7 +663,7 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
   t.after(() => rm(empty, { recursive: true, force: true }));
   const f = await fixture(t, { packagesDirectory: empty });
   await f.writeExample();
-  const manifest = path.join(f.root, "course", "course.yaml");
+  const manifest = path.join(f.root, "courses", "space", "course", "course.yaml");
   const original = await readFile(manifest, "utf8");
   await f.editTopic("os01", (topic) => {
     const question = pool(topic, 0, "practice")[1];
@@ -674,7 +681,7 @@ test("要运行 Python 的课在核对没能运行时如实说明原因，不算
     : /\[python_unavailable\] Linux 沙箱用不了：沙箱只能在 Linux 上建立[^\n]*；没有打开的应用页面能运行 Python[^\n]*所以没有核对/u);
   assert.doesNotMatch(checked.text, /npm/u);
   assert.match((await f.tool("course_use")).text, /^没有换用。/u);
-  assert.equal((await f.state()).course?.id, "python");
+  assert.equal((await f.state()).course, null);
   // 应用页面开着：插件缺省的装配在沙箱用不了时改经页面运行。清单写了 runtime 而包写少了：与 Repa 的 Python 环境不一致，不通过，不运行核对。
   await writeFile(manifest, `${original}runtime: { pyodide: "314.0.7", python: "3.14.2", packages: {} }\n`);
   const page = await pythonFrontend(t, f.connection, verifiedAnswers({}));
@@ -693,7 +700,7 @@ test("Node 一侧没有离线包目录时，带 verify 的课经开着的应用�
   const script = await addGuideVerify(f);
   const page = await pythonFrontend(t, f.connection, verifiedAnswers({ [script]: { n: "4" } }));
   const checked = await f.tool("course_check");
-  assert.match(checked.text, /^course\/ 通过检查/mu);
+  assert.match(checked.text, /^courses\/space\/course\/ 通过检查/mu);
   assert.match(checked.text, /在应用页面的 Worker 里运行了 verify 核对程序 1 段/u);
   assert.ok(page.requests.length > 0);
   assert.match((await f.tool("course_use")).text, /^已换用/u);
@@ -706,10 +713,10 @@ test("照写课说明写的 verify 例题，清单不写 runtime，在沙箱里�
   assert.ok((await guideExamples()).every((entry) => typeof entry !== "object" || entry === null || !("runtime" in entry)), "写课说明里不再有 runtime");
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-space-course-guide-")));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  await cp(EXAMPLE, path.join(directory, "course"), { recursive: true });
+  await cp(EXAMPLE, path.join(directory, "courses", "space", "course"), { recursive: true });
   const example = (await guideExamples()).find((entry) => Array.isArray(entry) && "verify" in (entry[0] as object)) as Record<string, unknown>[];
   await editTopic(directory, "os01", (topic) => pool(topic, 0, "practice").push(...example));
-  const root = path.join(directory, "course");
+  const root = path.join(directory, "courses", "space", "course");
   const result = await checkCourse(root, { base: root, confirmations: "reported" });
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.summary.code.verifyJobs, 1);
@@ -753,13 +760,13 @@ test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如�
   assert.match(wrong.text, /在应用页面的 Worker 里运行了 verify 核对程序 1 段/u);
   assert.match(wrong.text, /\[answer_mismatch\] n：程序算出 "5"，标准答案是 "4"/u);
   assert.match((await f.tool("course_use")).text, /^没有换用。/u);
-  assert.equal((await f.state()).course?.id, "python");
+  assert.equal((await f.state()).course, null);
   // 每次检查先发一批空的测试取得页面的版本，再把这一节的 verify 成批交给页面。
   assert.deepEqual(page.requests.slice(0, 2).map((input) => input.tests.map((test) => test.program)), [[], [script]]);
   assert.deepEqual(page.requests[1]?.tests[0]?.verify?.shape, { n: "text" });
 
   // 清单照旧说明写了 runtime，页面带的 pandas 与它不符：报 runtime_mismatch，不运行核对。
-  const manifest = path.join(f.root, "course", "course.yaml");
+  const manifest = path.join(f.root, "courses", "space", "course", "course.yaml");
   const original = await readFile(manifest, "utf8");
   await writeFile(manifest, `${original}${stringify({ runtime: OLD_GUIDE_RUNTIME })}`);
   const before = page.requests.length;
@@ -772,7 +779,7 @@ test("没有 Linux 沙箱时经开着的应用页面核对：没有页面时如�
 
   // 算出 4：通过并换用。
   page.reply = verifiedAnswers({ [script]: { n: "4" } });
-  assert.match((await f.tool("course_check")).text, /^course\/ 通过检查/mu);
+  assert.match((await f.tool("course_check")).text, /^courses\/space\/course\/ 通过检查/mu);
   assert.match((await f.tool("course_use")).text, /^已换用/u);
   assert.equal((await f.state()).course?.id, "os-memory");
 });
@@ -818,6 +825,7 @@ test("通用 Agent 的提示说明指向随包的写课说明，并有 course_ch
 
 test("辅导 Agent 的工具里没有做课的工具", async (t) => {
   const f = await fixture(t);
+  await f.call("courses.useBundled", {});
   const tutor = await f.client.call("session.create", { agent: TUTOR_AGENT });
   let tools: string[] = [];
   f.faux.setResponses([(context) => {

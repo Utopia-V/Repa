@@ -11,9 +11,9 @@ import { FilePickerDialog } from "@/features/file-picker";
 import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
 import { t } from "@/lib/strings";
 
-/** 文件名：materials/ 下的路径去掉前面的 materials/。 */
+/** 文件名：课的 materials/ 下的路径去掉前面的 courses/<名>/materials/。 */
 function fileName(path: string): string {
-  return path.replace(/^materials\//u, "");
+  return path.replace(/^courses\/[^/]+\/materials\//u, "");
 }
 
 /** 页数、张数或段数；文字文件没有页数。 */

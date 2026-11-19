@@ -191,7 +191,7 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   const space = await createSpace(path.join(root, "space"), { watch: false });
   const file = path.join(await space.pluginDataDir("learning"), "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
   await log.close();
   const destination = path.join(root, "recovered.jsonl");
   t.after(() => space.close());
@@ -222,7 +222,7 @@ test("引用错误和一题两答在写入前拒绝、不落盘；完整行引�
   const log = await LearningRecords.open(file, clock);
   t.after(() => log.close());
   const seen = `sha256:${"0".repeat(64)}`;
-  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
   const bytes = await readFile(file);
   await assert.rejects(log.write(() => [{ type: "graded", delivery: 3, version: seen, verdict: "correct", slots: {} }]), fault("invalid_learning_log"));
   await assert.rejects(log.write(() => [
@@ -231,7 +231,7 @@ test("引用错误和一题两答在写入前拒绝、不落盘；完整行引�
   ]), fault("invalid_learning_log"));
   await assert.rejects(log.write(() => [{ type: "delivered", task: 3, question: "py01.k1.q1", seed: 1 }]), fault("invalid_learning_log"));
   // 任务引用的必须是此前的一份课程结构。
-  await assert.rejects(log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" }, structure: 2 }]), fault("invalid_learning_log"));
+  await assert.rejects(log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 2 }]), fault("invalid_learning_log"));
   assert.deepEqual(await readFile(file), bytes);
   assert.equal(log.revision, 3);
   const damaged = path.join(root, "damaged.jsonl");
@@ -243,7 +243,7 @@ test("读取忽略事实顶层新增的可选字段，保留盘上原字节，�
   const root = await directory(t);
   const file = path.join(root, "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" }, structure: 1 }, { type: "goal", xp: 25 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "goal", xp: 25 }]);
   await log.close();
   const original = await readFile(file, "utf8");
   const extended = original.split("\n").filter(Boolean).map((line) => {
@@ -291,6 +291,7 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   });
   const call = (method: string, input: unknown) => host.call("learning", method, input, caller);
   const state = async () => (await call("state.get", {})) as LearningState;
+  await call("courses.useBundled", {});
   const menu = (await state()).menu;
   assert.ok(menu?.candidates[0]);
   assert.equal(menu.candidates[0].title, "空间覆盖标题");

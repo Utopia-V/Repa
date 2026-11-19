@@ -233,6 +233,8 @@ export const strings = {
   "making.materials.slides.label": "{count} 张",
   "making.materials.paragraphs.label": "{count} 段",
   "making.materials.plain.label": "文本",
+  "making.materials.noCourse.error": "〔待写〕",
+  "learn.useBundled.error": "〔待写〕",
   "making.request.label": "要求（可不填），如考试时间、不学的章节",
   "making.request.wish.label": "想学的内容与目标",
   "making.start.action": "开始",

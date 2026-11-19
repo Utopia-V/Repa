@@ -34,7 +34,7 @@ test("更早的概念超过上限：按先修图由近到远列整个部分，�
     return topic(id, index === 0 ? [] : [`t${String(index).padStart(2, "0")}`], index === 49 ? "outline" : "complete");
   });
   const side = topic("side", []);
-  const text = expansionBrief(course([side, ...chain]), ["t50"], new Set(["side", ...chain.slice(0, 49).map((entry) => entry.id)]));
+  const text = expansionBrief(course([side, ...chain]), "courses/课", ["t50"], new Set(["side", ...chain.slice(0, 49).map((entry) => entry.id)]));
 
   // 直接先修带定义；更早的 t48 往前，每个三个概念，列到上限能放下的整数个部分为止。
   assert.match(text, /\n直接先修 t49「标题t49」：\n- t49\.k1 概念t49\.1：定义t49\.1\n/u);
@@ -44,7 +44,7 @@ test("更早的概念超过上限：按先修图由近到远列整个部分，�
   assert.doesNotMatch(text, /定义t48/u);
   // 没列出的：链上更远的部分和不在链上的 side。
   const omitted = 48 - listed + 1;
-  assert.match(text, new RegExp(`\\n另有 ${omitted} 个更早的部分（共 ${omitted * 3} 个概念）没有列出；要查时用 grep 在 course/topics/ 里搜概念名`, "u"));
+  assert.match(text, new RegExp(`\\n另有 ${omitted} 个更早的部分（共 ${omitted * 3} 个概念）没有列出；要查时用 grep 在 courses/课/course/topics/ 里搜概念名`, "u"));
   assert.doesNotMatch(text, /side/u);
 });
 
@@ -52,7 +52,7 @@ test("还没有讲到的部分超过上限：按课程顺序离要展开的部�
   // 60 节的轮廓，前 5 节展开并学过；从第 20 节展开，前后都有没讲到的部分。
   const ids = Array.from({ length: 60 }, (_, index) => `t${String(index + 1).padStart(2, "0")}`);
   const topics = ids.map((id, index) => topic(id, [], index < 5 ? "complete" : "outline"));
-  const text = expansionBrief(course(topics), ["t20"], new Set(ids.slice(0, 5)));
+  const text = expansionBrief(course(topics), "courses/课", ["t20"], new Set(ids.slice(0, 5)));
   const later = text.slice(text.indexOf("## 还没有讲到的部分"));
   const listed = [...later.matchAll(/(t\d\d)「/gu)].map((match) => match[1]);
   assert.equal(listed.length, LATER_PARTS);
@@ -62,7 +62,7 @@ test("还没有讲到的部分超过上限：按课程顺序离要展开的部�
 });
 
 test("没有展开过的部分、也没有学过的部分：清单写明学习者还没有学过任何概念", () => {
-  const text = expansionBrief(course([topic("t01", [], "outline"), topic("t02", ["t01"], "outline")]), ["t01", "t02"], new Set());
+  const text = expansionBrief(course([topic("t01", [], "outline"), topic("t02", ["t01"], "outline")]), "courses/课", ["t01", "t02"], new Set());
   assert.match(text, /\nt02「标题t02」\n出处：没有登记\n直接先修：t01「标题t01」（这次一起展开，先写它）\n/u);
   assert.match(text, /\n## 学习者在这之前学到的概念\n\n学习者在这几部分之前还没有学过任何概念：术语第一次出现时都要先用一句话说清。$/u);
 });

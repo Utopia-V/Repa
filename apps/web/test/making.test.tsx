@@ -31,7 +31,7 @@ const noCourse: LearningState = {
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-const nothing: CourseBuilding = { course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: null };
+const nothing: CourseBuilding = { key: null, folder: null, course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: null };
 const files: Material[] = [
   { path: "materials/第一章.pdf", size: 2048, status: "text", format: "pdf", parts: 52 },
   { path: "materials/引论.pptx", size: 4096, status: "text", format: "pptx", parts: 18 },
@@ -323,7 +323,7 @@ const python: LearningState = {
   ...noCourse,
   course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" },
   restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
-  menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "给数据起名，再按顺序读", topicIds: ["py01"] }] },
+  menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "给数据起名，再按顺序读", topicIds: ["py01"], course: "c1" }] },
 };
 
 it("还没有学习记录的空间整页是起点：不显示随包课的课名、今日 XP 和菜单；改学随包课以后显示原来的菜单", async () => {
@@ -521,7 +521,7 @@ it("做课进行中、还没有换用过自制课：标题栏不显示随包课�
 it("有学习任务时不显示整门课；新课作答时辅导栏用新课的提示；辅导工具有名称；后台任务的会话不进侧栏", async () => {
   const kp = { kpId: "os02.k1", title: "PCB", attempts: 0, consecutiveCorrect: 0, completed: false };
   const task = {
-    taskId: "t1", kind: "lesson" as const, topics: [{ id: "os02", title: "进程控制块" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
+    taskId: "t1", kind: "lesson" as const, course: "c1", topics: [{ id: "os02", title: "进程控制块" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
     startedAt: at, deadlineAt: null, kps: [kp], submissions: [],
     deliveries: [{
       deliveryId: "d1", submissionId: "s1", topicId: "os02", kpId: "os02.k1", mode: "practice" as const, repeated: false, requiresServices: [],
@@ -553,7 +553,7 @@ it("有学习任务时不显示整门课；新课作答时辅导栏用新课的�
 
 it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以前的记录，只留提示；空间里没有做课的对话时，任务结束后记录照常出现", async () => {
   const review = {
-    taskId: "t2", kind: "review" as const, topics: [{ id: "os01", title: "进程状态" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
+    taskId: "t2", kind: "review" as const, course: "c1", topics: [{ id: "os01", title: "进程状态" }], phase: { stage: "awaiting_answer" as const, deliveryId: "d1" },
     startedAt: at, deadlineAt: null, kps: [], submissions: [],
     deliveries: [{
       deliveryId: "d1", submissionId: "s1", topicId: "os01", kpId: "os01.k1", mode: "review" as const, repeated: false, requiresServices: [],
@@ -586,7 +586,7 @@ function explanation(topicId: string, text: string) {
 
 it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的抽屉；宽屏面板缺省是辅导，可以切到做课再切回；开始下一项时只有辅导", async () => {
   const lesson = {
-    taskId: "t3", kind: "lesson" as const, topics: [{ id: "os02", title: "进程控制块" }], phase: explanation("os02", "PCB 记下进程的一切。"),
+    taskId: "t3", kind: "lesson" as const, course: "c1", topics: [{ id: "os02", title: "进程控制块" }], phase: explanation("os02", "PCB 记下进程的一切。"),
     startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
   };
   for (const wide of [false, true]) {
@@ -649,12 +649,12 @@ it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的�
 
 it("课第一次可以学时，窄屏的做课抽屉里也有菜单；在抽屉里点“开始”，抽屉收起，开始这一节", async () => {
   const lesson = {
-    taskId: "t1", kind: "lesson" as const, topics: [{ id: "os01", title: "进程状态" }], phase: explanation("os01", "进程有三种状态。"),
+    taskId: "t1", kind: "lesson" as const, course: "c1", topics: [{ id: "os01", title: "进程状态" }], phase: explanation("os01", "进程有三种状态。"),
     startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
   };
   const ready: LearningState = {
     ...noCourse, revision: 3, started: true, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
-    menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "进程状态", topicIds: ["os01"] }] },
+    menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "进程状态", topicIds: ["os01"], course: "c1" }] },
   };
   let current = ready;
   const fake = backend({
