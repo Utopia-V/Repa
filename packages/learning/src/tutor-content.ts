@@ -104,8 +104,8 @@ export async function visibleContent(session: LearningSession, view: LearningVie
   }
   for (const task of tasks) {
     for (const delivery of task.answered) {
-      const question = session.course.questions.get(delivery.questionId);
-      if (!question || !delivery.grades.length || !session.released(delivery)) {
+      const question = await session.releasedQuestion(delivery);
+      if (!question) {
         continue;
       }
       const blocks = content(question.question.explanation);

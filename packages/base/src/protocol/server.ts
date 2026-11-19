@@ -43,6 +43,7 @@ import { errorText, RepaFault, type Confirmation, type Confirm } from "../schema
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
 import { browseDirectory, listRoots } from "../space/browse.js";
+import { folderExists } from "../space/paths.js";
 import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
@@ -394,6 +395,21 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       // 随包插件加上启用记录里的自写插件；没有交给宿主的自写插件与宿主停用的插件都在插件列表里，带状态和原因。
       const bundled = options.plugins ?? [];
       const selected = await spacePlugins({ home, space, bundled, onError: pluginError });
+      // 在插件打开之前建好：插件迁移已有数据之前经 Host.backup 等一次备份成功，定期备份到空间打开完成以后才开始。
+      const backups = new SpaceBackups({
+        home,
+        space,
+        now: () => runtime.now(),
+        settings: () => settings.get().backup,
+        onUpdate: (status) => emit("backup.updated", status),
+        onError: (error) => {
+          errors.add({
+            source: "backup",
+            message: error instanceof Error ? error.message : String(error),
+            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
+          });
+        },
+      });
       plugins = await openPluginHost({
         space,
         plugins: selected.plugins,
@@ -402,6 +418,7 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         services: { call: (service, input, callOptions) => serviceFor(owner.getStore())(service, input, callOptions) },
         // 插件导出数据与反馈包用同一套脱敏：保存的凭据由运行时读出，读不到时导出失败。
         exports: { home, credentials },
+        backup: async () => { await backups.check(); },
         models: (pluginId) => ({
           complete: (request) => runtime.complete(request, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
           completeStructured: (request, schema) => runtime.completeStructured(request, schema, { pluginId, root: space.root, sessionsDir: space.sessionsDir }),
@@ -472,20 +489,6 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
       owners.agent = agent;
       await host.start();
       await settings.remember(space.root);
-      const backups = new SpaceBackups({
-        home,
-        space,
-        now: () => runtime.now(),
-        settings: () => settings.get().backup,
-        onUpdate: (status) => emit("backup.updated", status),
-        onError: (error) => {
-          errors.add({
-            source: "backup",
-            message: error instanceof Error ? error.message : String(error),
-            ...(error instanceof Error && "code" in error && typeof error.code === "string" ? { code: error.code } : {}),
-          });
-        },
-      });
       const list = await spaceControl.list();
       const opening = randomUUID();
       active = { opening, space, plugins, agent, backups, control: spaceControl };
@@ -528,8 +531,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         peer.serial = ++initialized;
         return { version: PROTOCOL_VERSION, serverId };
       }
-      case "space.list":
-        return settings.get().recentSpaces;
+      case "space.list": {
+        // 只列还在的文件夹：学习者把课程文件夹移到别处以后，旧位置不再列出，从新位置打开一次就排到最前。
+        // 记录本身不改，所在的盘重新接上时又会列出。查不出在不在的（没有权限、盘没有就绪）仍然列出，打开它时会报出原因：
+        // 一个文件夹查不出，不能让整份列表读不出来。
+        const recent = settings.get().recentSpaces;
+        const present = await Promise.all(recent.map((root) => folderExists(root).catch(() => true)));
+        return recent.filter((_, index) => present[index]);
+      }
       case "space.open":
         return loadSpace(p<"space.open">().root, false);
       case "space.create":

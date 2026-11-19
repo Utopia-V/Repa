@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -b tsconfig.build.json",
     "check": "tsc --noEmit",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 test/*.test.ts",
     "precheck": "npm run build",
     "pretest": "npm run build"
   },

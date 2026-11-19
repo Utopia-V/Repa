@@ -48,6 +48,8 @@ export interface PluginHostOptions {
   services?: Services;
   /** 导出用到的应用配置目录与保存的凭据。省略时 Host.prepareExport 以 export_unavailable 拒绝。 */
   exports?: ExportSources;
+  /** 立即备份空间（已有相同的一份时不再复制），见 Host.backup。省略时 Host.backup 以 backup_unavailable 拒绝。 */
+  backup?: () => Promise<void>;
   emit(pluginId: string, event: unknown): void;
   onError(error: unknown): void;
 }

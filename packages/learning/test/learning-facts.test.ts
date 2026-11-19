@@ -774,7 +774,7 @@ test("每项任务记下开始时的课程标识与版本：课程改版以后�
   assert.deepEqual(tasks, [{ id: course.id, version: "1.0.0" }, { id: course.id, version: "1.1.0" }]);
 });
 
-test("课开始时也记下开放题：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课按剩下的题判定，不会卡住", async (t) => {
+test("课按开始时的结构判定：之后加的开放题不撤销已经失败的课；必做题移出练习题池时，进行中的课仍出这道题，做完照常通过", async (t) => {
   const f = await fixture(t, [topic("t01"), topic("t02")]);
   // t01 两道必做题，第一题不会：剩下一题答对也超不过一半，当场失败。
   await f.select("t01");
@@ -801,6 +801,12 @@ test("课开始时也记下开放题：之后加的开放题不撤销已经失�
   await f.writeTopics([withOpen, moved]);
   await f.reopen();
   assert.ok((await f.fold()).failures.has("t01"));
+  assert.equal((await f.state()).task?.phase.stage, "feedback");
+  // 题号取自课开始时的结构，题面还在课程里（挪到了复习题池），照样出。
+  await f.advance();
+  const delivered = (await f.state()).task?.deliveries.at(-1);
+  assert.equal(f.session().replay.delivery(Number(delivered?.deliveryId.slice(1)))?.questionId, second.id);
+  await f.submit();
   assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "passed" });
 });
 

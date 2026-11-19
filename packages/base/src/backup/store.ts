@@ -1,14 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile, rmdir } from "node:fs/promises";
 import path from "node:path";
 
+import { isContentAddressed } from "@repa/space-history";
 import { Value } from "typebox/value";
 
 import {
   BackupManifestSchema, parse, RepaFault,
   type BackupInfo, type BackupManifest, type BackupSpace, type BackupStatus,
 } from "../schema.js";
-import { LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
+import { folderExists, LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
 import { move, syncDirectory } from "../storage.js";
 import { copying, copyTree, isCode, publish, remove, syncCopies, walk } from "./copy.js";
 
@@ -45,7 +46,8 @@ function excluded(relative: string): boolean {
   return HALF_WRITTEN.test(relative.slice(relative.lastIndexOf("/") + 1));
 }
 
-const inHistory = (relative: string) => relative === "history.git" || relative.startsWith("history.git/");
+const HISTORY = "history.git";
+const inHistory = (relative: string) => relative === HISTORY || relative.startsWith(`${HISTORY}/`);
 const isSession = (relative: string) => /^sessions\/[^/]+\.jsonl$/.test(relative);
 
 /** 列表中显示的备份信息；大小是所收文件的大小之和。 */
@@ -125,14 +127,7 @@ export async function listBackups(home: string): Promise<BackupSpace[]> {
     const stored = await readGroup(path.join(home, "backups", group));
     const root = stored[0]?.manifest.root;
     if (root === undefined) continue;
-    let exists = true;
-    try {
-      exists = (await stat(root)).isDirectory();
-    } catch (error) {
-      if (!isCode(error, "ENOENT", "ENOTDIR")) throw error;
-      exists = false;
-    }
-    result.push({ root, exists, backups: stored.map(backupInfo) });
+    result.push({ root, exists: await folderExists(root), backups: stored.map(backupInfo) });
   }
   return result.sort((a, b) => a.root.localeCompare(b.root));
 }
@@ -174,9 +169,17 @@ async function discard(directory: string): Promise<void> {
   await remove(temporary);
 }
 
-/** 删除一份备份，常用于学习者不再需要的"恢复前"备份；定期备份也可以删，下一次检查会按需补上。 */
+/**
+ * 删除一份备份，常用于学习者不再需要的"恢复前"备份，以及文件夹已不存在的空间的整组备份；定期备份也可以删，下一次检查会按需补上。
+ * 删掉的是这一组的最后一份时，空的组目录一并去掉，组里还有别的内容就留着。
+ */
 export async function deleteBackup(home: string, root: string, id: string): Promise<void> {
   await discard((await findBackup(home, root, id)).directory);
+  try {
+    await rmdir(groupDirectory(home, root));
+  } catch (error) {
+    if (!isCode(error, "ENOTEMPTY", "EEXIST", "ENOENT")) throw error;
+  }
 }
 
 /**
@@ -184,6 +187,11 @@ export async function deleteBackup(home: string, root: string, id: string): Prom
  * 复制顺序依各文件的写法而定：先在同步代码里逐个复制会话，再复制其余文件，最后在历史队列中复制历史库；
  * 会话引用的工具输出全文和父关联都在会话之前写完，所以备份中的会话所引用的文件都齐全。
  * "恢复前"的备份在空间关闭、由恢复持锁时复制，没有写入者，所有文件按原始字节复制，原样保留当前状态，以便撤回或排查。
+ *
+ * 定期备份里，历史库中名字由内容决定的文件（见 space-history 的 isContentAddressed）与最近一份定期备份里同一路径的文件一样大时，
+ * 硬链接那个文件而不复制，几份备份共用历史库中没变的部分。备份发布以后不再原地修改，删除一份只去掉它自己的目录项，
+ * 所以共用的文件在每一份里都完整。"恢复前"的备份既不作为来源，也不链接别人：它原样保存的当前状态可能正是坏的，
+ * 例如断电后内容损坏而长度不变的 pack，不能流进之后的定期备份。
  */
 export async function createBackup(home: string, source: BackupSource, kind: BackupManifest["kind"], createdAt: number): Promise<StoredBackup> {
   const group = groupDirectory(home, source.root);
@@ -192,6 +200,7 @@ export async function createBackup(home: string, source: BackupSource, kind: Bac
   for (const name of await readdir(group)) {
     if (name.startsWith(TEMPORARY)) await remove(path.join(group, name));
   }
+  const [earlier] = kind === "regular" ? (await readGroup(group)).filter((stored) => stored.manifest.kind === "regular") : [];
   const temporary = path.join(group, `${TEMPORARY}${randomUUID()}`);
   try {
     const data = path.join(temporary, "data");
@@ -214,6 +223,9 @@ export async function createBackup(home: string, source: BackupSource, kind: Bac
       skip: (relative) => excluded(relative) || !inHistory(relative),
       mode: () => "plain",
       vanished: "skip",
+      earlier: (relative) => (earlier !== undefined && isContentAddressed(relative.slice(HISTORY.length + 1))
+        ? path.join(earlier.directory, "data", ...relative.split("/"))
+        : undefined),
     }, result));
     await syncCopies(result);
     const manifest: BackupManifest = { root: source.root, createdAt: new Date(createdAt).toISOString(), kind, files: result.files };

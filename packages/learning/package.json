@@ -8,6 +8,7 @@
     "dist",
     "courses",
     "guides",
+    "legacy",
     "repa-plugin.json"
   ],
   "exports": {
@@ -32,7 +33,7 @@
     "precheck": "npm run build",
     "check": "tsc --noEmit",
     "pretest": "npm run build",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 test/*.test.ts",
     "precourse:check": "tsc -b tsconfig.build.json",
     "course:check": "tsx src/cli.ts check",
     "precourse:runtime": "tsc -b tsconfig.build.json",

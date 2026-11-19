@@ -269,6 +269,12 @@ export type AppState = LearningActions & {
   sidebar: SidebarPreference;
   setSidebarOpen(open: boolean): void;
   setSidebarWidth(width: number): void;
+  /**
+   * 新建课程放在哪个文件夹（“我的 Repa 文件夹”），学习者选过位置以后记下，下次新建仍放在这里；没选过时是用户目录下的 Repa。
+   * 保存在浏览器里，刷新后保留。
+   */
+  repaFolder?: string | undefined;
+  setRepaFolder(folder: string): void;
 };
 
 /** 无痕模式、禁用存储或配额已满时只放弃保存，不打断界面操作。 */
@@ -980,11 +986,14 @@ export function createAppStore() {
       setSidebarWidth(width) {
         set((state) => ({ sidebar: { ...state.sidebar, width } }));
       },
+      setRepaFolder(folder) {
+        set({ repaFolder: folder });
+      },
     };
   }, {
     name: "repa.web.preferences",
     storage: createJSONStorage(() => browserStorage),
-    partialize: (state) => ({ sidebar: state.sidebar, space: state.space, sessionId: state.conversation.sessionId }),
+    partialize: (state) => ({ sidebar: state.sidebar, space: state.space, sessionId: state.conversation.sessionId, repaFolder: state.repaFolder }),
     merge: (saved, current) => {
       const value = (typeof saved === "object" && saved !== null ? saved : {}) as Record<string, unknown>;
       const space = typeof value.space === "string" && value.space ? value.space : undefined;
@@ -993,6 +1002,7 @@ export function createAppStore() {
         ...current,
         sidebar: restoreSidebar(value.sidebar, current.sidebar),
         space,
+        repaFolder: typeof value.repaFolder === "string" && value.repaFolder ? value.repaFolder : undefined,
         // 会话内容在空间重新打开后由对话页读取。
         conversation: { ...current.conversation, sessionId },
       };

@@ -1,5 +1,5 @@
 import { closeSync, constants, fstatSync, openSync, readSync, writeSync, type Dirent } from "node:fs";
-import { mkdir, open, readdir, rm, type FileHandle } from "node:fs/promises";
+import { link, lstat, mkdir, open, readdir, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import type { BackupManifest } from "../schema.js";
@@ -22,15 +22,19 @@ const TAIL = 4 * 1024;
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 // 复制是备份与恢复的昂贵边界：在唯一的复制处计数，测试据此断言每个文件只复制一次、复制的字节数等于所收文件大小之和，
-// 每次读写不超过一块。落盘同样在唯一的同步处记下路径，测试据此核对发布之前写出的内容都已同步。
+// 每次读写不超过一块。从上一份备份链接过来的文件另记，不算复制。落盘同样在唯一的同步处记下路径，测试据此核对发布之前写出的内容都已同步。
 const copies = new Map<string, number>();
+const links = new Map<string, number>();
 const synced = new Map<string, number>();
 let copiedBytes = 0;
 let largestRead = 0;
 
-/** 本进程至今复制的文件（按来源路径计次）、写出的字节数、单次读取的最大字节数，以及同步过的文件与目录（按路径计次）。 */
-export function copyStats(): { files: Map<string, number>; bytes: number; largestRead: number; synced: Map<string, number> } {
-  return { files: new Map(copies), bytes: copiedBytes, largestRead, synced: new Map(synced) };
+/**
+ * 本进程至今复制的文件（按来源路径计次）、写出的字节数、单次读取的最大字节数、链接而没有复制的文件（按来源路径计次），
+ * 以及同步过的文件与目录（按路径计次）。
+ */
+export function copyStats(): { files: Map<string, number>; bytes: number; largestRead: number; linked: Map<string, number>; synced: Map<string, number> } {
+  return { files: new Map(copies), bytes: copiedBytes, largestRead, linked: new Map(links), synced: new Map(synced) };
 }
 
 function counted(source: string, bytes: number): void {
@@ -179,13 +183,32 @@ export async function* walk(directory: string, options: WalkOptions, relative = 
 }
 
 /**
+ * 不复制，把 earlier 硬链接为 target：earlier 是普通文件且与来源此刻一样大时才链接。返回来源此刻的大小与修改时间；
+ * 不链接或链接以任何原因失败（文件系统不支持、earlier 恰好被删、链接数到上限）时返回 undefined，由调用方照旧复制。
+ * 只用于名字由内容决定、写出以后不再改写的文件，大小相同即内容相同；earlier 属于一份已经整体落盘的备份，不必再同步。
+ */
+async function linkFile(source: string, earlier: string, target: string): Promise<{ size: number; mtimeMs: number } | undefined> {
+  try {
+    const [from, previous] = await Promise.all([lstat(source), lstat(earlier)]);
+    if (!from.isFile() || !previous.isFile() || previous.size !== from.size) return undefined;
+    await link(earlier, target);
+    links.set(source, (links.get(source) ?? 0) + 1);
+    return { size: from.size, mtimeMs: from.mtimeMs };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 把 source 下的目录与文件复制到 target 下（target 已存在），范围见 WalkOptions，按 mode 取每个文件；来源中的文件消失时报错。
- * 收下的文件记入 result.files，路径相对于 source；写出的文件和目录记入 result.written，复制完成后由 syncCopies 落盘。
+ * earlier 对一个文件给出另一份备份里同一文件的路径时，先试着链接它，见 linkFile；没给或链接不成就复制。
+ * 收下的文件记入 result.files，路径相对于 source；复制写出的文件和新建的目录记入 result.written，复制完成后由 syncCopies 落盘，
+ * 链接来的文件不在其中：它不是这次写出的，落盘时也不以可写方式打开它。
  */
 export async function copyTree(
   source: string,
   target: string,
-  options: WalkOptions & { mode(relative: string): CopyMode },
+  options: WalkOptions & { mode(relative: string): CopyMode; earlier?(relative: string): string | undefined },
   result: Copying,
 ): Promise<void> {
   for await (const item of walk(source, options)) {
@@ -197,6 +220,12 @@ export async function copyTree(
       continue;
     }
     const from = path.join(source, ...parts);
+    const earlier = options.earlier?.(item.relative);
+    const linked = earlier === undefined ? undefined : await linkFile(from, earlier, destination);
+    if (linked !== undefined) {
+      result.files.push({ path: item.relative, ...linked });
+      continue;
+    }
     const how = options.mode(item.relative);
     const copied = how === "session" ? copySession(from, destination) : await copyFile(from, destination, how === "lines");
     result.written.files.push(destination);
@@ -220,6 +249,20 @@ export async function syncCopies(result: Copying): Promise<void> {
     synced.set(file, (synced.get(file) ?? 0) + 1);
   }
   for (const directory of [...result.written.directories].reverse()) await syncEntries(directory);
+}
+
+/**
+ * 把一棵已经写好的目录树落盘，次序与 syncCopies 相同：先逐个同步文件，再从深到浅同步目录，最后是 root 本身。
+ * 之后把 root 改名发布、或写下引用它的记录，掉电以后它下面的文件也都在。
+ */
+export async function syncTree(root: string): Promise<void> {
+  const result = copying(root);
+  for await (const item of walk(root, { skip: () => false, vanished: "fail" })) {
+    const absolute = path.join(root, ...item.relative.split("/"));
+    if (item.directory) result.written.directories.add(absolute);
+    else result.written.files.push(absolute);
+  }
+  await syncCopies(result);
 }
 
 /** 同步一个目录的目录项，并记下路径。 */

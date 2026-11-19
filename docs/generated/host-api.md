@@ -17,6 +17,7 @@
 | abortAgent | abortAgent(agent: string): Promise&lt;void&gt;; | 中止本插件声明的 Agent 的现有会话运行；等待 Pi 停稳并沿用原取消队列语义。 |
 | emit | emit(event: unknown): void; | 向订阅空间的连接发布本插件的事件，宿主补上插件 id。 |
 | prepareExport | prepareExport(request: ExportRequest): Promise&lt;PreparedExport&gt;; | 准备一份交给维护者的导出：读取插件列出的内容，按需收入会话记录，加上记有时间与 Repa 版本的 manifest.json，<br>全部按反馈包的规则替换凭据与密钥，在内存中打成 zip。读不到保存的凭据时以 export_redaction_failed 拒绝。 |
+| backup | backup(): Promise&lt;void&gt;; | 等空间的一次备份成功：备份里已有此刻的空间时直接完成，否则立即备份一份。插件改写或迁移已有的持久数据之前调用，<br>改坏了还能从这一份恢复；打开以后的定期备份不能代替它。备份失败时抛出原错误，宿主不提供备份时以 backup_unavailable 拒绝。<br>与读写空间历史一样先拿空间写锁：插件在运行中被加上、这时有运行占着锁，就以 space_busy 失败，不等待。 |
 
 ## Plugin
 

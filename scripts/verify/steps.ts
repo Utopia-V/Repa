@@ -2,16 +2,17 @@
  * 走查的步骤。每一步像学习者那样操作界面，再用 expect 写下必须成立的事；已知而尚未修好的界面问题用 known 写，
  * 不成立记为预期失败，修好以后自动翻成“已修好”。步骤按顺序依赖前一步留下的状态，一步不通过，后面的不再运行。
  */
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { parse, stringify } from "yaml";
 
+import { strings } from "../../apps/web/src/strings/zh-CN.js";
 import type { App } from "./app.js";
 import type { Page } from "./browser.js";
 import { confirmationAnswers, courseFiles, courseQuestions, QUIZ_COURSE, quizDurationMs, type QuestionDefinition } from "./course.js";
 import type { ModelFailureScript, ScriptedModel } from "./model.js";
 import type { Checks } from "./walk.js";
-import { strings } from "../../apps/web/src/strings/zh-CN.js";
 
 export interface Context {
   app: App;
@@ -72,6 +73,7 @@ const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const TUTOR_REQUEST = "刚做完的最后一道题，为什么这样答？";
 const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
+const RESTRUCTURE_REQUEST = "第一节问正在执行的进程是什么状态的那道填空不要了，换一道问只差处理机的题。";
 const QUIZ_COURSE_NAME = "常用单位 走查";
 const QUIZ_REQUEST = "想学长度、质量和时间单位的换算，三节都学完以后想做一次测验。";
 const QUIZ_TOPICS = ["长度单位", "质量单位", "时间单位"];
@@ -628,6 +630,54 @@ export const STEPS: Step[] = [
     },
   },
   {
+    id: "restructure",
+    title: "让做课的 Agent 删掉一道学过的题、换上一道新题后换用：学过的结论和今日 XP 不变",
+    async run({ app, page, model }, checks) {
+      const before = learnView(await page.text());
+      // 删掉学过并改判过的 os01.k1.q2，换上一道新题 os01.k1.q4：第一节的组成变了，题量照旧够。
+      const space = path.join(app.home, "Repa", COURSE_NAME, "course");
+      const topic = parse(await readFile(path.join(space, "topics", "os01.yaml"), "utf8")) as Record<string, unknown>;
+      delete topic.verified;
+      const first = (topic.kps as { practice: Record<string, unknown>[] }[])[0];
+      const q1 = first?.practice.find((question) => question.id === "os01.k1.q1");
+      if (!first || !q1) throw new Error("走查的课里没有 os01.k1.q1");
+      first.practice = [
+        ...first.practice.filter((question) => question.id !== "os01.k1.q2"),
+        { ...structuredClone(q1), id: "os01.k1.q4", body: "一个进程已经拿到除处理机以外的全部资源，它处于哪种状态？" },
+      ];
+      const content = stringify(topic, { aliasDuplicateObjects: false });
+      const root = path.join(app.dir, "course-restructured");
+      await mkdir(path.join(root, "topics"), { recursive: true });
+      await writeFile(path.join(root, "course.yaml"), await readFile(path.join(space, "course.yaml"), "utf8"));
+      for (const name of await readdir(path.join(space, "topics"))) {
+        await writeFile(path.join(root, "topics", name), name === "os01.yaml" ? content : await readFile(path.join(space, "topics", name), "utf8"));
+      }
+      model.setAnswers(await confirmationAnswers(root));
+      model.script(RESTRUCTURE_REQUEST, [
+        { tools: [{ name: "read", arguments: { path: "course/topics/os01.yaml" } }] },
+        { tools: [{ name: "write", arguments: { path: "course/topics/os01.yaml", content } }] },
+        { tools: [{ name: "course_check", arguments: {} }] },
+        { tools: [{ name: "course_confirm", arguments: { topicIds: ["os01"] } }] },
+        { tools: [{ name: "course_use", arguments: {} }] },
+        { text: "换好了，第一节少了一道、多了一道新题。" },
+      ]);
+      const seen = model.toolResults.length;
+      await page.click({ name: "新会话", selector: "a, button" });
+      await page.fill("消息", RESTRUCTURE_REQUEST);
+      await page.press("Enter");
+      await page.waitText("换好了，第一节少了一道、多了一道新题。", 30_000);
+      const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
+      checks.expect("删题以后的课换用成功", used.startsWith("已换用"), used.split("\n")[0]);
+      await page.waitFor("侧栏列出这段会话", (text) => occurrences(text, RESTRUCTURE_REQUEST) >= 2);
+      await page.click({ name: "学习", selector: "a, button" });
+      const text = await page.waitFor("学习页和整门课", (current) => current.includes("整门课") && learnView(current).parts !== undefined, 30_000);
+      const after = learnView(text);
+      checks.expect("今日 XP 不变", after.xp === before.xp, `${before.xp ?? "?"} → ${after.xp ?? "?"}`);
+      checks.expect("学过的部分不变", after.parts?.learned === before.parts?.learned, `${before.parts?.learned ?? "?"} → ${after.parts?.learned ?? "?"}`);
+      checks.expect("删掉的那道题过去的判分还在、没有重判", await latestVerdict(app, "os01.k1.q2") === "correct", await latestVerdict(app, "os01.k1.q2"));
+    },
+  },
+  {
     id: "backup-export",
     title: "立即备份，导出学习数据，导出的文件里有作答记录",
     async run({ app, page }, checks) {
@@ -785,6 +835,70 @@ export const STEPS: Step[] = [
     },
   },
   {
+    id: "move-space",
+    title: "把课程文件夹移到别处：重开后说明上次的课打不开，旧位置不再列出；从新位置选中打开，学习进度、会话和备份照旧；原位置那一组备份可以整组删掉",
+    async run({ app, page }, checks) {
+      await page.click({ name: "学习", selector: "a, button" });
+      const before = learnView(await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000));
+      const sessionsBefore = (await (await app.rpc()).call("session.list", {})).length;
+      const from = path.join(app.home, "Repa", COURSE_NAME);
+      const to = path.join(app.home, "移动后", COURSE_NAME);
+      // 学习者关掉应用，在文件管理器里把课程文件夹移走，再打开应用。关闭时的那份备份还在原位置的一组。
+      await app.stopBackend();
+      const old = await backups(app);
+      await mkdir(path.dirname(to), { recursive: true });
+      await rename(from, to);
+      await app.startBackend();
+      await app.open();
+      const missing = await page.waitText("无法打开上次的空间", 30_000);
+      await page.shot("move-space-missing");
+      checks.expect("说明上次的课打不开和原因", missing.includes(`无法打开上次的空间 ${COURSE_NAME}`) && missing.includes("文件夹不存在，可能已被删除或移走。"),
+        /无法打开上次的空间[\s\S]{0,60}/u.exec(missing)?.[0]);
+      checks.expect("旧位置不再列在最近打开里", !missing.includes(from));
+      await page.click({ name: /^选择(其他)?文件夹$/u, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "移动后", selector: "button" });
+      await page.waitText(path.dirname(to), 10_000);
+      await page.click({ name: COURSE_NAME, selector: "button" });
+      await page.waitText("这是已有的学习空间。", 10_000);
+      await page.click({ name: /^打开$/u, selector: "button" });
+      const text = await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000);
+      await page.shot("move-space-reopened");
+      const after = learnView(text);
+      checks.expect("学习页与移动前相同：整门课、今日 XP、菜单", JSON.stringify(after) === JSON.stringify(before), `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+      const sessionsAfter = (await (await app.rpc()).call("session.list", {})).length;
+      checks.expect("会话都还在", sessionsAfter === sessionsBefore, `${sessionsBefore} → ${sessionsAfter}`);
+
+      // 打开了空间时，侧栏里进选空间页的那一项写的是课名。
+      await page.click({ name: COURSE_NAME, selector: "a" });
+      const list = await page.waitText("最近打开", 15_000);
+      checks.expect("最近打开里是新位置，没有旧位置", list.includes(to) && !list.includes(from));
+
+      // 备份按空间的位置分组：新位置另起一组。打开空间以后就检查一次，那时做的就是新位置的第一份，带着移动前的学习记录。
+      await until("新位置的第一份备份", async () => (await backups(app)).some((entry) => !old.includes(entry)), 30_000);
+      const newest = (await backups(app)).find((entry) => !old.includes(entry)) ?? "";
+      const manifest = JSON.parse(await readFile(path.join(newest, "manifest.json"), "utf8")) as { root?: string };
+      const copied = await readFile(path.join(newest, "data", "plugins", "learning", "records.jsonl"), "utf8").catch(() => "");
+      checks.expect("移动后的备份记的是新位置，带着学习记录", manifest.root === to && copied.includes("\"type\":\"answered\""), manifest.root);
+
+      // 原位置那一组不会再轮换：在“备份”里整组删掉，新位置的一组不动。
+      const oldGroup = path.dirname(old[0] ?? "");
+      await page.click({ name: "备份", selector: "button" });
+      await page.click({ name: `删除 ${COURSE_NAME} 的全部备份`, selector: "button" });
+      await until("确认框", async () => (await openDialog(page)) === `删除 ${COURSE_NAME} 的全部备份？`, 10_000);
+      await page.shot("move-space-delete-old-backups");
+      const confirm = await page.text();
+      checks.expect("确认框写明文件夹已不存在和原来的路径", confirm.includes("该文件夹已不存在。删除后，这些备份无法再用于恢复。") && confirm.includes(from));
+      await page.click({ name: /^删除$/u, selector: "[role=dialog] button" });
+      await until("确认框关上", async () => (await openDialog(page)) === "", 15_000);
+      const remaining = await backups(app);
+      const groups = await readdir(path.dirname(oldGroup));
+      checks.expect("原位置的一组整组删掉，组目录也不在", old.length > 0 && !remaining.some((entry) => path.dirname(entry) === oldGroup) && !groups.includes(path.basename(oldGroup)), groups.join("、"));
+      checks.expect("新位置的备份还在", remaining.includes(newest));
+      checks.expect("列表里不再有“文件夹已不存在”的一组", !(await page.text()).includes("文件夹已不存在"));
+    },
+  },
+  {
     id: "quiz",
     title: "测验：另建一门课从界面学满 150 XP，菜单出现测验；交卷、换题重考、过截止时间、判不出结果的一题",
     async run({ app, page, model }, checks) {
@@ -925,6 +1039,42 @@ export const STEPS: Step[] = [
       checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
       const final = await page.waitText(TIMEOUT, 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
+    },
+  },
+  {
+    id: "course-location",
+    title: "新建课程时换位置：选另一个文件夹，课建在它下面的 Repa 里；之后新建仍放在那里",
+    async run({ app, page }, checks) {
+      const change = strings["learningSpace.first.location.change.action"];
+      const choose = strings["folderPicker.location.action"];
+      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
+      const other = path.join(app.home, "资料 盘");
+      const folder = path.join(other, "Repa");
+      await mkdir(other, { recursive: true });
+      await page.click({ name: "新建课程", selector: "a" });
+      const first = await page.waitText("保存位置：", 15_000);
+      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
+      await page.click({ name: change, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "资料 盘", selector: "button" });
+      const picked = await page.waitText(other, 10_000);
+      await page.shot("course-location-picker");
+      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
+      await page.click({ name: choose, selector: "button", near: "上一级" });
+      await until("选择框关上", async () => (await openDialog(page)) === "");
+      await page.fill("课程名称", "线性代数");
+      const named = await page.waitText(path.join(folder, "线性代数"), 10_000);
+      await page.shot("course-location-named");
+      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "线性代数"), where(named));
+      await page.click({ name: /^创建$/u, selector: "button" });
+      await page.waitText("想学的内容与目标", 20_000);
+      checks.expect("课建在选定位置下", await access(path.join(folder, "线性代数", ".repa", "format.json")).then(() => true, () => false));
+
+      await app.reopen();
+      await page.waitText("想学的内容与目标", 30_000);
+      await page.click({ name: "新建课程", selector: "a" });
+      const again = await page.waitText("保存位置：", 15_000);
+      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
     },
   },
 ];

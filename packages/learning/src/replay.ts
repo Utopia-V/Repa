@@ -1,5 +1,5 @@
 import type { ModelConfig } from "@repa/learning-model";
-import type { StructureIndex } from "./course-structure.js";
+import { StructureIndex } from "./course-structure.js";
 import {
   deadlineAt,
   emptyFold,
@@ -23,6 +23,18 @@ export interface Award {
   quiz: boolean;
 }
 
+/**
+ * 旧日志基线：序号不大于 upTo 的任务按 structure 计算（测试版当时用来解释整段日志的那一份）。
+ * 测试版当时不显示任何一门课的进度时，structure 是没有 topic 的空结构，见 records-schema.ts 的 baseline。
+ */
+export interface Legacy {
+  upTo: number;
+  structure: StructureIndex;
+}
+
+/** 没有 topic 的结构：基线不带结构时，旧日志里的任务不对任何一门课计数。 */
+export const EMPTY_STRUCTURE = new StructureIndex({ course: { id: "-", version: "-" }, topics: [] });
+
 /** 累计 XP 到了门槛、尚未开始的测验。n 是第几场，atXp 是出现时的累计值，用来算延后窗口。 */
 export interface PendingQuiz {
   n: number;
@@ -38,6 +50,9 @@ export interface PendingQuiz {
  *
  * XP 按任务的实际结论、在事实发生时结算：奖励变高时补发差额，变低时不收回。是否通过看实际结论，奖励的多少只看
  * 这项任务自己的作答。结算的时刻都是事实的边界，用到的状态也只取决于此前的事实，所以重放与现场得到同样的 XP。
+ *
+ * 每项任务按它开始时的课程结构计算（TaskRecord.structure）：旧日志基线之前的任务用基线的结构，之后的任务用它引用的结构事实。
+ * structure 是当前的课程结构，只用于为新的测验选 topic；菜单与进度由调用方按当前结构另算。
  *
  * model 是学生模型的参数，缺省为插件实际使用的一组。换一组参数重放同一份事实，可以比较两组参数的预测。
  */
@@ -66,8 +81,16 @@ export class Replay {
   /** 学习状态每变一次加一；测验没选到 topic 时，只在它变了以后重选。 */
   private changes = 0;
   private sampled = "";
+  /** 学习记录里的课程结构，按事实序号。 */
+  private readonly structures = new Map<number, StructureIndex>();
+  /** 最近重放的事实序号。 */
+  private position = 0;
 
-  constructor(private readonly structure: StructureIndex, private readonly model: ModelConfig = STUDENT_MODEL) {}
+  constructor(
+    private readonly structure: StructureIndex,
+    private readonly model: ModelConfig = STUDENT_MODEL,
+    private readonly legacy?: Legacy,
+  ) {}
 
   get current(): TaskRecord | undefined {
     return this.tasks.at(-1);
@@ -98,7 +121,7 @@ export class Replay {
     const task = this.current;
     if (!task) return undefined;
     const inherited = task.kind === "lesson" ? this.before().lessons.get(task.topicIds[0] ?? "") : undefined;
-    return taskEvidence(task, this.structure, inherited);
+    return taskEvidence(task, inherited);
   }
 
   /** 当前任务之前的学习状态，用于判断当前任务是否仍有资格。 */
@@ -106,7 +129,7 @@ export class Replay {
     if (this.stale) {
       let fold = emptyFold();
       for (const task of this.tasks.slice(0, -1)) {
-        fold = foldTask(fold, taskEvidence(task, this.structure, fold.lessons.get(task.topicIds[0] ?? "")), this.structure, this.model);
+        fold = foldTask(fold, taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? "")), this.model);
       }
       this.prefix = fold;
       this.stale = false;
@@ -120,7 +143,7 @@ export class Replay {
   fold(): Fold {
     const prefix = this.before();
     const entry = this.currentEvidence();
-    return entry?.outcome ? foldTask(prefix, entry, this.structure, this.model) : prefix;
+    return entry?.outcome ? foldTask(prefix, entry, this.model) : prefix;
   }
 
   /** 截止时间已过的测验在截止时刻结束（课和复习不限时）；时间只会向前，所以在读取时就地结算与重放结果一致。 */
@@ -135,6 +158,12 @@ export class Replay {
 
   apply(fact: Fact): void {
     this.applied++;
+    this.position = fact.seq;
+    // 基线与课程结构只登记解释的依据，不是学习者做的事：写下它们的时刻不推进学习时钟，进行中测验的截止仍由学习事实和读数时间决定。
+    if (fact.type === "structure" || fact.type === "baseline") {
+      this.register(fact);
+      return;
+    }
     this.settle(fact.at);
     let changed: TaskRecord | undefined;
     switch (fact.type) {
@@ -146,9 +175,9 @@ export class Replay {
           const prefix = this.before();
           const inherited = prefix.lessons.get(previous.topicIds[0] ?? "");
           if (previous.kind === "lesson" && inherited) previous.inherited = inherited;
-          const entry = taskEvidence(previous, this.structure, previous.inherited);
+          const entry = taskEvidence(previous, previous.inherited);
           this.observe(previous, fact.at, entry);
-          this.prefix = foldTask(prefix, entry, this.structure, this.model);
+          this.prefix = foldTask(prefix, entry, this.model);
           this.changes++;
         }
         const task: TaskRecord = {
@@ -156,6 +185,7 @@ export class Replay {
           at: fact.at,
           kind: fact.kind,
           topicIds: [...fact.topics],
+          structure: this.taskStructure(fact),
           ...(fact.retakes === undefined ? {} : { retakes: fact.retakes }),
           ...(fact.practice === undefined ? {} : { practice: fact.practice }),
           ...(fact.minutes === undefined ? {} : { minutes: fact.minutes }),
@@ -238,10 +268,25 @@ export class Replay {
   private reconsiderCurrent(at: number): void {
     const task = this.current;
     if (task?.kind !== "lesson") return;
-    const own = taskEvidence(task, this.structure, undefined);
-    if (reward({ ...own, outcome: "passed" }, this.structure) > (this.best.get(task.seq) ?? 0)) {
+    const own = taskEvidence(task, undefined);
+    if (reward({ ...own, outcome: "passed" }) > (this.best.get(task.seq) ?? 0)) {
       this.observe(task, at);
     }
+  }
+
+  /** 登记一份课程结构，供之后的任务引用。基线的结构由调用方在重放之前读出（legacy），用同一份。 */
+  private register(fact: Extract<Fact, { type: "structure" | "baseline" }>): void {
+    if (fact.type === "structure") this.structures.set(fact.seq, new StructureIndex(fact.structure));
+    else if (fact.structure) this.structures.set(fact.seq, this.legacy?.structure ?? new StructureIndex(fact.structure));
+  }
+
+  /** 任务开始时的课程结构：基线之前的任务用基线的结构，之后的任务用它引用的那一份。 */
+  private taskStructure(fact: Extract<Fact, { type: "task" }>): StructureIndex {
+    if (this.legacy && fact.seq <= this.legacy.upTo) return this.legacy.structure;
+    const structure = fact.structure === undefined ? undefined : this.structures.get(fact.structure);
+    if (!structure) throw new Error(`第 ${fact.seq} 条任务没有课程结构`);
+    if (fact.rules !== undefined && fact.rules !== "test1") throw new Error(`第 ${fact.seq} 条任务的规则 ${fact.rules} 不认识`);
+    return structure;
   }
 
   private taskOf(seq: number): TaskRecord {
@@ -261,11 +306,11 @@ export class Replay {
    * 已结束的任务用它结束时实际继承的那份（task.inherited）。
    */
   private observe(task: TaskRecord, at: number, entry?: TaskEvidence): void {
-    const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, this.structure, task.inherited));
+    const evidence = entry ?? (task === this.current ? this.currentEvidence() : taskEvidence(task, task.inherited));
     // XP 发了就不收回。课和复习的奖励按判出结果的作答里答对的比例算，后判出的错题会把比例拉低，所以还有没判出结果的作答时
     // 不结算，等它们判出来按全部证据再发；测验按全部交付算，后判出的结果只会让奖励变高，照常结算。
     if (!evidence || (!isQuiz(task.kind) && evidence.attempts.some((attempt) => attempt.verdict === undefined))) return;
-    const value = reward(evidence, this.structure);
+    const value = reward(evidence);
     const best = this.best.get(task.seq) ?? 0;
     if (value <= best) return;
     this.best.set(task.seq, value);
@@ -295,14 +340,18 @@ export class Replay {
     }
   }
 
-  /** 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。 */
+  /**
+   * 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。新的测验从当前结构选 topic；在旧日志里（基线之前）就已到门槛的测验，
+   * 按基线的结构选，即测试版当时选出的那一组。
+   */
   private pick(n: number): string[] {
     const fold = this.fold();
-    if (!this.structure.order.some((topic) => fold.student[topic.id] && this.structure.quizTopics.has(topic.id))) {
+    const structure = this.legacy && this.position <= this.legacy.upTo ? this.legacy.structure : this.structure;
+    if (!structure.order.some((topic) => fold.student[topic.id] && structure.quizTopics.has(topic.id))) {
       return [];
     }
     this.samplings++;
-    return sampleTopics(this.tasks, fold, this.structure, n);
+    return sampleTopics(this.tasks, fold, structure, n);
   }
 
   /** 测验出现后又攒够延后窗口，就只提供测验。 */
