@@ -32,8 +32,8 @@
     "basis": "baseline"
   },
   "learning-records": {
-    "digest": "264a3223ba686f40",
-    "basis": "2026-11-20-no-old-data.md"
+    "digest": "42181c9f61aa48ee",
+    "basis": "2026-11-20-course-identity.md"
   },
   "plugin-manifest": {
     "digest": "0fa04cc9abb82bfc",
@@ -48,8 +48,8 @@
     "basis": "baseline"
   },
   "learning-course-choice": {
-    "digest": "55961a3217710f9c",
-    "basis": "baseline"
+    "digest": "7a91e58b9ae74d56",
+    "basis": "2026-11-20-course-registry.md"
   },
   "learning-building": {
     "digest": "7aa45564f0db14c7",
@@ -60,8 +60,8 @@
     "basis": "baseline"
   },
   "learning-course": {
-    "digest": "afad8965c50dc09b",
-    "basis": "baseline"
+    "digest": "bfdbf7ff6e3a4d39",
+    "basis": "2026-11-20-course-folder-materials.md"
   },
   "learning-topic": {
     "digest": "771812e7ea16bdbe",
