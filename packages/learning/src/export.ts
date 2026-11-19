@@ -7,10 +7,10 @@ import { Type } from "typebox";
 import { learningMethods } from "./protocol.js";
 import { RECORDS_FILE } from "./records.js";
 
-/** 写进导出包 learning.json 的版本信息：学习记录的格式版本、课程标识与版本（还没有可学的课时为 null）；插件的代码版本另从清单读取。 */
+/** 写进导出包 learning.json 的版本信息：学习记录的格式版本、空间里可学的课（键、课程标识与版本）；插件的代码版本另从清单读取。 */
 export interface LearningExportInfo {
   recordsFormat: number;
-  course: { id: string; version: string } | null;
+  courses: { key: string; id: string; version: string }[];
 }
 
 const PluginManifestSchema = Type.Object({ version: Type.String({ minLength: 1 }) });

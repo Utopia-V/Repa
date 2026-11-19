@@ -23,6 +23,7 @@ import { applyEvent, emptyConversation, historyItems, type Conversation } from "
 import { describeError, errorCode } from "@/lib/errors";
 import { createLearningActions, emptyLearning, type LearningActions, type LearningView } from "@/lib/learning";
 import { t } from "@/lib/strings";
+import { folderName } from "@/lib/paths";
 
 /** 一份从后端读取的数据；重新读取期间保留上一次的 data，界面不回到空白。 */
 export type Resource<T> = {
@@ -176,10 +177,19 @@ export type AppState = LearningActions & {
   closeSpace(): Promise<void>;
   /** 浏览结果只属于当次选择，不进入共享状态。files 为真时连同文件一起列出。 */
   browseFolder(path?: string, options?: { files: true; extensions?: readonly string[] }): Promise<Result<"space.browse">>;
-  /** 空间 materials/ 里的课件；结果只属于当次查看，不进入共享状态。 */
+  /** 学习页上这门课（做课状态的 folder）的 materials/ 里的课件；还没有课时为空。结果只属于当次查看，不进入共享状态。 */
   listMaterials(): Promise<MaterialsResult<"list">>;
-  /** 把本机的文件复制进 materials/，返回复制以后的列表；失败抛给调用方。 */
+  /**
+   * 把本机的文件复制进这门课的 materials/，返回复制以后的列表；失败抛给调用方。空间里还没有课时先以空间的文件夹名新建一门，
+   * 与开始做课时相同。
+   */
   addMaterials(paths: string[]): Promise<MaterialsResult<"add">>;
+  /**
+   * 第一次使用：在“我的 Repa 文件夹”建空间（已经是空间就打开它），再在其中的 courses/<name>/ 建第一门课。失败抛给调用方。
+   */
+  createFirstCourse(folder: string, name: string): Promise<void>;
+  /** 学习者选了随包的课。失败抛给调用方。 */
+  useBundledCourse(): Promise<void>;
   /**
    * 开始做课：新建一个通用 Agent 的会话，告诉学习插件这是做课的对话，把插件给的第一条消息（带上学习者写的要求）发出去。
    * 与 sendMessage 一样等整次运行结束才返回；返回 false 表示没有发出去，错误在 conversation.sendError。
@@ -706,11 +716,26 @@ export function createAppStore() {
           ...(options?.extensions ? { extensions: [...options.extensions] } : {}),
         });
       },
-      listMaterials() {
-        return materialsCall("list", {});
+      async listMaterials() {
+        const folder = get().learning.building?.folder ?? null;
+        return folder === null ? { files: [] } : materialsCall("list", { folder });
       },
-      addMaterials(paths) {
-        return materialsCall("add", { paths });
+      async addMaterials(paths) {
+        if ((get().learning.building?.folder ?? null) === null) {
+          const space = get().space;
+          if (space !== undefined) await learning.createCourse(folderName(space));
+        }
+        const folder = get().learning.building?.folder ?? null;
+        if (folder === null) throw new Error(t("making.materials.noCourse.error"));
+        return materialsCall("add", { folder, paths });
+      },
+      async createFirstCourse(folder, name) {
+        const listing = await call("space.browse", { path: folder }).catch(() => undefined);
+        await get().openSpace(folder, listing?.space === true ? undefined : { create: true });
+        await learning.createCourse(name);
+      },
+      useBundledCourse() {
+        return learning.useBundled();
       },
       async startMaking(request, materials) {
         if (get().conversation.run !== "idle") return false;

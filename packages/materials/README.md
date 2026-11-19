@@ -2,13 +2,13 @@
 
 ## 概述
 
-`@repa/materials` 把空间 `materials/` 下的 PDF、幻灯片和 Word 文档读成按页、张或段标号的文字，交给通用 Agent 做课。
+`@repa/materials` 把各门课的 `materials/`（`courses/<名>/materials/`）下的 PDF、幻灯片和 Word 文档读成按页、张或段标号的文字，交给通用 Agent 做课。
 
 ## 怎么用
 
 ### 装配
 
-学习者把课件放进空间的 `materials/`，Agent 做课时要读它们。底座的 read 工具把文件按 UTF-8 解码，PDF 和幻灯片读出来是乱码，所以本插件另给两个工具，解析这些格式的库随包附带，学习者的机器上不必装别的程序。
+学习者把课件放进这门课的文件夹的 `materials/`，Agent 做课时要读它们。底座的 read 工具把文件按 UTF-8 解码，PDF 和幻灯片读出来是乱码，所以本插件另给两个工具，解析这些格式的库随包附带，学习者的机器上不必装别的程序。
 
 底座按包根的 `repa-plugin.json` 加载本插件，插件 id 为 `materials`，入口是构建后的 `dist/plugin.js`。它是随产品附带的 npm 包，普通版本与学习者版本都加载：根目录的 `npm start`、`npm run dev:backend`、`npm run dev:learning`，Web 开发服务器起的后端，以及桌面端的 [learner.ts](../../apps/desktop/src/main/learner.ts)。桌面安装包经 [package-application.mjs](../../apps/desktop/scripts/package-application.mjs) 的包清单装进本包，[verify-application.mjs](../../apps/desktop/scripts/verify-application.mjs) 核对它的清单与 CMap 数据在安装包里，并确认后端加载后它在运行。
 
@@ -16,12 +16,12 @@
 
 | 工具 | 参数 | 结果 |
 | --- | --- | --- |
-| `materials_list` | 无 | `materials/` 下每个文件一行：格式与页数、张数或段数；读不出文字的写明原因；文字文件提示用 read 直接读 |
+| `materials_list` | 可选 `folder`（课的文件夹，相对空间根目录） | 这门课（不写时每门课）的 `materials/` 下每个文件一行：格式与页数、张数或段数；读不出文字的写明原因；文字文件提示用 read 直接读 |
 | `materials_read` | `path`（相对空间根目录），可选 `from`、`to` | 从 `from` 起逐页、逐张或逐段给出文字，每块前标 `〔第 N 页〕`、`〔第 N 张〕` 或 `〔第 N 段〕` |
 
 `materials_read` 一次最多交回 40,000 字节、1,500 行，留在底座 50 KiB、2,000 行的[工具输出上限](../base/README.md#处理工具输出)之内，所以模型拿到的总是整页、整张或整段。读到上限时，结果末尾写明还有哪些没读、下次 `from` 填几；指定了 `to` 而后面还有内容时，也写明后面还有多少。单独一页就超过上限时整页给出，由底座把全文存进工具输出文件，模型再用 read 续读。
 
-`path` 只能指 `materials/` 里的文件，指到别处时错误码为 `file_outside_materials`，空间的 `.repa/`（历史、会话、别的插件的数据）因此也读不到；经符号链接指到空间外的为 `file_outside_space`，文件不在时为 `file_not_found`，`from` 超出总数时为 `invalid_range`。
+`path` 只能指某门课的 `materials/` 里的文件，课的文件夹里带答案的 `course/` 读不到；指到别处时错误码为 `file_outside_materials`，空间的 `.repa/`（历史、会话、别的插件的数据）因此也读不到；经符号链接指到空间外的为 `file_outside_space`，文件不在时为 `file_not_found`，`from` 超出总数时为 `invalid_range`。
 
 ### 前端的方法
 
@@ -29,10 +29,10 @@
 
 | 方法 | 输入 | 结果 |
 | --- | --- | --- |
-| `list` | 无 | `files`：`materials/` 下每个文件的路径、字节数 `size` 与 `status`：`text` 带格式与页数、张数或段数 `parts`，`plain` 是文字文件，`failed` 带原因代码 `reason` 和下表那句能转述给学习者的 `message` |
-| `add` | `paths`：本机文件的绝对路径，1 到 100 个 | 复制以后的 `files`，同 `list` |
+| `list` | `folder`：课的文件夹（`courses/<名>`） | `files`：这门课的 `materials/` 下每个文件的路径（相对空间根目录）、字节数 `size` 与 `status`：`text` 带格式与页数、张数或段数 `parts`，`plain` 是文字文件，`failed` 带原因代码 `reason` 和下表那句能转述给学习者的 `message` |
+| `add` | `folder`，以及 `paths`：本机文件的绝对路径，1 到 100 个 | 复制以后的 `files`，同 `list` |
 
-页面拿不到本机路径，所以由后端列目录（底座的 `space.browse` 带 `files: true`）、学习者在页面里勾选，再由 `add` 按路径复制进 `materials/`，文件名不变。复制前逐个核对，有一个不合就一个也不复制：不是绝对路径为 `invalid_path`，文件不在为 `file_not_found`，是文件夹为 `not_file`，选了两个同名文件为 `duplicate_name`，`materials/` 里已有同名文件为 `file_exists`。同名的不覆盖，学习者先删掉旧的或改个名字；大小不设上限。复制直接写文件，不经底座的文件接口（那是文本接口）。
+页面拿不到本机路径，所以由后端列目录（底座的 `space.browse` 带 `files: true`）、学习者在页面里勾选，再由 `add` 按路径复制进这门课的 `materials/`，文件名不变。课的文件夹写法不对时为 `invalid_path`。复制前逐个核对，有一个不合就一个也不复制：不是绝对路径为 `invalid_path`，文件不在为 `file_not_found`，是文件夹为 `not_file`，选了两个同名文件为 `duplicate_name`，`materials/` 里已有同名文件为 `file_exists`。同名的不覆盖，学习者先删掉旧的或改个名字；大小不设上限。复制直接写文件，不经底座的文件接口（那是文本接口）。
 
 ### 读不出文字时
 
@@ -70,7 +70,7 @@ PDF 里有文字的页照常读出，个别没有文字或读出乱码的页在�
 
 转换结果以源文件内容的 SHA-256 为键，存在插件数据目录的 `cache/<版本>-<摘要>.json`，同一份内容换了名字、挪了位置也不再解析。每次列出或读取都重读文件、重算摘要，文件原地换了内容也读出新的；一个 174 MB 的文件约需 110 ms。转换的写法改变时，`materials.ts` 的 `CONVERTER_VERSION` 加一，文件名随之改变，旧缓存不再命中。写入先写临时文件再改名，盘上不会留下半份缓存。
 
-两个工具只读空间文件；写 `materials/` 的只有前端的 `add`，插件不写空间里别的地方。
+两个工具只读空间文件；写各门课的 `materials/` 的只有前端的 `add`，插件不写空间里别的地方。
 
 ### 验证
 
@@ -79,11 +79,11 @@ PDF 里有文字的页照常读出，个别没有文字或读出乱码的页在�
 | 测试 | 检查什么 |
 | --- | --- |
 | `formats.test.ts` | 五种格式各自的读法与次序，不嵌入字体的中文 PDF 靠 CMap 读出，各种读不出文字的情形得到对应原因，扇区链成环的复合文档报损坏而不卡住 |
-| `plugin.test.ts` | 前端的 `list` 与 `add`：大小、页数与原因，复制的内容一致，同名、不是文件、文件不在、相对路径时一个也不复制；两个工具的输出，含零字节文件；长文档分批读时每批在上限内、拼起来不丢段不重段；工具不写空间，同一内容只解析一次（数解析次数），缓存跨实例有效，文件原地换了内容读出新的；`materials/` 外的路径与指向空间外的链接被拒绝 |
+| `plugin.test.ts` | 前端的 `list` 与 `add`：大小、页数与原因，复制的内容一致，同名、不是文件、文件不在、相对路径时一个也不复制；两个工具的输出，含零字节文件；长文档分批读时每批在上限内、拼起来不丢段不重段；工具不写空间，同一内容只解析一次（数解析次数），缓存跨实例有效，文件原地换了内容读出新的；课的 `materials/` 外的路径（含课的 `course/`）与指向空间外的链接被拒绝 |
 
 ## 对模型的影响
 
-- 模型所见：通用 Agent 的系统提示多一段插件说明，130 个字符，约 100 token：课件在 `materials/`，用这两个工具读，不要用 read 直接读 PDF 和幻灯片，读不出时把原因告诉学习者。
+- 模型所见：通用 Agent 的系统提示多一段插件说明，130 个字符，约 100 token：课件在各门课的 `materials/`，用这两个工具读，不要用 read 直接读 PDF 和幻灯片，读不出时把原因告诉学习者。
 - 工具声明两项，描述与参数说明合计约 350 个字符，随插件列表固定在前缀里，不影响提示缓存。
 - `materials_read` 的结果每次最多约 40,000 字节，中文约一万多 token；`materials_list` 每个文件一行。
 

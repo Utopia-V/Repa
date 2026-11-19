@@ -268,10 +268,10 @@ async function outlineCourse(f: Fixture): Promise<string> {
   await f.chat(id, "把 materials 里的课件做成课", [
     fauxAssistantMessage([fauxToolCall("materials_list", {})]),
     fauxAssistantMessage([
-      write("course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03"])),
-      write("course/topics/os01.yaml", outline("os01", "进程状态", [], "第 1–4 张")),
-      write("course/topics/os02.yaml", outline("os02", "进程控制块", ["os01"], "第 5–9 张")),
-      write("course/topics/os03.yaml", outline("os03", "进程调度", ["os02"], "第 10–14 张")),
+      write("courses/space/course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03"])),
+      write("courses/space/course/topics/os01.yaml", outline("os01", "进程状态", [], "第 1–4 张")),
+      write("courses/space/course/topics/os02.yaml", outline("os02", "进程控制块", ["os01"], "第 5–9 张")),
+      write("courses/space/course/topics/os03.yaml", outline("os03", "进程调度", ["os02"], "第 10–14 张")),
     ]),
     fauxAssistantMessage([fauxToolCall("course_check", {})]),
     (context) => {
@@ -283,7 +283,7 @@ async function outlineCourse(f: Fixture): Promise<string> {
       return fauxAssistantMessage("轮廓有三部分：进程状态、进程控制块、进程调度。");
     },
   ]);
-  assert.match(checked, /^course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 0 个、骨架 3 个/mu);
+  assert.match(checked, /^courses\/space\/course\/ 通过检查：课程 os-memory 1\.0\.0，完整 topic 0 个、骨架 3 个/mu);
   assert.match(used, /^已换用/u);
   return id;
 }
@@ -292,7 +292,7 @@ async function outlineCourse(f: Fixture): Promise<string> {
 async function expandFirst(f: Fixture, id: string): Promise<void> {
   let used = "";
   await f.chat(id, "可以，先做第一节", [
-    fauxAssistantMessage([write("course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张")))]),
+    fauxAssistantMessage([write("courses/space/course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张")))]),
     fauxAssistantMessage([fauxToolCall("course_check", {})]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
@@ -332,12 +332,12 @@ async function expansionScript(
   records = true,
 ): Promise<FauxResponseStep[]> {
   // 文件工具要先读过一个已有的文件才能整份改写它。
-  const files = ["course/course.yaml", ...parts.map((part) => `course/topics/${part.id}.yaml`)];
-  const writes = [write("course/course.yaml", manifest(version, topics))];
+  const files = ["courses/space/course/course.yaml", ...parts.map((part) => `courses/space/course/topics/${part.id}.yaml`)];
+  const writes = [write("courses/space/course/course.yaml", manifest(version, topics))];
   for (const part of parts) {
     const text = await complete(part.id, part.title, part.prerequisites, part.where);
     const written = computation ? withComputation(text, part.id) : text;
-    writes.push(write(`course/topics/${part.id}.yaml`, records ? await withRecords(written) : written));
+    writes.push(write(`courses/space/course/topics/${part.id}.yaml`, records ? await withRecords(written) : written));
   }
   return [
     async () => {
@@ -359,7 +359,7 @@ test("整条路：出轮廓、展开第一节、换用；学习者上课时后�
   let shown = await f.building();
   assert.deepEqual(shown.course, { id: "os-memory", title: "进程管理", version: "1.0.0" });
   assert.deepEqual(shown.parts.map((part) => [part.topicId, part.status]), [["os01", "ready"], ["os02", "outline"], ["os03", "outline"]]);
-  assert.deepEqual(shown.parts[1]?.sources, [{ title: "第二章课件", file: "materials/第二章.md", where: "第 5–9 张" }]);
+  assert.deepEqual(shown.parts[1]?.sources, [{ title: "第二章课件", file: "courses/space/materials/第二章.md", where: "第 5–9 张" }]);
   assert.equal(shown.expansion, null);
   sameUsage(shown.cost, await f.client.call("session.usage", { sessionId: chatId }));
   assert.ok(shown.cost.requests === 9 && shown.cost.cost > 0);
@@ -455,7 +455,7 @@ test("后台展开没有自己的连接：带计算题的部分经任何一个�
 
 test("前端分得清：没有可学的课、只有轮廓、轮廓之外有展开的部分；只有轮廓时后台不抢先展开", async (t) => {
   const f = await fixture(t);
-  await mkdir(path.join(f.root, "course"));
+  await mkdir(path.join(f.root, "courses", "space", "course"), { recursive: true });
   await f.reopen();
   const none = await f.building();
   assert.deepEqual({ course: none.course, parts: none.parts, expansion: none.expansion, lastFailure: none.lastFailure }, { course: null, parts: [], expansion: null, lastFailure: null });
@@ -481,17 +481,19 @@ test("前端分得清：没有可学的课、只有轮廓、轮廓之外有展�
   assert.deepEqual((await f.building()).parts.map((part) => part.status), ["ready", "outline", "outline"]);
 });
 
-test("做课的对话：随包的课不算做课；前端建好会话以后 building.begin 记下它、给出第一条消息，重开以后仍在", async (t) => {
+test("做课的对话：新空间里还没有课；前端建好会话以后 building.begin 以空间的文件夹名建课并记下它、给出第一条消息，重开以后仍在", async (t) => {
   const f = await fixture(t);
-  // 空间里还没有 course/：学的是随包的课，但做课的状态里没有课，学习页据此给出做课的起点。
-  assert.notEqual((await f.state()).course, null);
-  const bundled = await f.building();
-  assert.deepEqual({ course: bundled.course, parts: bundled.parts, sessionId: bundled.sessionId }, { course: null, parts: [], sessionId: null });
+  // 空间里还没有课：做课的状态里没有课，学习页据此给出做课的起点。
+  assert.equal((await f.state()).course, null);
+  const empty = await f.building();
+  assert.deepEqual({ key: empty.key, folder: empty.folder, course: empty.course, parts: empty.parts, sessionId: empty.sessionId }, { key: null, folder: null, course: null, parts: [], sessionId: null });
 
   const session = await f.client.call("session.create", {});
   const seen = f.changes();
   const begun = await f.call("building.begin", { sessionId: session.id, materials: true, request: "  一月中旬考试，第六章不学。 " });
-  assert.ok(begun.text.includes("materials/"));
+  // 第一条消息学习者自己看得到，不带课的文件夹；是哪门课由每次运行的说明交给模型。
+  assert.ok(begun.text.includes("materials/") && !begun.text.includes("courses/"));
+  assert.equal((await f.building()).folder, "courses/space");
   assert.ok(begun.text.endsWith("一月中旬考试，第六章不学。"));
   assert.ok(f.changes() > seen);
   assert.equal((await f.building()).sessionId, session.id);
@@ -520,8 +522,8 @@ test("轮廓随展开修正：学过的部分和它的学习记录不变，还�
   let used = "";
   await f.chat(chatId, "第二、三部分其实是一回事", [
     fauxAssistantMessage([
-      write("course/course.yaml", manifest("1.1.0", ["os01", "os02"])),
-      write("course/topics/os02.yaml", outline("os02", "进程控制块与调度", ["os01"], "第 5–14 张")),
+      write("courses/space/course/course.yaml", manifest("1.1.0", ["os01", "os02"])),
+      write("courses/space/course/topics/os02.yaml", outline("os02", "进程控制块与调度", ["os01"], "第 5–14 张")),
     ]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
@@ -586,7 +588,7 @@ test("展开失败的分类随 building.json 重开以后仍在；没有分类�
   await f.state();
   assert.equal((await f.building()).lastFailure?.failure, "network");
   // 加入分类之前写下的记录：last.failure 只有 code 与 message。
-  const file = path.join(f.dataDir, "building.json");
+  const file = path.join(f.dataDir, "building", `${(await f.building()).key}.json`);
   const record = JSON.parse(await readFile(file, "utf8")) as { last: { failure: Record<string, unknown> } };
   delete record.last.failure.failure;
   await writeFile(file, JSON.stringify(record));
@@ -666,7 +668,7 @@ test("学习者正在学的 topic 在新的一版里改了：course_use 不换�
   const changed = await withRecords((await complete("os01", "进程状态", [], "第 1–4 张")).replace("一个进程只差处理机就能执行", "一个进程只差 CPU 就能执行"));
   await f.chat(chatId, "改一下第一节的措辞", [
     fauxAssistantMessage([
-      write("course/topics/os01.yaml", changed), write("course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))),
+      write("courses/space/course/topics/os01.yaml", changed), write("courses/space/course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张"))),
     ]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
@@ -691,7 +693,7 @@ test("辅导读不到空间里的课程文件：工具里没有 read，模型要
   f.faux.appendResponses([
     (context) => {
       tools = getCurrentTools(context.messages).map((entry) => entry.name).sort();
-      return fauxAssistantMessage([fauxToolCall("read", { path: "course/topics/os01.yaml" })]);
+      return fauxAssistantMessage([fauxToolCall("read", { path: "courses/space/course/topics/os01.yaml" })]);
     },
     (context) => {
       result = lastToolResult(context);
@@ -712,7 +714,7 @@ test("学习者在上第二节时，新的一版改了学过的第一节的答�
   await f.finish();
   let used = "";
   await f.chat(chatId, "展开第二节", [
-    fauxAssistantMessage([write("course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张")))]),
+    fauxAssistantMessage([write("courses/space/course/topics/os02.yaml", await withRecords(await complete("os02", "进程控制块", ["os01"], "第 5–9 张")))]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
       used = lastToolResult(context);
@@ -727,7 +729,7 @@ test("学习者在上第二节时，新的一版改了学过的第一节的答�
   // 只改学过的 os01 里一道已答题的答案，os02 一字不动：旧作答会按新答案重判，os01 可能不再算学过，os02 的课就失去资格。
   const changed = await withRecords((await complete("os01", "进程状态", [], "第 1–4 张")).replace("key: [运行, 运行态]", "key: [就绪, 就绪态]"));
   await f.chat(chatId, "第一节有道题答案写错了", [
-    fauxAssistantMessage([write("course/topics/os01.yaml", changed), write("course/course.yaml", manifest("1.2.0", ["os01", "os02", "os03"]))]),
+    fauxAssistantMessage([write("courses/space/course/topics/os01.yaml", changed), write("courses/space/course/course.yaml", manifest("1.2.0", ["os01", "os02", "os03"]))]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
       used = lastToolResult(context);
@@ -769,7 +771,7 @@ test("后台展开不属于学习者的连接：要确认的命令被拒绝、�
   assert.equal(results.length, 2);
   assert.match(results[0] ?? "", /确认/u);
   assert.match(results[1] ?? "", /没有可以作答的连接/u);
-  await assert.rejects(readFile(path.join(f.root, "course", "written.txt")));
+  await assert.rejects(readFile(path.join(f.root, "courses", "space", "course", "written.txt")));
 });
 
 test("两次展开的要求同时到达：只有一次开始，另一次报 expansion_running", async (t) => {
@@ -820,7 +822,7 @@ test("后台展开照写课说明核对题目：course_confirm 没有连接也�
   // 核对请求并发发出，每一步都按请求正文找到是哪道题，交回它的标准答案。
   let solve: ((prompt: string) => string | undefined) | undefined;
   const answer: FauxResponseFactory = async (context) => {
-    solve ??= await keySolver(path.join(f.root, "course"));
+    solve ??= await keySolver(path.join(f.root, "courses", "space", "course"));
     const text = solve(promptOf(context));
     assert.ok(text !== undefined, "收到的不是这两部分的核对请求");
     return fauxAssistantMessage(text);
@@ -882,12 +884,12 @@ test("展开后面的一节：任务里给出它的轮廓与出处，直接先�
   let used = "";
   await f.chat(chatId, "把 materials 里的课件做成课", [
     fauxAssistantMessage([
-      write("course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03", "os04", "os05"])),
-      write("course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张"))),
-      write("course/topics/os02.yaml", await withRecords((await complete("os02", "进程控制块", ["os01"], "第 5–9 张")).replace("name: 进程三态", "name: 控制块"))),
-      write("course/topics/os03.yaml", outline("os03", "进程调度", ["os02", "os04"], "第 10–14 张")),
-      write("course/topics/os04.yaml", outline("os04", "线程", [], "第 15–18 张")),
-      write("course/topics/os05.yaml", outline("os05", "死锁", ["os03"], "第 19–22 张")),
+      write("courses/space/course/course.yaml", manifest("1.0.0", ["os01", "os02", "os03", "os04", "os05"])),
+      write("courses/space/course/topics/os01.yaml", await withRecords(await complete("os01", "进程状态", [], "第 1–4 张"))),
+      write("courses/space/course/topics/os02.yaml", await withRecords((await complete("os02", "进程控制块", ["os01"], "第 5–9 张")).replace("name: 进程三态", "name: 控制块"))),
+      write("courses/space/course/topics/os03.yaml", outline("os03", "进程调度", ["os02", "os04"], "第 10–14 张")),
+      write("courses/space/course/topics/os04.yaml", outline("os04", "线程", [], "第 15–18 张")),
+      write("courses/space/course/topics/os05.yaml", outline("os05", "死锁", ["os03"], "第 19–22 张")),
     ]),
     fauxAssistantMessage([fauxToolCall("course_use", {})]),
     (context) => {
@@ -908,7 +910,7 @@ test("展开后面的一节：任务里给出它的轮廓与出处，直接先�
   assert.equal(brief, [
     "## 要展开的部分",
     "",
-    "os03「进程调度」\n范围：进程调度的范围。\n出处：「第二章课件」（materials/第二章.md）第 10–14 张\n直接先修：os02「进程控制块」、os04「线程」\n出轮廓时、细读出处之前估计的知识点（细读以后按出处实际讲的增删）：os03.k1 进程调度一；os03.k2 进程调度二",
+    "os03「进程调度」\n范围：进程调度的范围。\n出处：「第二章课件」（courses/space/materials/第二章.md）第 10–14 张\n直接先修：os02「进程控制块」、os04「线程」\n出轮廓时、细读出处之前估计的知识点（细读以后按出处实际讲的增删）：os03.k1 进程调度一；os03.k2 进程调度二",
     "",
     "## 学习者在这之前学到的概念",
     "",

@@ -3,6 +3,7 @@ import { identifier, object } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
 import type { Pool } from "./check/items.js";
 import { needsModel } from "./course-index.js";
+import { scoped } from "./course-key.js";
 import type { ResolvedCourse } from "./course-sources.js";
 
 /**
@@ -112,6 +113,26 @@ export class StructureIndex {
       encompassings: data.topics.flatMap((topic) => topic.encompassings.map((edge) => ({ advanced: topic.id, simple: edge.topic, weight: edge.weight }))),
       prerequisites: data.topics.flatMap((topic) => topic.prerequisites.map((prerequisite) => ({ topic: topic.id, prerequisite }))),
     };
+  }
+
+  private readonly graphs = new Map<string, KnowledgeGraph>();
+
+  /**
+   * 学生模型按“课的键加编号”记 topic（见 course-key.ts），这门课的图也要用同样的键：同一份结构由哪门课用，图里的 topic 就带哪门课的键。
+   * 每个键只建一次。
+   */
+  scopedGraph(key: string): KnowledgeGraph {
+    let graph = this.graphs.get(key);
+    if (!graph) {
+      const at = (id: string) => scoped(key, id);
+      graph = {
+        topics: this.graph.topics.map(at),
+        encompassings: this.graph.encompassings.map((edge) => ({ advanced: at(edge.advanced), simple: at(edge.simple), weight: edge.weight })),
+        prerequisites: this.graph.prerequisites.map((edge) => ({ topic: at(edge.topic), prerequisite: at(edge.prerequisite) })),
+      };
+      this.graphs.set(key, graph);
+    }
+    return graph;
   }
 
   /** 按课程顺序的全部 topic。 */

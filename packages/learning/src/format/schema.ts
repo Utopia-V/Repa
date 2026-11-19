@@ -43,10 +43,10 @@ const PythonNameSchema = Type.String({
   description: "需要是合法的 Python 变量名",
 });
 const HttpsUrlSchema = Type.String({ pattern: "^https://", maxLength: 500, description: "链接需要以 https:// 开头" });
-/** 空间 materials/ 里的一份课件，用相对空间根目录、以 / 分隔的路径。 */
+/** 课的文件夹 materials/ 里的一份课件，用相对课的文件夹、以 / 分隔的路径。 */
 const MaterialsFileSchema = Type.String({
   pattern: "^(?!.*(^|/)\\.\\.(/|$))materials/[^\\\\]+$", maxLength: 500,
-  description: "课件写成空间里的路径，以 materials/ 开头、用 / 分隔，例如 materials/第一章.pptx",
+  description: "课件写成相对课的文件夹的路径，以 materials/ 开头、用 / 分隔，例如 materials/第一章.pptx",
 });
 
 /** Markdown 字符串，或显式的内容块列表。 */
@@ -65,12 +65,12 @@ const CellValueSchema = Type.Union([Type.String({ maxLength: 500 }), Type.Number
 export const SourceUseKinds = ["reference", "adapt", "code", "quote"] as const;
 const SourceUseKindSchema = Type.Enum(SourceUseKinds);
 
-/** 课程用到的一份材料：网上的（url）或学习者放进空间 materials/ 里的课件（file），二者写一个；以及它的许可允许怎样使用。 */
+/** 课程用到的一份材料：网上的（url）或学习者放进课的 materials/ 里的课件（file），二者写一个；以及它的许可允许怎样使用。 */
 export const SourceSchema = object({
   title: text(200),
   author: Type.Optional(text(200)),
   url: Type.Optional(HttpsUrlSchema),
-  /** 学习者放进空间的课件，例如 materials/OS1.pptx。topic 与题目的 sources 用 where 写到具体的页或张。 */
+  /** 学习者放进课的文件夹的课件，路径相对课的文件夹，例如 materials/OS1.pptx。topic 与题目的 sources 用 where 写到具体的页或张。 */
   file: Type.Optional(MaterialsFileSchema),
   /** 版本、出版或访问日期，例如“第 3 版（2024-05）”“3.0.6，访问于 2026-10-11”。 */
   version: text(200),

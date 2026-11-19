@@ -597,7 +597,7 @@ export function checkRules(course: LoadedCourse, report: Report): CourseIndex {
   }
   for (const [name, source] of Object.entries(course.course.sources)) {
     if ((source.url === undefined) === (source.file === undefined)) {
-      report.error("source_location", `来源 ${name} 要写 url（网上的材料）或 file（空间 materials/ 里的课件），二者写一个`, course.file, ["sources", name]);
+      report.error("source_location", `来源 ${name} 要写 url（网上的材料）或 file（课的文件夹 materials/ 里的课件），二者写一个`, course.file, ["sources", name]);
     }
   }
   const retired = new Set(course.course.retiredIds ?? []);

@@ -200,7 +200,9 @@ async function checkCourseUse(connection, application, temporary, model) {
   const question = examples.find((entry) => Array.isArray(entry) && entry[0]?.verify !== undefined);
   assert.ok(question, "写课说明里找不到 verify 例题");
   const root = path.join(temporary, "做课 空间");
-  const course = path.join(root, "course");
+  // 课在空间的 courses/<名>/course/ 里；空间里只有这一门自己的课，course_use 不必指明是哪门。
+  const course = path.join(root, "courses", "示例 课", "course");
+  await mkdir(path.dirname(course), { recursive: true });
   await cp(path.join(guides, "example-course"), course, { recursive: true });
   const topicFile = path.join(course, "topics", "os01.yaml");
   const topic = parse(await readFile(topicFile, "utf8"));

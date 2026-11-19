@@ -324,7 +324,7 @@ it("侧栏列出最近的几门课：点别的一门就换过去，运行中不�
   await act(() => store.getState().openSpace("/home/me/Repa/操作系统"));
   // 学习插件记下的做课对话（building.get 的 sessionId）。
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  store.setState((state) => ({ learning: { ...state.learning, building: { course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: "making" } } }));
+  store.setState((state) => ({ learning: { ...state.learning, building: { key: null, folder: null, course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: "making" } } }));
   const router = renderWorkspace("/learning-space", store);
   const navigation = screen.getByRole("navigation", { name: "主导航" });
 

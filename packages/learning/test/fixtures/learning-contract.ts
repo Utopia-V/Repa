@@ -42,7 +42,7 @@ export function lesson(): LearningState {
       completedTopics: 0, totalTopics: 48, completionRate: 0, etaDate: null,
     },
     task: {
-      taskId: "lesson-1", kind: "lesson", topics: [py01], startedAt: now, deadlineAt: null,
+      taskId: "lesson-1", kind: "lesson", course: "bundled-python", topics: [py01], startedAt: now, deadlineAt: null,
       phase: { stage: "awaiting_answer", deliveryId: delivery.deliveryId },
       kps: [{ ...kp, attempts: 1, consecutiveCorrect: 1, completed: false }],
       deliveries: [structuredClone(delivery)], submissions: [],
@@ -80,7 +80,7 @@ export function recoveryTrace(): LearningState[] {
   const menu = structuredClone(feedback);
   menu.revision = 5;
   if (menu.task) menu.task.phase = { stage: "completed", outcome: "passed" };
-  menu.menu = { menuId: "menu-2", candidates: [{ id: "candidate-quiz", kind: "quiz", title: "阶段测验", topicIds: ["py01"] }] };
+  menu.menu = { menuId: "menu-2", candidates: [{ id: "candidate-quiz", kind: "quiz", title: "阶段测验", topicIds: ["py01"], course: "bundled-python" }] };
   const preparing = structuredClone(menu);
   preparing.revision = 6;
   preparing.menu = null;

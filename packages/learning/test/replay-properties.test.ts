@@ -4,6 +4,7 @@
  *
  * 种子固定，合并门禁上的结果可以重复。多探索时设置 REPA_PROPERTY_RUNS 和 REPA_PROPERTY_SEED；.github/workflows/property-exploration.yml 每晚换一个种子跑一次。
  */
+import { scoped } from "../src/course-key.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CompletionRequest } from "@repa/base/plugin";
@@ -105,7 +106,7 @@ const REFUSALS = new Set(["stale_state", "insufficient_items"]);
 /** 一项任务此刻的证据与它继承的进度：当前的课从重算后的学习状态继承，已结束的任务用它结束时记下的。 */
 function inheritedOf(replay: Replay, task: TaskRecord) {
   if (task !== replay.current) return task.inherited;
-  return task.kind === "lesson" ? replay.before().lessons.get(task.topicIds[0] ?? "") : undefined;
+  return task.kind === "lesson" ? replay.before().lessons.get(scoped(task.course, task.topicIds[0] ?? "")) : undefined;
 }
 const evidenceOf = (replay: Replay, task: TaskRecord): TaskEvidence =>
   taskEvidence(task, inheritedOf(replay, task));
@@ -114,7 +115,7 @@ const evidenceOf = (replay: Replay, task: TaskRecord): TaskEvidence =>
 function refold(replay: Replay): Fold {
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    fold = foldTask(fold, taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? "")));
+    fold = foldTask(fold, taskEvidence(task, fold.lessons.get(scoped(task.course, task.topicIds[0] ?? ""))));
   }
   return fold;
 }
@@ -157,8 +158,8 @@ class XpAudit {
   private readonly best = new Map<number, number>();
   private fed = 0;
 
-  constructor(structure: StructureIndex, private readonly seen: Set<string>) {
-    this.replay = new Replay(structure);
+  constructor(key: string, structure: StructureIndex, private readonly seen: Set<string>) {
+    this.replay = new Replay(key, structure);
   }
 
   feed(facts: readonly Parameters<Replay["apply"]>[0][], now: number): void {
@@ -216,7 +217,7 @@ async function stable(f: Fixture): Promise<LearningState> {
 async function reopen(run: Run): Promise<void> {
   await run.f.reopen();
   await stable(run.f);
-  run.audit = new XpAudit(run.f.session().structure, run.seen);
+  run.audit = new XpAudit(run.f.session().key, run.f.session().structure, run.seen);
 }
 
 /** 公开状态里与判分进程有关的部分（为什么中断）只在内存里，重开后不同，比较时去掉。 */
@@ -369,7 +370,7 @@ async function check(run: Run): Promise<void> {
   const state = await stable(f);
   const session = f.session();
   const { replay: live, structure } = session;
-  const cold = new Replay(structure);
+  const cold = new Replay(session.key, structure);
   for (const fact of session.records.facts) cold.apply(fact);
   cold.settle(state.serverNow);
   assert.deepEqual(snapshot(live), snapshot(cold), "现场状态与从事实重放的结果不同");
@@ -378,7 +379,7 @@ async function check(run: Run): Promise<void> {
   const current = live.current;
   if (current) {
     // 当前的课与学生模型用同一份继承进度：更早任务的重判改变了它，课的进度和结论随之改变。
-    const expected = taskEvidence(current, current.kind === "lesson" ? prefix.lessons.get(current.topicIds[0] ?? "") : undefined);
+    const expected = taskEvidence(current, current.kind === "lesson" ? prefix.lessons.get(scoped(current.course, current.topicIds[0] ?? "")) : undefined);
     const actual = live.currentEvidence();
     assert.deepEqual([actual?.outcome, actual?.kps], [expected.outcome, expected.kps], "当前任务的证据与重算后的学习状态不一致");
     assert.deepEqual(live.fold(), expected.outcome ? foldTask(prefix, expected) : prefix, "包括当前任务在内的学习状态与从头叠加的结果不同");
@@ -408,7 +409,7 @@ async function check(run: Run): Promise<void> {
     if (menu.availableAt !== undefined) {
       seen.add(fold.forced.size ? "补救休息到点再给" : "失败的课休息到点再给");
     } else {
-      const exhausted = !fold.forced.size && structure.order.every((entry) => fold.student[entry.id]);
+      const exhausted = !fold.forced.size && structure.order.every((entry) => fold.student[scoped(session.key, entry.id)]);
       const shortage = live.pending !== undefined && !live.pending.topicIds.length;
       assert.ok(exhausted || shortage, `菜单为空也没有恢复时间：强制补救 ${JSON.stringify([...fold.forced])}，已学 ${Object.keys(fold.student).join("、")}`);
     }
@@ -425,7 +426,7 @@ test("随机的学习操作序列下：现场状态与从事实重放相同，�
         const topics = courseTopics();
         const f = await learningFixture({ after: (cleanup) => { cleanups.push(cleanup); } }, topics, { models: model });
         await f.state();
-        const run: Run = { f, model, topics, audit: new XpAudit(f.session().structure, seen), clock: start, answers: 0, seen };
+        const run: Run = { f, model, topics, audit: new XpAudit(f.session().key, f.session().structure, seen), clock: start, answers: 0, seen };
         await learn(run, lessons);
         for (const op of operations) {
           try {

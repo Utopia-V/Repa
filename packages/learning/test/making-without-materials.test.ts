@@ -129,9 +129,9 @@ test("没有课件也能做课：起点开始，Agent 先问清需求，学习�
     (context) => {
       seen.read = lastToolResult(context);
       return fauxAssistantMessage([
-        write("course/course.yaml", manifest),
-        write("course/topics/la01.yaml", outline("la01", "向量", [], "第一节 向量")),
-        write("course/topics/la02.yaml", outline("la02", "矩阵乘法", ["la01"], "第二节 矩阵乘法")),
+        write("courses/space/course/course.yaml", manifest),
+        write("courses/space/course/topics/la01.yaml", outline("la01", "向量", [], "第一节 向量")),
+        write("courses/space/course/topics/la02.yaml", outline("la02", "矩阵乘法", ["la01"], "第二节 矩阵乘法")),
       ]);
     },
     fauxAssistantMessage([fauxToolCall("course_check", {})]),

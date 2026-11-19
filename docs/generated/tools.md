@@ -38,16 +38,18 @@ Execute a bash command in the current working directory. Returns stdout and stde
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| course | string | 是 | 哪门课：课的文件夹，相对空间根，例如 courses/操作系统；空间根上的课写 .。在这门课的做课对话或后台展开里，或空间里只有一门自己的课时，可以不写 |
 | topicIds[] | string | 否 | 要展开的 topic id，按要写的先后 |
 
 ## course_check
 
 来源：learning。
 
-检查空间里 course/ 的课：逐处列出哪个文件、哪一行、错在哪里、怎样改，错误多时分页。只检查，不改变学习者在学的课。
+检查一门课的 course/：逐处列出哪个文件、哪一行、错在哪里、怎样改，错误多时分页。只检查，不改变学习者在学的课。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| course | string | 是 | 哪门课：课的文件夹，相对空间根，例如 courses/操作系统；空间根上的课写 .。在这门课的做课对话或后台展开里，或空间里只有一门自己的课时，可以不写 |
 | offset | integer | 是 | 从第几处问题开始列，默认 0；上一页的末尾会写明下一页的 offset |
 
 ## course_confirm
@@ -58,16 +60,18 @@ Execute a bash command in the current working directory. Returns stdout and stde
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| course | string | 是 | 哪门课：课的文件夹，相对空间根，例如 courses/操作系统；空间根上的课写 .。在这门课的做课对话或后台展开里，或空间里只有一门自己的课时，可以不写 |
 | topicIds[] | string | 否 | 要核对的 topic id |
 
 ## course_use
 
 来源：learning。
 
-检查空间里 course/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。有题还没有当前的核对记录（course_confirm）时不换；学习者正在做一项任务时，这一版改了展开过的部分也不换。
+检查一门课的 course/，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。有题还没有当前的核对记录（course_confirm）时不换；学习者正在做一项任务时，这一版改了展开过的部分也不换。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| course | string | 是 | 哪门课：课的文件夹，相对空间根，例如 courses/操作系统；空间根上的课写 .。在这门课的做课对话或后台展开里，或空间里只有一门自己的课时，可以不写 |
 
 ## edit
 
@@ -159,10 +163,11 @@ List directory contents. Returns entries sorted alphabetically, with '/' suffix 
 
 来源：materials。
 
-列出空间 materials/ 下的文件：每个文件的格式和页数（PDF）、张数（幻灯片）或段数（Word 文档），读不出文字的写明原因。第一次列出时要逐个解析文件，之后用缓存。
+列出课的 materials/ 下的文件：每个文件的格式和页数（PDF）、张数（幻灯片）或段数（Word 文档），读不出文字的写明原因。第一次列出时要逐个解析文件，之后用缓存。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
+| folder | string | 是 | 只列这门课的课件：课的文件夹，相对空间根目录，例如 courses/操作系统；不写时列出每门课的 |
 
 ## materials_read
 
@@ -173,7 +178,7 @@ List directory contents. Returns entries sorted alphabetically, with '/' suffix 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
 | from | integer | 是 | 从第几页（PDF）、第几张（幻灯片）或第几段（Word 文档）读起，默认 1 |
-| path | string | 否 | 相对空间根目录的路径，照 materials_list 列出的写，例如 materials/第一章.pdf |
+| path | string | 否 | 相对空间根目录的路径，照 materials_list 列出的写，例如 courses/操作系统/materials/第一章.pdf |
 | to | integer | 是 | 读到第几页、张或段为止（含），默认读到本次能交回的上限 |
 
 ## plugin

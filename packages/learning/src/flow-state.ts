@@ -1,4 +1,5 @@
 import type { ModelConfig, Student } from "@repa/learning-model";
+import { scoped } from "./course-key.js";
 import type { StructureIndex } from "./course-structure.js";
 import { shuffled } from "./delivery.js";
 import {
@@ -41,10 +42,9 @@ export interface TaskRecord {
   at: number;
   kind: TaskKind;
   topicIds: string[];
-  /**
-   * 这项任务开始时的课程结构：结论、奖励、学生模型的更新与补救都按它计算。旧日志基线之前的任务是基线的结构，
-   * 之后的任务是它引用的结构事实。
-   */
+  /** 任务所属的课在空间里的键：学习状态按它加编号存（见 course-key.ts）。 */
+  course: string;
+  /** 这项任务开始时的课程结构（它引用的结构事实）：结论、奖励、学生模型的更新与补救都按它计算。 */
   structure: StructureIndex;
   retakes?: number;
   /** 课开始时记下的各知识点练习，按知识点顺序；这项记录之前的课没有，按任务的结构计算。 */
@@ -414,40 +414,44 @@ export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig
     forced: new Map(previous.forced),
     consecutiveReviews: previous.consecutiveReviews,
   };
+  const key = entry.task.course;
+  const at = (id: string) => scoped(key, id);
   const topicId = entry.task.topicIds[0];
   if (!topicId || !entry.outcome) {
     return fold;
   }
+  const own = new Set(entry.task.topicIds.map(at));
   // 失败以后做完另一项任务（中止的不算）就算休息过，见 parameters.ts 的 LESSON_REST_MS。任务按先后叠加，后叠加的就是后做的。
   if (isCompleted(entry.outcome)) {
     for (const [id, failure] of fold.failures) {
-      if (!failure.rested && !entry.task.topicIds.includes(id)) {
+      if (!failure.rested && !own.has(id)) {
         fold.failures.set(id, { ...failure, rested: true });
       }
     }
     for (const [id, failure] of fold.reviewFailures) {
-      if (!failure.rested && !entry.task.topicIds.includes(id)) {
+      if (!failure.rested && !own.has(id)) {
         fold.reviewFailures.set(id, { ...failure, rested: true });
       }
     }
   }
+  // force 与 update 收的是这门课里的编号，学习状态里的键带上课的键。
   const force = (id: string, kind: "review" | "lesson"): void => {
-    if (!fold.student[id]) {
+    if (!fold.student[at(id)]) {
       kind = "lesson";
     }
     if (kind === "lesson") {
       for (const prerequisite of structure.topics.get(id)?.prerequisites ?? []) {
-        if (!fold.student[prerequisite]) {
+        if (!fold.student[at(prerequisite)]) {
           force(prerequisite, "lesson");
         }
       }
     }
-    if (kind === "lesson" && fold.forced.get(id) !== "lesson") {
+    if (kind === "lesson" && fold.forced.get(at(id)) !== "lesson") {
       // 只在进入新一轮重教时清除旧轮进度，失败重试继续继承本轮已过 KP。
-      fold.lessons.delete(id);
-      fold.failures.delete(id);
+      fold.lessons.delete(at(id));
+      fold.failures.delete(at(id));
     }
-    fold.forced.set(id, kind);
+    fold.forced.set(at(id), kind);
   };
   // 正式作答的更新以最后一份有证据的作答为锚点；判分延迟不把旧表现当成新的表现。超时取截止时间。
   const repetitionAt = entry.outcome === "timeout" ? entry.at : Math.max(
@@ -455,7 +459,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig
     ...entry.attempts.filter((attempt) => attempt.verdict !== undefined).map((attempt) => attempt.acceptedAt),
   );
   const update = (id: string, outcome: "pass" | "fail", attempts: Attempt[]) => {
-    fold.student = updateStudent(structure.graph, fold.student, { topicId: id, outcome, quality: quality(attempts, outcome === "pass") }, repetitionAt, model);
+    fold.student = updateStudent(structure.scopedGraph(key), fold.student, { topicId: at(id), outcome, quality: quality(attempts, outcome === "pass") }, repetitionAt, model);
   };
   if (isQuiz(entry.task.kind)) {
     if (isCompleted(entry.outcome)) {
@@ -474,40 +478,40 @@ export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig
     }
   } else if (entry.task.kind === "lesson") {
     fold.consecutiveReviews = 0;
-    fold.lessons.set(topicId, entry.kps);
+    fold.lessons.set(at(topicId), entry.kps);
     if (entry.outcome === "passed") {
-      if (!fold.student[topicId] || fold.forced.has(topicId)) {
+      if (!fold.student[at(topicId)] || fold.forced.has(at(topicId))) {
         update(topicId, "pass", entry.attempts);
       }
-      fold.failures.delete(topicId);
-      fold.forced.delete(topicId);
+      fold.failures.delete(at(topicId));
+      fold.forced.delete(at(topicId));
     } else if (entry.outcome === "failed") {
       const kpId = entry.kps.find((kp) => !kp.completed)?.kpId;
       if (kpId) {
-        const stuck = fold.failures.get(topicId)?.kpId === kpId;
-        fold.failures.set(topicId, { at: entry.at, kpId, stuck, rested: false });
+        const stuck = fold.failures.get(at(topicId))?.kpId === kpId;
+        fold.failures.set(at(topicId), { at: entry.at, kpId, stuck, rested: false });
         const prerequisites = structure.topics.get(topicId)?.kps.find((kp) => kp.id === kpId)?.keyPrerequisites ?? [];
         if (stuck) {
-          const weakness = (id: string) => topicMemory(fold.student, id, entry.at);
+          const weakness = (id: string) => topicMemory(fold.student, at(id), entry.at);
           for (const id of [...prerequisites].sort((a, b) => weakness(a) - weakness(b))) {
-            force(id, fold.student[id] ? "review" : "lesson");
+            force(id, fold.student[at(id)] ? "review" : "lesson");
           }
         }
       }
     }
-  } else if (fold.student[topicId]) {
+  } else if (fold.student[at(topicId)]) {
     // 复习有了证据才更新：中止而还可能通过的、被后来的任务取代的不更新，topic 照旧到期（强制复习照旧强制）。
     const verdict = reviewVerdict(entry);
     if (verdict) {
       update(topicId, verdict, entry.attempts);
       if (verdict === "pass") {
-        fold.reviewFailures.delete(topicId);
+        fold.reviewFailures.delete(at(topicId));
       } else {
-        fold.reviewFailures.set(topicId, { at: entry.at, rested: false });
+        fold.reviewFailures.set(at(topicId), { at: entry.at, rested: false });
       }
-      if (fold.forced.has(topicId)) {
+      if (fold.forced.has(at(topicId))) {
         if (verdict === "pass") {
-          fold.forced.delete(topicId);
+          fold.forced.delete(at(topicId));
         } else {
           force(topicId, "lesson");
         }
@@ -518,17 +522,34 @@ export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig
   return fold;
 }
 
-/** 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。 */
-export function topicEligible(structure: StructureIndex, fold: Fold, topicId: string, kind: TaskKind, now: number): boolean {
+/**
+ * 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。key 是这门课的键，structure 是它现在的结构；
+ * fold 的补救只含还要求的义务（见 obligations）。
+ */
+export function topicEligible(structure: StructureIndex, fold: Fold, key: string, topicId: string, kind: TaskKind, now: number): boolean {
   const topic = structure.topics.get(topicId);
   if (!topic) {
     return false;
   }
+  const at = (id: string) => scoped(key, id);
   if (kind === "review") {
-    return Boolean(fold.student[topicId] && (fold.forced.get(topicId) === "review" || topicDue(fold.student, topicId, now)));
+    return Boolean(fold.student[at(topicId)] && (fold.forced.get(at(topicId)) === "review" || topicDue(fold.student, at(topicId), now)));
   }
   return kind !== "lesson" || (
-    topic.prerequisites.every((id) => fold.student[id]) &&
-    (!fold.forced.size || fold.forced.get(topicId) === "lesson")
+    topic.prerequisites.every((id) => fold.student[at(id)]) &&
+    (!fold.forced.size || fold.forced.get(at(topicId)) === "lesson")
   );
+}
+
+/**
+ * 还要求学习者完成的强制补救：义务所属的那门课还在空间里，补救的 topic 还在那门课现在的结构里。换课以后旧课的补救、
+ * 课程删掉了的 topic 的补救都无从完成，不再要求，也不挡菜单。present 按课的键给出那门课现在的结构，课不在空间里时为 undefined。
+ * 学习状态本身不改：义务的事实还在，那门课回来时照旧要求。
+ */
+export function obligations(fold: Fold, present: (key: string) => StructureIndex | undefined): Fold {
+  const forced = new Map([...fold.forced].filter(([id]) => {
+    const split = id.indexOf(":");
+    return present(id.slice(0, split))?.topics.has(id.slice(split + 1)) ?? false;
+  }));
+  return forced.size === fold.forced.size ? fold : { ...fold, forced };
 }

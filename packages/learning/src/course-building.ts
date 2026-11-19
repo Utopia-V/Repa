@@ -1,10 +1,11 @@
 /**
- * 做课的记录与设置：哪些会话在做这门课（花费按它们汇总），最近一次后台展开，以及要不要自动展开。
- * 两份都是插件数据目录里的小 JSON，先写临时文件再改名。正在进行的展开只在内存里：应用关掉时宿主取消它，记录随之写明。
+ * 做课的记录与设置：哪些会话在做一门课（花费按它们汇总），最近一次后台展开，以及要不要自动展开。
+ * 做课的记录每门课一份，按课的键存在 building/<键>.json。
+ * 设置属于这个人，只有一份。都是插件数据目录里的小 JSON，先写临时文件再改名。正在进行的展开只在内存里：应用关掉时宿主取消它，记录随之写明。
  */
 
 import path from "node:path";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 
 import { writeJson } from "@repa/base";
 import { identifier, ModelFailureSchema, object, parse } from "@repa/base/protocol";
@@ -14,10 +15,10 @@ import { COURSE_GUIDE } from "./course-tools.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import { expansionBrief } from "./expansion-brief.js";
 import { ExpansionFailureSchema, LearningSettingsSchema, type LearningSettings } from "./protocol.js";
-import { SPACE_COURSE } from "./space-course.js";
+import { courseFolder } from "./space-course.js";
 
-/** 数据目录里的做课记录。 */
-export const BUILDING_FILE = "building.json";
+/** 数据目录里各门课的做课记录所在的文件夹，每门课一份 <键>.json。 */
+export const BUILDING_FOLDER = "building";
 /** 数据目录里的学习插件设置。 */
 export const SETTINGS_FILE = "settings.json";
 
@@ -26,7 +27,7 @@ export const EXPANSION_SIZE = 2;
 
 const time = Type.Integer({ minimum: 0 });
 /**
- * building.json：conversation 是学习者与之对话做课的会话；sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
+ * 一门课的做课记录：conversation 是学习者与之对话做课的会话；sessions 是做过这门课的会话；last 是最近一次后台展开：要展开的部分、开始时学习者学过几个 topic（自动展开每个学过数只试一次）、
  * 会话、结束时间与没有成功的原因（模型请求失败时带上底座的分类 failure，2026-11-17 加入，之前写下的记录没有它）。没有 endedAt：应用在展开中途崩溃，没来得及写下结局，不另补记。
  */
 export const BuildingRecordSchema = object({
@@ -57,18 +58,25 @@ async function readJson(file: string): Promise<unknown> {
   }
 }
 
-/** 读出做课记录与设置；没有文件时是空记录与缺省设置。 */
-export async function openBuilding(dataDir: string): Promise<{ record: BuildingRecord; settings: LearningSettings }> {
-  const record = await readJson(path.join(dataDir, BUILDING_FILE));
-  const settings = await readJson(path.join(dataDir, SETTINGS_FILE));
-  return {
-    record: record === undefined ? { sessions: [] } : parse(BuildingRecordSchema, record),
-    settings: settings === undefined ? { autoExpand: true } : parse(LearningSettingsSchema, settings),
-  };
+function recordFile(dataDir: string, key: string): string {
+  return path.join(dataDir, BUILDING_FOLDER, `${key}.json`);
 }
 
-export function saveRecord(dataDir: string, record: BuildingRecord): Promise<void> {
-  return writeJson(path.join(dataDir, BUILDING_FILE), record);
+/** 读出一门课的做课记录；没有文件时是空记录。 */
+export async function openRecord(dataDir: string, key: string): Promise<BuildingRecord> {
+  const record = await readJson(recordFile(dataDir, key));
+  return record === undefined ? { sessions: [] } : parse(BuildingRecordSchema, record);
+}
+
+/** 读出学习插件的设置；没有文件时是缺省设置。 */
+export async function openSettings(dataDir: string): Promise<LearningSettings> {
+  const settings = await readJson(path.join(dataDir, SETTINGS_FILE));
+  return settings === undefined ? { autoExpand: true } : parse(LearningSettingsSchema, settings);
+}
+
+export async function saveRecord(dataDir: string, key: string, record: BuildingRecord): Promise<void> {
+  await mkdir(path.join(dataDir, BUILDING_FOLDER), { recursive: true });
+  await writeJson(recordFile(dataDir, key), record);
 }
 
 export function saveSettings(dataDir: string, settings: LearningSettings): Promise<void> {
@@ -90,21 +98,22 @@ export function completeTopics(course: ResolvedCourse): string[] {
  * 学过的部分写出来，让它知道哪些不能推倒。这几部分的轮廓和学习者在它们之前学到的概念由程序算好放在后面（expansion-brief.ts），
  * 模型不必自己去翻课程文件；具体做法在写课说明的“后台展开”一节。
  */
-export function expansionTask(course: ResolvedCourse, topicIds: readonly string[], learned: readonly string[]): string {
+export function expansionTask(course: ResolvedCourse, location: string, topicIds: readonly string[], learned: readonly string[]): string {
   const name = (id: string) => `${id}「${course.topics.find((topic) => topic.id === id)?.title ?? id}」`;
   return [
-    `在后台展开空间里 ${SPACE_COURSE}/ 这门课的这几部分：${topicIds.map(name).join("、")}。`,
+    `在后台展开空间里 ${courseFolder(location)}/ 这门课的这几部分：${topicIds.map(name).join("、")}。`,
     `学习者学过的部分：${learned.length > 0 ? learned.map(name).join("、") : "还没有"}。`,
     `先用 read 读 ${COURSE_GUIDE} 的“后台展开”一节，照着做，最后用 course_use 换用。`,
     "这是后台运行：没有人回答提问，也没有人能确认命令，不要运行命令，也不要用 ask_user。",
     "下面是这几部分的轮廓和学习者在它们之前学到的概念，取自学习者现在学的这一版课。",
     "",
-    expansionBrief(course, topicIds, new Set(learned)),
+    expansionBrief(course, location, topicIds, new Set(learned)),
   ].join("\n");
 }
 
 /**
  * 做课对话的第一条消息：以学习者的口吻说明要做什么，附上他写的要求。没有课件时写明这一点，他写的是想学什么。
+ * 这条消息学习者自己看得到，不写课的文件夹：是哪门课、在哪个文件夹，由每次运行的说明交给模型。
  * 怎样做课（包括没有课件时先问清需求）在插件说明与写课说明里。
  */
 export function beginText(materials: boolean, request: string | undefined): string {

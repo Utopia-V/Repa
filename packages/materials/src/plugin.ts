@@ -1,7 +1,7 @@
 import { RepaFault, Type } from "@repa/base/plugin";
 import type { Plugin, PluginMethod, Tool } from "@repa/base/plugin";
 
-import { Materials, MATERIALS_DIRECTORY, type Outcome } from "./materials.js";
+import { COURSES_DIRECTORY, Materials, MATERIALS_DIRECTORY, type Outcome } from "./materials.js";
 import { materialsMethods, type Material, type MaterialsInput, type MaterialsResult } from "./protocol.js";
 import { failureMessage, FORMAT_NAME, UNIT, type Converted, type MissingPage } from "./result.js";
 
@@ -14,10 +14,12 @@ export { conversionCount } from "./convert.js";
 export const READ_BYTE_LIMIT = 40_000;
 export const READ_LINE_LIMIT = 1_500;
 
-const ListParameters = Type.Object({}, { additionalProperties: false });
+const ListParameters = Type.Object({
+  folder: Type.Optional(Type.String({ description: `只列这门课的课件：课的文件夹，相对空间根目录，例如 ${COURSES_DIRECTORY}/操作系统；不写时列出每门课的` })),
+}, { additionalProperties: false });
 
 const ReadParameters = Type.Object({
-  path: Type.String({ description: `相对空间根目录的路径，照 materials_list 列出的写，例如 ${MATERIALS_DIRECTORY}/第一章.pdf` }),
+  path: Type.String({ description: `相对空间根目录的路径，照 materials_list 列出的写，例如 ${COURSES_DIRECTORY}/操作系统/${MATERIALS_DIRECTORY}/第一章.pdf` }),
   from: Type.Optional(Type.Integer({ minimum: 1, description: "从第几页（PDF）、第几张（幻灯片）或第几段（Word 文档）读起，默认 1" })),
   to: Type.Optional(Type.Integer({ minimum: 1, description: "读到第几页、张或段为止（含），默认读到本次能交回的上限" })),
 }, { additionalProperties: false });
@@ -109,7 +111,7 @@ function material(file: { path: string; size: number; outcome: Outcome }): Mater
   }
 }
 
-/** 课件转文字插件：把空间 materials/ 下的 PDF、幻灯片和 Word 文档读成文字，交给通用 Agent。 */
+/** 课件转文字插件：把各门课的 materials/ 下的 PDF、幻灯片和 Word 文档读成文字，交给通用 Agent。 */
 export const materialsPlugin = {
   id: "materials",
   async open(host) {
@@ -117,14 +119,21 @@ export const materialsPlugin = {
 
     const list: Tool = {
       name: "materials_list",
-      description: `列出空间 ${MATERIALS_DIRECTORY}/ 下的文件：每个文件的格式和页数（PDF）、张数（幻灯片）或段数（Word 文档），读不出文字的写明原因。第一次列出时要逐个解析文件，之后用缓存。`,
+      description: `列出课的 ${MATERIALS_DIRECTORY}/ 下的文件：每个文件的格式和页数（PDF）、张数（幻灯片）或段数（Word 文档），读不出文字的写明原因。第一次列出时要逐个解析文件，之后用缓存。`,
       parameters: ListParameters,
-      async execute(_input, context) {
-        const files = await materials.list(context.signal);
-        if (files === undefined) return { text: `空间里还没有 ${MATERIALS_DIRECTORY}/ 文件夹，学习者还没有放进课件。` };
-        if (files.length === 0) return { text: `${MATERIALS_DIRECTORY}/ 里还没有文件。` };
-        const lines = files.map((file) => `- ${file.path}：${summary(file.outcome)}`);
-        return { text: `${MATERIALS_DIRECTORY}/ 里有 ${files.length} 个文件：\n${lines.join("\n")}` };
+      async execute(input, context) {
+        const { folder } = input as { folder?: string };
+        const folders = folder === undefined ? await materials.folders() : [folder];
+        if (folders.length === 0) return { text: `还没有哪门课有 ${MATERIALS_DIRECTORY}/ 文件夹，学习者还没有放进课件。` };
+        const sections = [];
+        for (const entry of folders) {
+          const files = await materials.list(entry, context.signal);
+          const where = `${entry}/${MATERIALS_DIRECTORY}/`;
+          if (files === undefined) sections.push(`${where} 还不存在，学习者还没有放进课件。`);
+          else if (files.length === 0) sections.push(`${where} 里还没有文件。`);
+          else sections.push(`${where} 里有 ${files.length} 个文件：\n${files.map((file) => `- ${file.path}：${summary(file.outcome)}`).join("\n")}`);
+        }
+        return { text: sections.join("\n\n") };
       },
     };
 
@@ -147,26 +156,31 @@ export const materialsPlugin = {
     };
 
     // 方法不随哪次运行取消；第一次列出要逐个解析，之后用缓存。
-    async function listed(): Promise<MaterialsResult<"list">> {
-      const files = await materials.list(new AbortController().signal);
+    async function listed(folder: string): Promise<MaterialsResult<"list">> {
+      const files = await materials.list(folder, new AbortController().signal);
       return { files: (files ?? []).map(material) };
     }
 
     const methods: Record<string, PluginMethod> = {
-      list: { parameters: materialsMethods.list.input, result: materialsMethods.list.result, invoke: () => listed() },
+      list: {
+        parameters: materialsMethods.list.input,
+        result: materialsMethods.list.result,
+        invoke: (input) => listed((input as MaterialsInput<"list">).folder),
+      },
       add: {
         parameters: materialsMethods.add.input,
         result: materialsMethods.add.result,
         async invoke(input) {
-          await materials.add((input as MaterialsInput<"add">).paths);
-          return listed();
+          const { folder, paths } = input as MaterialsInput<"add">;
+          await materials.add(folder, paths);
+          return listed(folder);
         },
       },
     };
 
     return {
       methods,
-      instructions: () => `学习者的课件放在空间的 ${MATERIALS_DIRECTORY}/ 里。PDF、幻灯片和 Word 文档用 materials_list 查看、用 materials_read 读出文字，不要用 read 直接读这些文件；读不出文字时，把工具给出的原因告诉学习者，不要凭空补出内容。`,
+      instructions: () => `学习者的课件放在每门课的文件夹的 ${MATERIALS_DIRECTORY}/ 里（${COURSES_DIRECTORY}/<名>/${MATERIALS_DIRECTORY}/）。PDF、幻灯片和 Word 文档用 materials_list 查看、用 materials_read 读出文字，不要用 read 直接读这些文件；读不出文字时，把工具给出的原因告诉学习者，不要凭空补出内容。`,
       tools: () => [list, read],
     };
   },

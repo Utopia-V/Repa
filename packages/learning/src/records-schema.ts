@@ -7,6 +7,7 @@
  */
 import { Type, type Static } from "typebox";
 import { AnswerSchema, identifier, object } from "@repa/base/protocol";
+import { CourseKeySchema } from "./course-key.js";
 import { CourseStructureSchema } from "./course-structure.js";
 
 const time = Type.Integer({ minimum: 0 });
@@ -14,14 +15,6 @@ const time = Type.Integer({ minimum: 0 });
 const reference = Type.Integer({ minimum: 1 });
 const version = Type.String({ pattern: "^sha256:[0-9a-f]{64}$" });
 const envelope = { seq: Type.Integer({ minimum: 1 }), at: time };
-
-/**
- * 计算任务所用规则（判定、奖励、学生模型的更新与参数）的身份。test1 是测试版 v0.1.0-test.1 起一直使用的这一套；
- * 以后改规则时另起一个身份，之前的任务仍按它记下的那一套计算。
- */
-export const RulesSchema = Type.Enum(["test1"]);
-/** 规则的身份。 */
-export type Rules = Static<typeof RulesSchema>;
 
 /** 任务类型：课、复习、测验和换题重考。 */
 export const TaskKindSchema = Type.Enum(["lesson", "review", "quiz", "retake"]);
@@ -39,21 +32,21 @@ export type GradedSlot = Static<typeof GradedSlotSchema>;
 
 /** 一条学习事实；seq 从 1 起连续，at 是写入时的服务端毫秒时间。 */
 export const FactSchema = Type.Union([
-  // 学习者从菜单选了一项任务；course 是开始时加载的课程标识与版本，课程改版以后仍知道这项任务及其作答依据的是哪一版。
+  // 学习者从菜单选了一项任务；course 是开始时加载的课程标识与版本，课程改版以后仍知道这项任务及其作答依据的是哪一版；
+  // course.key 是这门课在空间里的键：学习状态按它加编号存，id 只是作者在清单里的声明。
   // retakes 是换题重考所针对的测验任务。课还记下开始时的练习：按知识点顺序列出必做题和开放题，
   // 以及课的分钟数（XP 的基数），之后课程改动不改写这节课的结论与 XP。
   object({
-    ...envelope, type: Type.Literal("task"), kind: TaskKindSchema, course: object({ id: identifier, version: identifier }),
+    ...envelope, type: Type.Literal("task"), kind: TaskKindSchema,
+    course: object({ key: CourseKeySchema, id: identifier, version: identifier }),
     topics: Type.Array(identifier, { minItems: 1, maxItems: 20 }), retakes: Type.Optional(reference),
     practice: Type.Optional(Type.Array(
       object({ kp: identifier, required: Type.Array(identifier, { maxItems: 20 }), open: Type.Array(identifier, { maxItems: 20 }) }),
       { maxItems: 8 },
     )),
     minutes: Type.Optional(Type.Integer({ minimum: 0 })),
-    // structure 引用此前一条带课程结构的事实（structure，或带结构的 baseline），任务的结论、奖励、学生模型与补救都按它计算；
-    // rules 是计算所用规则的身份。旧日志基线之前的任务没有这两项，按基线计算。
-    structure: Type.Optional(reference),
-    rules: Type.Optional(RulesSchema),
+    // structure 引用此前一条课程结构事实，任务的结论、奖励、学生模型与补救都按它计算。
+    structure: reference,
   }),
   // 课内翻到某个知识点的讲解页或例题页。
   object({ ...envelope, type: Type.Literal("viewed"), task: reference, kp: identifier, page: Type.Enum(["lesson", "example"]) }),
@@ -80,10 +73,6 @@ export const FactSchema = Type.Union([
   object({ ...envelope, type: Type.Literal("goal"), xp: Type.Integer({ minimum: 1 }) }),
   // 一份课程结构，供之后的任务引用。随第一项用到它的任务一起写下，与同一门课最近一份结构相同时不再写。
   object({ ...envelope, type: Type.Literal("structure"), structure: CourseStructureSchema }),
-  // 旧日志基线：首次用记录结构的版本打开测试版留下的日志时追加。此前（seq 小于它）的任务都按这里的结构和规则计算，
-  // 即测试版当时用来解释整段日志的那一份；没有 structure 表示测试版当时不显示任何一门课的进度（空间里有还没换用的 course/），
-  // 此前的任务不对任何一门课计数。
-  object({ ...envelope, type: Type.Literal("baseline"), rules: RulesSchema, structure: Type.Optional(CourseStructureSchema) }),
 ]);
 /** 一条学习事实。 */
 export type Fact = Static<typeof FactSchema>;

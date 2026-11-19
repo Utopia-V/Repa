@@ -1,14 +1,12 @@
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { opendir, readFile, realpath, stat } from "node:fs/promises";
+import { opendir, realpath, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { Type } from "typebox";
-import { Check } from "typebox/value";
-
 import { RepaFault, type DirectoryListing, type DirectoryRoot } from "../schema.js";
+import { isSpace } from "./nesting.js";
 
 const execFileAsync = promisify(execFile);
 const LIMIT = 1000;
@@ -60,16 +58,6 @@ function browseFault(error: unknown, directory: string): unknown {
       return new RepaFault("permission_denied", "没有访问这个文件夹的权限。", { path: directory });
     default:
       return new RepaFault("unavailable", "暂时无法读取这个文件夹。", { path: directory, code });
-  }
-}
-
-/** 浏览只识别有效的格式标记，包括当前程序尚不能打开的更新版本。 */
-async function isSpace(directory: string): Promise<boolean> {
-  try {
-    const value: unknown = JSON.parse(await readFile(path.join(directory, ".repa", "format.json"), "utf8"));
-    return Check(Type.Object({ version: Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }) }), value);
-  } catch {
-    return false;
   }
 }
 

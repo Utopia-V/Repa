@@ -137,11 +137,11 @@ schema：packages/base/src/space/format.ts#FormatSchema；SHA-256 前 16 位：5
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位：e2d68d3523a1bd77。
+schema：packages/learning/src/records-schema.ts#FactSchema；SHA-256 前 16 位：42181c9f61aa48ee。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| $ | object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object | 否 | 嵌套对象，字段见源码 |
+| $ | object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object &#124; object | 否 | 嵌套对象，字段见源码 |
 
 ## plugin-manifest
 
@@ -210,15 +210,19 @@ schema：packages/base/src/plugins/enablement.ts#PluginEnablementSchema；SHA-25
 
 版本标记：<空间>/.repa/plugins/learning/format.json。
 
-schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 16 位：55961a3217710f9c。
+schema：packages/learning/src/space-course.ts#CourseChoiceSchema；SHA-256 前 16 位：7a91e58b9ae74d56。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
-| active | string | 是 |  |
+| courses[] | object | 否 |  |
+| courses[].bundled | string | 是 |  |
+| courses[].copy | string | 是 |  |
+| courses[].key | string | 否 |  |
+| courses[].location | string | 是 |  |
 
 ## learning-building
 
-文件：<空间>/.repa/plugins/learning/building.json。
+文件：<空间>/.repa/plugins/learning/building/<课的键>.json。
 
 负责的包：@repa/learning。
 
@@ -254,13 +258,13 @@ schema：packages/learning/src/protocol.ts#LearningSettingsSchema；SHA-256 前 
 
 ## learning-course
 
-文件：<空间>/course/course.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml、随包课程的 course.yaml。
+文件：<空间>/courses/<课名>/course/course.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/course.yaml、随包课程的 course.yaml。
 
 负责的包：@repa/learning。
 
 版本标记：无独立版本标记；换用过的副本目录名是内容摘要，课程自己的 version 只记进学习记录。
 
-schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 位：afad8965c50dc09b。
+schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 位：bfdbf7ff6e3a4d39。
 
 | 字段 | 类型 | 可选 | 说明 |
 | --- | --- | --- | --- |
@@ -282,7 +286,7 @@ schema：packages/learning/src/format/schema.ts#CourseSchema；SHA-256 前 16 �
 
 ## learning-topic
 
-文件：<空间>/course/topics/<topic id>.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/topics/<topic id>.yaml、随包课程的 topics/<topic id>.yaml。
+文件：<空间>/courses/<课名>/course/topics/<topic id>.yaml、<空间>/.repa/plugins/learning/courses/<摘要>/topics/<topic id>.yaml、随包课程的 topics/<topic id>.yaml。
 
 负责的包：@repa/learning。
 

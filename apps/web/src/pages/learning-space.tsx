@@ -106,7 +106,8 @@ export function NewSpacePage() {
 }
 
 /**
- * 第一次使用时没有可继续的空间：问这门课叫什么，在“我的 Repa 文件夹”下的 <名称> 新建空间并打开，落到放课件的起点。
+ * 第一次使用时没有可继续的空间：问这门课叫什么，“我的 Repa 文件夹”本身就是空间（已经是空间就打开它，否则新建），
+ * 课建在其中的 courses/<名称>/，落到放课件的起点。
  * Repa 文件夹缺省是用户主目录下的 Repa，主目录取自后端（不带路径的 space.browse 从它开始）；三个系统都放在这里，
  * Windows 的“文档”常被 OneDrive 接管。C 盘小的学习者可以换个位置，选过以后下次新建仍放在那里。
  * 名称不能作文件夹名、或那个文件夹已经有别的内容时如实报错，不替他改名。选已有的文件夹作为次要动作保留。
@@ -121,7 +122,7 @@ function FirstSpace({ title, previous, onPick, onCreated }: {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
-  const openSpace = useAppStore((state) => state.openSpace);
+  const createFirstCourse = useAppStore((state) => state.createFirstCourse);
   const chosenFolder = useAppStore((state) => state.repaFolder);
   const setRepaFolder = useAppStore((state) => state.setRepaFolder);
   // 换到新建的空间会中止正在进行的运行，所以运行中不能建。
@@ -150,16 +151,17 @@ function FirstSpace({ title, previous, onPick, onCreated }: {
   const trimmed = name.trim();
   const invalid = trimmed !== "" && !validFolderName(trimmed);
   const folder = chosenFolder ?? (home === undefined ? undefined : joinPath(home, "Repa"));
-  const root = folder !== undefined && trimmed !== "" && !invalid ? joinPath(folder, trimmed) : undefined;
+  // 课的文件夹：空间（Repa 文件夹）里的 courses/<名称>。
+  const root = folder !== undefined && trimmed !== "" && !invalid ? joinPath(folder, "courses", trimmed) : undefined;
   const location = root ?? folder;
 
   async function create(event: FormEvent) {
     event.preventDefault();
-    if (root === undefined) return;
+    if (root === undefined || folder === undefined) return;
     setCreating(true);
     setFailure(undefined);
     try {
-      await openSpace(root, { create: true });
+      await createFirstCourse(folder, trimmed);
       onCreated();
     } catch (error) {
       setFailure(error);
