@@ -40,7 +40,7 @@ export const FAIL_QUALITY_FLOOR = 0.2;
 export const MENU_SIZE = 3;
 /**
  * 几门课并起来的菜单怎样排（见 flow-menu.ts 的 combinedMenu）：强制补救在前；再是各门课到期的复习，按此刻的记忆从低到高；
- * 再是新课，先给最久没学的那门课（最近一项任务最早的）。Repa 假设，没有依据：MA 只公开了一门课里的选法，几门课之间怎样分配
+ * 再是新课，各门课轮流给，每一轮里先给最久没学的那门课（最近一项任务最早的）。Repa 假设，没有依据：MA 只公开了一门课里的选法，几门课之间怎样分配
  * 没有公开。有了几门课同时学的作答数据（复习拖延、各课进度的分布）再校准。
  */
 export const MENU_COURSE_ORDER = ["remediation", "reviews-by-memory", "lessons-by-least-recent-course"] as const;

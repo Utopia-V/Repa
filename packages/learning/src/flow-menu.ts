@@ -131,7 +131,7 @@ function buildMenu(
 /**
  * 一份菜单：各门课按各自的规则算出的菜单（learningMenu）并起来。只有一门课时就是它的菜单。几门课时按 MENU_COURSE_ORDER 排：
  * 强制补救在前（它是全局的门：任何一门课有补救，各门课的菜单都只剩补救）；再是各门课的复习，按此刻的记忆从低到高；
- * 再是新课，先给最久没学的那门（studied 是这门课最近一项任务的序号，没学过为 0），同一门课里保持它自己的次序。
+ * 再是新课：各门课轮流，每轮里先给最久没学的那门（studied 是这门课最近一项任务的序号，没学过为 0），同一门课里保持它自己的次序。
  * 连续复习够数以后先给一节课的规则照旧（REVIEWS_BEFORE_LESSON）。都没有候选时，最早恢复的时间取各门课里最早的。
  */
 export function combinedMenu(parts: readonly { key: string; studied: number; menu: LearningMenu }[], fold: Fold, now: number, menuId: string): LearningMenu {
@@ -143,9 +143,14 @@ export function combinedMenu(parts: readonly { key: string; studied: number; men
   };
   const studied = new Map(parts.map((part) => [part.key, part.studied]));
   const memory = (candidate: Candidate) => topicMemory(fold.student, scoped(candidate.course, candidate.topicIds[0] ?? ""), now);
+  // 新课轮流取：先是各门课的第一节新课（最久没学的那门在前），再是各门课的第二节……这样菜单不被一门课占满。
+  const turn = new Map<Candidate, number>();
+  for (const part of parts) part.menu.candidates.filter((entry) => entry.kind === "lesson").forEach((entry, index) => turn.set(entry, index));
   const ordered = parts.flatMap((part) => part.menu.candidates).sort((a, b) => rank(a) - rank(b)
     || (a.kind === "review" && b.kind === "review" ? memory(a) - memory(b) : 0)
-    || (a.kind === "lesson" && b.kind === "lesson" ? (studied.get(a.course) ?? 0) - (studied.get(b.course) ?? 0) : 0));
+    || (a.kind === "lesson" && b.kind === "lesson"
+      ? (turn.get(a) ?? 0) - (turn.get(b) ?? 0) || (studied.get(a.course) ?? 0) - (studied.get(b.course) ?? 0)
+      : 0));
   if (!fold.forced.size && fold.consecutiveReviews >= REVIEWS_BEFORE_LESSON) {
     const lesson = ordered.findIndex((entry) => entry.kind === "lesson");
     if (lesson >= 0) ordered.unshift(...ordered.splice(lesson, 1));
