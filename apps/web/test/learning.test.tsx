@@ -4,12 +4,13 @@ import { createMemoryRouter } from "react-router";
 import { RouterProvider } from "react-router/dom";
 import { ConnectionError, RpcError } from "@repa/base/client";
 import type { Item, SessionEntry, SessionInfo } from "@repa/base/protocol";
-import type { Delivery, LearningState, LearningTask } from "@repa/learning/protocol";
+import type { Delivery, LearningState, LearningTask, Submission } from "@repa/learning/protocol";
 
 import { StoreProvider } from "../src/hooks/use-app-store";
 import { TrialRunnerProvider, type TrialRunner } from "../src/hooks/use-trial-runner";
 import { createAppStore } from "../src/lib/store";
 import { routes } from "../src/routes";
+import { t } from "../src/lib/strings";
 import { fakeClient } from "./fake-client";
 import { mockMatchMedia } from "./match-media";
 
@@ -242,19 +243,20 @@ it("判分的模型请求失败时按原因说明；key 无效时引导去设置
     return Promise.reject(new Error(method));
   });
   start(backend(learning).client);
-  expect(await screen.findByText(/^模型服务的账户余额不足，这份作答没能判出结果，不算错。/u)).toBeTruthy();
+  expect(await screen.findByText(t("learn.stage.ungraded.balance.description"))).toBeTruthy();
   expect(screen.queryByRole("link", { name: "去设置模型" })).toBeNull();
   cleanup();
 
   current = recovering("auth");
   start(backend(learning).client);
-  expect(await screen.findByText(/^API key 无效，这份作答没能判出结果/u)).toBeTruthy();
+  expect(await screen.findByText(t("learn.stage.ungraded.auth.description"))).toBeTruthy();
   expect(screen.getByRole("link", { name: "去设置模型" }).getAttribute("href")).toBe("/settings");
   cleanup();
 
   current = recovering();
   start(backend(learning).client);
-  expect(await screen.findByText(/^这份作答没能判出结果，不算错。/u)).toBeTruthy();
+  // 认不出原因时用通用的那一句；它的文字由维护前端的人定，这里按键取。
+  expect(await screen.findByText(t("learn.stage.ungraded.description"))).toBeTruthy();
 });
 
 it("辅导接着这个空间最近的一段辅导会话；开始新对话后，第一条消息建立新的辅导会话", async () => {
@@ -349,4 +351,276 @@ it("插件列表变了，学习插件不再运行时学习页标为不可用；�
   act(() => fake.emit("plugin.updated", { plugins: [{ ...item, state: "running" }] }));
   expect(store.getState().learning.available).toBe(true);
   await vi.waitFor(() => { expect(reads()).toBeGreaterThan(before); });
+});
+
+const kindText = (kind: LearningTask["kind"]) => ({ lesson: "新课", review: "复习", quiz: "测验", retake: "重考" })[kind];
+const quizDelivery = (index: number): Delivery => ({ ...delivery, deliveryId: `d${index}`, submissionId: `s${index}`, mode: "quiz" });
+function quizTask(phase: LearningTask["phase"], kind: "quiz" | "retake" = "quiz"): LearningTask {
+  return task(phase, { kind, deadlineAt: 900_000, kps: [], deliveries: [quizDelivery(1), quizDelivery(2), quizDelivery(3)] });
+}
+const quizAnswering = quizTask({ stage: "awaiting_answer", deliveryId: "d1" });
+
+it("测验交卷：带着任务守卫调用 quiz.finish，换上后端交回的结束状态", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "quiz.finish") return Promise.resolve(state(5, quizTask({ stage: "completed", outcome: "failed" })));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  const store = start(fake.client);
+  await screen.findByRole("button", { name: "提交" });
+
+  await act(() => store.getState().finishQuiz());
+
+  expect(learningCalls(fake.call).filter((call) => call.method === "quiz.finish").map((call) => call.input)).toEqual([{ taskId: "t1", expectedStage: "awaiting_answer", expectedRevision: 4 }]);
+  expect(store.getState().learning.state?.task?.phase).toEqual({ stage: "completed", outcome: "failed" });
+  expect(store.getState().learning.replaced).toBe(false);
+  expect(screen.getByText("测验结束")).toBeTruthy();
+});
+
+it("交卷时测验已经按截止时间结束（stale_state）：换成后端交回的状态，提示画面已经更新", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "quiz.finish") return Promise.reject(new RpcError(-32000, "测验仍在准备或状态已改变，请刷新后交卷", { code: "stale_state", details: { reason: "stale", state: state(6, quizTask({ stage: "completed", outcome: "timeout" })) } }));
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+  await screen.findByRole("button", { name: "提交" });
+
+  await act(() => store.getState().finishQuiz());
+
+  expect(store.getState().learning.state?.revision).toBe(6);
+  expect(store.getState().learning.replaced).toBe("stale");
+  expect(store.getState().learning.actionError).toBeUndefined();
+  expect(screen.getByText(t("learn.result.timeout.status"))).toBeTruthy();
+});
+
+it("重复交卷：后端返回已有的结束状态，前端照常换上，不报错", async () => {
+  const ended = quizTask({ stage: "completed", outcome: "failed" });
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    // 已经结束的场次再交，后端不写新事实，返回同一个终态。
+    if (method === "quiz.finish") return Promise.resolve(state(5, ended));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  const store = start(fake.client);
+  await screen.findByRole("button", { name: "提交" });
+
+  await act(() => store.getState().finishQuiz());
+  await act(() => store.getState().finishQuiz());
+
+  const finishes = learningCalls(fake.call).filter((call) => call.method === "quiz.finish").map((call) => call.input);
+  expect(finishes).toEqual([
+    { taskId: "t1", expectedStage: "awaiting_answer", expectedRevision: 4 },
+    { taskId: "t1", expectedStage: "completed", expectedRevision: 5 },
+  ]);
+  expect(store.getState().learning.state?.task).toEqual(ended);
+  expect(store.getState().learning.actionError).toBeUndefined();
+  expect(store.getState().learning.replaced).toBe(false);
+});
+
+it("交卷时连接断了：不知道交没交上，重新读取状态，以后端为准", async () => {
+  let finished = false;
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(finished ? state(5, quizTask({ stage: "completed", outcome: "failed" })) : state(4, quizAnswering));
+    if (method === "quiz.finish") {
+      finished = true;
+      return Promise.reject(new ConnectionError());
+    }
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+  await screen.findByRole("button", { name: "提交" });
+
+  await act(() => store.getState().finishQuiz());
+
+  await vi.waitFor(() => expect(store.getState().learning.state?.task?.phase).toEqual({ stage: "completed", outcome: "failed" }));
+});
+
+// 测验和重考的每个阶段：点遍页面上能点的按钮（含确认框里的），前端都不发 task.advance。
+// feedback 在测验里不会出现（反馈到整场结束才释放），也一并检查。
+const quizStages: LearningTask["phase"][] = [
+  { stage: "preparing" },
+  { stage: "awaiting_answer", deliveryId: "d2" },
+  { stage: "judging", submissionId: "s1" },
+  { stage: "recovery", submissionId: "s1" },
+  { stage: "feedback", submissionId: "s1" },
+  { stage: "completed", outcome: "unresolved" },
+];
+it.each((["quiz", "retake"] as const).flatMap((kind) => quizStages.map((phase) => [kind, phase.stage, phase] as const)))("%s 的 %s 阶段：不论点哪个按钮，前端都不发 task.advance", async (kind, _stage, phase) => {
+  const current = state(4, quizTask(phase, kind));
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(current);
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  start(fake.client);
+  const main = await screen.findByRole("main");
+  await within(main).findByText(kind === "quiz" ? "测验" : "重考");
+
+  // 一个个点：点了以后可能打开确认框，确认框里的按钮也点。
+  const clicked = new Set<HTMLElement>();
+  for (let round = 0; round < 20; round++) {
+    const next = screen.queryAllByRole("button").find((button) => !clicked.has(button) && !button.hasAttribute("disabled") && !button.closest("nav, aside, [data-sidebar]"));
+    if (!next) break;
+    clicked.add(next);
+    await act(async () => { fireEvent.click(next); });
+  }
+
+  expect(clicked.size).toBeGreaterThan(0);
+  expect(learningCalls(fake.call).map((call) => call.method)).not.toContain("task.advance");
+});
+
+it("测验头部：标题是“测验”，写第几题和剩余时间；不列 topic 名称，没有知识点圆圈", async () => {
+  const titled = (phase: LearningTask["phase"]) => ({
+    ...quizTask(phase),
+    topics: [{ id: "py01", title: "数字、文字和缺省值不是一回事" }, { id: "py02", title: "名字指向当前的值" }],
+    kps: [{ kpId: "py01.k1", title: "int、float、str 的行为差别", attempts: 0, consecutiveCorrect: 0, completed: false }],
+  });
+  let current = state(4, titled({ stage: "awaiting_answer", deliveryId: "d2" }));
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(current);
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  const main = await screen.findByRole("main");
+  expect(within(main).getByRole("heading", { name: "测验" })).toBeTruthy();
+  expect(within(main).getByText(t("learn.quiz.position.status", { current: 2, total: 3 }))).toBeTruthy();
+  expect(within(main).getByRole("timer").textContent).toMatch(/^1[45]:\d\d$/u);
+  expect(within(main).queryByText("数字、文字和缺省值不是一回事", { exact: false })).toBeNull();
+  expect(within(main).queryByRole("list", { name: "知识点" })).toBeNull();
+
+  // 判不出结果的那份作答属于第 1 题；结束以后不再写题号和剩余时间。
+  current = state(5, titled({ stage: "recovery", submissionId: "s1" }));
+  await act(() => store.getState().refreshLearning());
+  expect(within(main).getByText(t("learn.quiz.position.status", { current: 1, total: 3 }))).toBeTruthy();
+  current = state(6, titled({ stage: "completed", outcome: "failed" }));
+  await act(() => store.getState().refreshLearning());
+  expect(within(main).queryByRole("timer")).toBeNull();
+  expect(within(main).queryByText(t("learn.quiz.position.status", { current: 1, total: 3 }))).toBeNull();
+});
+
+it("测验截止后才交的一题被拒：换成后端交回的结果，说明这一题没有计入，而不是通用的“画面已经更新”", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "submission.submit") return Promise.reject(new RpcError(-32000, "交付已失效或已截止", { code: "stale_state", details: { reason: "stale", state: state(5, quizTask({ stage: "completed", outcome: "timeout" })) } }));
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交" }));
+
+  expect(await screen.findByText(t("learn.result.timeout.status"))).toBeTruthy();
+  expect(store.getState().learning.replaced).toBe("unrecorded");
+  expect(screen.getByText(t("learn.quiz.unrecorded.title"))).toBeTruthy();
+  expect(screen.queryByText("画面已经更新")).toBeNull();
+});
+
+it("测验还在进行时交题遇到过时状态，仍是通用的“画面已经更新”", async () => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, quizAnswering));
+    if (method === "submission.submit") return Promise.reject(new RpcError(-32000, "交付已失效或已截止", { code: "stale_state", details: { reason: "stale", state: state(5, quizTask({ stage: "awaiting_answer", deliveryId: "d2" })) } }));
+    return Promise.reject(new Error(method));
+  });
+  const store = start(backend(learning).client);
+
+  fireEvent.change(await screen.findByRole("textbox", { name: "显示的整数" }), { target: { value: "4" } });
+  fireEvent.click(screen.getByRole("button", { name: "提交" }));
+
+  expect(await screen.findByText("画面已经更新")).toBeTruthy();
+  expect(store.getState().learning.replaced).toBe("stale");
+});
+
+const answered = (index: number): Submission => ({
+  taskId: "t1", deliveryId: `d${index}`, submissionId: `s${index}`, response: { item: { id: "o1", version }, answers: {} },
+  acceptedAt: 5, processing: { status: "completed" }, gradeRevision: 1,
+});
+
+it.each([
+  ["测验准备阶段", quizTask({ stage: "preparing" }), "中止测验"],
+  ["测验作答中", quizAnswering, "finish"],
+  ["测验判分中", quizTask({ stage: "judging", submissionId: "s1" }), "finish"],
+  ["测验判不出结果", quizTask({ stage: "recovery", submissionId: "s1" }), "finish"],
+  ["重考作答中", quizTask({ stage: "awaiting_answer", deliveryId: "d1" }, "retake"), "finish"],
+  ["新课作答中", answering, "中止新课"],
+] as const)("%s：底部是“%s”", async (_name, current, expected) => {
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  const main = await screen.findByRole("main");
+  await within(main).findByText(kindText(current.kind));
+
+  const label = expected === "finish" ? t("learn.quiz.finish.action") : expected;
+  expect(within(main).getByRole("button", { name: label })).toBeTruthy();
+  expect(within(main).queryByRole("button", { name: /^中止/u }) !== null).toBe(expected !== "finish");
+});
+
+it("交卷的确认写明还有几题没答；确认后带着任务守卫交卷", async () => {
+  const current = { ...quizAnswering, phase: { stage: "awaiting_answer" as const, deliveryId: "d2" }, submissions: [answered(1)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    if (method === "quiz.finish") return Promise.resolve(state(5, quizTask({ stage: "completed", outcome: "failed" })));
+    return Promise.reject(new Error(method));
+  });
+  const fake = backend(learning);
+  start(fake.client);
+
+  fireEvent.click(await screen.findByRole("button", { name: t("learn.quiz.finish.action") }));
+  const dialog = await screen.findByRole("dialog", { name: t("learn.quiz.finish.title") });
+  expect(within(dialog).getByText(t("learn.quiz.finish.unanswered.description", { count: 2 }))).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: t("learn.quiz.finish.action") }));
+
+  expect(await screen.findByText("测验结束")).toBeTruthy();
+  expect(learningCalls(fake.call).filter((call) => call.method === "quiz.finish").map((call) => call.input)).toEqual([{ taskId: "t1", expectedStage: "awaiting_answer", expectedRevision: 4 }]);
+});
+
+it("题都答了：交卷的确认里不说未答", async () => {
+  const current = { ...quizTask({ stage: "awaiting_answer", deliveryId: "d3" }), submissions: [answered(1), answered(2), answered(3)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+
+  fireEvent.click(await screen.findByRole("button", { name: t("learn.quiz.finish.action") }));
+  const dialog = await screen.findByRole("dialog", { name: t("learn.quiz.finish.title") });
+  for (const count of [0, 1, 2, 3]) expect(within(dialog).queryByText(t("learn.quiz.finish.unanswered.description", { count }))).toBeNull();
+  expect(within(dialog).getAllByRole("button").map((button) => button.textContent)).toContain(t("common.cancel.action"));
+});
+
+it("测验的题都答完、判完（后端交回指向最后一题的等作答）：不再显示那道题，说明等交卷，交卷样式不变，不写题号", async () => {
+  const current = { ...quizTask({ stage: "awaiting_answer", deliveryId: "d3" }), submissions: [answered(1), answered(2), answered(3)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  const main = await screen.findByRole("main");
+
+  // 标题和说明的文字待写，现在都是同一个占位，按多个查。
+  expect((await within(main).findAllByText(t("learn.quiz.ready.description"))).length).toBeGreaterThan(0);
+  expect(within(main).queryByRole("button", { name: "提交" })).toBeNull();
+  expect(within(main).queryByRole("textbox")).toBeNull();
+  expect(within(main).getByRole("button", { name: t("learn.quiz.finish.action") }).getAttribute("data-variant")).toBe("ghost");
+  expect(within(main).getByRole("timer")).toBeTruthy();
+  for (const current of [1, 2, 3]) expect(within(main).queryByText(t("learn.quiz.position.status", { current, total: 3 }))).toBeNull();
+});
+
+it("还有题没答时作答框照常，交卷同样是次要按钮", async () => {
+  const current = { ...quizTask({ stage: "awaiting_answer", deliveryId: "d3" }), submissions: [answered(1), answered(2)] };
+  const learning = vi.fn<Learning>((method) => {
+    if (method === "state.get") return Promise.resolve(state(4, current));
+    return Promise.reject(new Error(method));
+  });
+  start(backend(learning).client);
+  const main = await screen.findByRole("main");
+
+  expect(await within(main).findByRole("button", { name: "提交" })).toBeTruthy();
+  expect(within(main).getByRole("button", { name: t("learn.quiz.finish.action") }).getAttribute("data-variant")).toBe("ghost");
+  expect(within(main).queryAllByText(t("learn.quiz.ready.description"))).toEqual([]);
 });

@@ -11,6 +11,8 @@ import { parse } from "yaml";
 import { REPO } from "./app.js";
 
 export const COURSE = fileURLToPath(new URL("./course", import.meta.url));
+/** 测验那一步另用的一门课，见其中 course.yaml 开头的说明。 */
+export const QUIZ_COURSE = fileURLToPath(new URL("./quiz-course", import.meta.url));
 
 interface Option {
   id: string;
@@ -24,6 +26,8 @@ export interface SlotDefinition {
   multiple?: boolean;
   key?: unknown;
   rubric?: unknown[];
+  /** 代码题的参考解答。 */
+  solution?: string;
 }
 
 export interface QuestionDefinition {
@@ -32,11 +36,11 @@ export interface QuestionDefinition {
   slots: SlotDefinition[];
 }
 
-/** 课的文件：相对 course/ 的路径和内容。 */
-export async function courseFiles(): Promise<{ path: string; content: string }[]> {
-  const files = [{ path: "course.yaml", content: await readFile(path.join(COURSE, "course.yaml"), "utf8") }];
-  for (const name of (await readdir(path.join(COURSE, "topics"))).sort()) {
-    files.push({ path: `topics/${name}`, content: await readFile(path.join(COURSE, "topics", name), "utf8") });
+/** 课的文件：相对 course/ 的路径和内容。root 是课的目录，缺省是走查的课。 */
+export async function courseFiles(root = COURSE): Promise<{ path: string; content: string }[]> {
+  const files = [{ path: "course.yaml", content: await readFile(path.join(root, "course.yaml"), "utf8") }];
+  for (const name of (await readdir(path.join(root, "topics"))).sort()) {
+    files.push({ path: `topics/${name}`, content: await readFile(path.join(root, "topics", name), "utf8") });
   }
   return files;
 }
@@ -47,9 +51,9 @@ interface Topic {
 }
 
 /** 全部题目，按 id 查。 */
-export async function courseQuestions(): Promise<Map<string, QuestionDefinition>> {
+export async function courseQuestions(root = COURSE): Promise<Map<string, QuestionDefinition>> {
   const questions = new Map<string, QuestionDefinition>();
-  for (const file of await courseFiles()) {
+  for (const file of await courseFiles(root)) {
     if (!file.path.startsWith("topics/")) continue;
     const topic = parse(file.content) as Topic;
     for (const kp of topic.kps) {
@@ -94,4 +98,10 @@ export async function confirmationAnswers(root = COURSE): Promise<Map<string, st
     }
   }
   return answers;
+}
+
+/** 测验的限时：取学习插件自己的参数，走查拨时钟时不另记一份。 */
+export async function quizDurationMs(): Promise<number> {
+  const parameters = await import(pathToFileURL(path.join(REPO, "packages/learning/dist/parameters.js")).href) as typeof import("../../packages/learning/dist/parameters.js");
+  return parameters.QUIZ_DURATION_MS;
 }

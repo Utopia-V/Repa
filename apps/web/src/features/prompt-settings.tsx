@@ -241,7 +241,6 @@ function PromptPreviewDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     <DialogContent>
       <DialogHeader>
         <DialogTitle>{t("promptSettings.preview.title")}</DialogTitle>
-        <DialogDescription>{t("promptSettings.preview.description")}</DialogDescription>
       </DialogHeader>
       {preview.status === "loading" && <p role="status" className="text-body text-muted-foreground">{t("promptSettings.preview.loading.status")}</p>}
       {preview.status === "error" && <div className="grid gap-3">

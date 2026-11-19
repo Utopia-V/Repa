@@ -116,6 +116,7 @@ Card 默认内距由基础组件持有。紧凑型 Card 必须由基础组件提
 | 对话回复 | 1 px `border` |
 | Tertiary Button | 1 px `border` |
 | Checkbox / Radio 未选中 | 1.5 px `input` |
+| Radio 选中 | 1.5 px `foreground`，圈内 8 px 圆点；选中前后都是 16 px |
 | 主按钮、次按钮 | 无常驻可见边框 |
 
 ### 尺寸
@@ -144,6 +145,8 @@ Input 等控件用 border 界定范围，不使用常驻阴影。Card、Dialog�
 ## 动效
 
 动效用三档弹簧 `spring.fast`（0.08 s）、`spring.moderate`（0.16 s）、`spring.slow`（0.24 s），大的元素用慢的一档，退场用对应的 `exit`。不手写时长。只动 transform 和 opacity。
+
+循环动效不用弹簧，在 `globals.css` 里作为具名的 `animate-*` 定义，目前只有一个：测验计时的最后 10 秒，闹钟图标以 `animate-breathe` 每秒明暗一次，与倒数的秒同步。只动图标，数字和底色不变，保证剩余时间始终看得清；最后 1 分钟由秒表换成闹钟，不用红色。
 
 ## 可访问性
 

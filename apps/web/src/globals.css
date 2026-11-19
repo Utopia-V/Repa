@@ -210,4 +210,15 @@
   --text-micro--line-height: var(--lh-micro);
 }
 
+/* 循环动效：不是弹簧的三档，用途写在设计系统规范的“动效”一节。调用方另加 motion-reduce:animate-none。 */
+@theme {
+  /* 测验计时最后 10 秒的闹钟图标：每秒明暗一次，与倒数的秒同步。 */
+  --animate-breathe: breathe 1s ease-in-out infinite;
+
+  @keyframes breathe {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+}
+
 
