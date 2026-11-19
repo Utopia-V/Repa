@@ -80,7 +80,7 @@ async function fixture(t: TestContext, plugins: Plugin[], options: { extensionFa
   const errors: unknown[] = [];
   const events: AgentEvent[] = [];
   const emitted: { pluginId: string; event: unknown }[] = [];
-  const host: PluginHost = await openPluginHost({ space, plugins: [ctl, ...plugins], models: new ModelTestDriver(), emit: (pluginId, event) => { emitted.push({ pluginId, event }); }, onError: (error) => { errors.push(error); } });
+  const host: PluginHost = await openPluginHost({ space, plugins: [ctl, ...plugins], models: new ModelTestDriver(), backup: async () => {}, emit: (pluginId, event) => { emitted.push({ pluginId, event }); }, onError: (error) => { errors.push(error); } });
   const agentOptions = {
     root: space.root,
     sessionsDir: space.sessionsDir,
@@ -303,18 +303,21 @@ test("运行中途加上的插件在 open 里写空间或读历史：立即失�
   };
   f.actions.set("write", attempt(eager((host) => host.files.write("eager.txt", "打开时写"))));
   f.actions.set("history", attempt(eager((host) => host.history.list(1))));
+  // 备份最后要在历史队列里复制历史库，与读历史一样不能等持锁的运行。
+  f.actions.set("backup", attempt(eager((host) => host.backup())));
   const session = await f.agents.create();
   f.script(
     fauxAssistantMessage(fauxToolCall("ctl", { action: "write" })),
     fauxAssistantMessage(fauxToolCall("ctl", { action: "history" })),
+    fauxAssistantMessage(fauxToolCall("ctl", { action: "backup" })),
     fauxAssistantMessage("完成"),
   );
   await session.send("加上会写文件的插件");
-  assert.deepEqual(outcomes, ["space_busy", "space_busy"]);
+  assert.deepEqual(outcomes, ["space_busy", "space_busy", "space_busy"]);
   assert.equal(f.host.list().some((plugin) => plugin.id === "eager"), false);
   assert.equal(f.host.tools().some((tool) => tool.name === "eager_get"), false);
   // open() 已经调用过：open 报错的实例没有 close 可调。open 里抛错时插件负责自己的清理。
-  assert.deepEqual(life.counts("eager"), [2, 0]);
+  assert.deepEqual(life.counts("eager"), [3, 0]);
 
   // 运行之外加上同一个插件照常成功：失败没有留下占着 id 的实例。
   await f.host.add(eager((host) => host.files.write("eager.txt", "打开时写")));

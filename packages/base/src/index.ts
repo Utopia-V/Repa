@@ -6,3 +6,4 @@ export { RepaFault } from "./schema.js";
 export type { AgentDefinition, Plugin, PluginInstance, Host, Tool, PluginMethod } from "./plugin.js";
 export { resolveAppHome, type AppHomeOptions } from "./home.js";
 export { move, syncDirectory, writeJson } from "./storage.js";
+export { syncTree } from "./backup/copy.js";

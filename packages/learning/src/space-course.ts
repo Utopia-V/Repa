@@ -9,7 +9,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { move, RepaFault, syncDirectory, writeJson } from "@repa/base";
+import { move, RepaFault, syncDirectory, syncTree, writeJson } from "@repa/base";
 import type { Host } from "@repa/base/plugin";
 import { object, parse } from "@repa/base/protocol";
 import { Type, type Static } from "typebox";
@@ -136,13 +136,7 @@ export class CourseStore {
       const result = await checkCourse(directory, { ...SPACE_CHECK, ...this.options, base: directory });
       spacePaths(result.diagnostics);
       const checked = { id: copyId(files), result, passed: !result.diagnostics.some((diagnostic) => diagnostic.severity === "error") };
-      return after(checked, async () => {
-        const target = path.join(this.dataDir, COPIES, checked.id);
-        await rm(target, { recursive: true, force: true });
-        await mkdir(path.join(this.dataDir, COPIES), { recursive: true });
-        await move(directory, target);
-        await syncDirectory(path.join(this.dataDir, COPIES));
-      }, () => readCopy(directory));
+      return after(checked, () => this.keep(checked.id, directory), () => readCopy(directory));
     });
   }
 
@@ -172,11 +166,40 @@ export class CourseStore {
     }
   }
 
-  /** 把一个副本记为正在用的，删掉别的副本。course.json 先写临时文件再改名，中途断电时要么是旧状态、要么是新状态。 */
-  async activate(id: string): Promise<void> {
+  /**
+   * 把检查过的这一份存成副本 courses/<摘要>/。副本只写不改：已有同一摘要、内容也对得上的副本就直接用它，不先删再写，
+   * 那一份可能正是学习者在用的。已有的那一份内容对不上（写坏了）时先挪开，新的一份就位以后再删掉它。
+   */
+  private async keep(id: string, directory: string): Promise<void> {
+    const copies = path.join(this.dataDir, COPIES);
+    const target = path.join(copies, id);
+    const present = await unlessMissing(readdir(target)) !== undefined;
+    if (present) {
+      const existing = await unlessMissing(readCourseFiles(target));
+      if (existing !== undefined && copyId(existing) === id) return;
+    }
+    await mkdir(copies, { recursive: true });
+    // 副本改名就位之前，先把其中的文件和目录逐一落盘：之后发布的 course.json 指向它，掉电以后它下面的文件也得都在。
+    await syncTree(directory);
+    const stale = path.join(copies, `.${id}.${randomUUID()}.stale`);
+    if (present) await move(target, stale);
+    await move(directory, target);
+    await syncDirectory(copies);
+    await rm(stale, { recursive: true, force: true });
+  }
+
+  /**
+   * 发布换用：把一个已经存好的副本记为正在用的。course.json 先写临时文件再改名，这一步是换用的提交点：中途断电时要么是旧状态，
+   * 要么是新状态，副本在此之前已经落盘。
+   */
+  async publish(id: string): Promise<void> {
     await writeJson(path.join(this.dataDir, COURSE_CHOICE_FILE), { active: id } satisfies CourseChoice);
+  }
+
+  /** 发布以后删掉别的副本（包括之前中断留下的、没有发布的）：进行中的任务只能在只增不改时换用，用的就是这一份。 */
+  async prune(active: string): Promise<void> {
     for (const entry of await unlessMissing(readdir(path.join(this.dataDir, COPIES))) ?? []) {
-      if (entry !== id) await rm(path.join(this.dataDir, COPIES, entry), { recursive: true, force: true });
+      if (entry !== active) await rm(path.join(this.dataDir, COPIES, entry), { recursive: true, force: true });
     }
   }
 
@@ -184,6 +207,17 @@ export class CourseStore {
   load(id: string): Promise<ResolvedCourse> {
     return readCopy(path.join(this.dataDir, COPIES, id));
   }
+}
+
+/** 读出一个副本里课程格式会读的文件（course.yaml 与 topics/ 下的 .yaml），与 readSpaceCourse 读空间的 course/ 相同。 */
+async function readCourseFiles(directory: string): Promise<CourseFiles> {
+  const result: CourseFiles = new Map();
+  const manifest = await unlessMissing(readFile(path.join(directory, COURSE_FILE), "utf8"));
+  if (manifest !== undefined) result.set(COURSE_FILE, manifest);
+  for (const name of await readdir(path.join(directory, TOPICS_DIRECTORY))) {
+    if (name.endsWith(".yaml")) result.set(`${TOPICS_DIRECTORY}/${name}`, await readFile(path.join(directory, TOPICS_DIRECTORY, name), "utf8"));
+  }
+  return result;
 }
 
 async function readCopy(directory: string): Promise<ResolvedCourse> {

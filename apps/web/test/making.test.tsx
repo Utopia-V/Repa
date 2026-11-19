@@ -27,7 +27,7 @@ const at = 1_792_454_400_000;
 const iso = new Date(at).toISOString();
 const progress = { day: "2026-11-15", timeZone: "Asia/Shanghai", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 0, completionRate: 0, etaDate: null };
 const noCourse: LearningState = {
-  revision: 0, serverNow: at, course: null, task: null, menu: null,
+  revision: 0, serverNow: at, started: false, course: null, task: null, menu: null,
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -342,7 +342,7 @@ it("还没有学习记录的空间整页是起点：不显示随包课的课名�
 });
 
 it("已经在学随包课的空间（有学习记录）不显示起点，与以前一样", async () => {
-  const fake = backend({ "learning.state.get": () => Promise.resolve({ ...python, revision: 5 }) });
+  const fake = backend({ "learning.state.get": () => Promise.resolve({ ...python, revision: 5, started: true }) });
   start(fake.client);
 
   expect(await screen.findByText("给数据起名，再按顺序读")).toBeTruthy();
@@ -353,7 +353,7 @@ it("已经在学随包课的空间（有学习记录）不显示起点，与以�
 
 it("菜单为空时用界面自己的说明，有恢复时间时写出几点以后可以继续", async () => {
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...python, revision: 5, menu: { menuId: "m1", candidates: [], availableAt: at + 30 * 60_000 } }),
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 5, started: true, menu: { menuId: "m1", candidates: [], availableAt: at + 30 * 60_000 } }),
   });
   start(fake.client);
 
@@ -367,7 +367,7 @@ it("只有轮廓时不显示菜单那句“现在没有可以开始的内容”�
     { id: `t${id}`, type: "tool", timestamp: iso, text: "好", data: { callId: `c${id}`, tool, isError: false } },
   ];
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, course: outlined.course, menu: { menuId: "m1", candidates: [] } }),
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 3, started: true, course: outlined.course, menu: { menuId: "m1", candidates: [] } }),
     "learning.building.get": () => Promise.resolve({ ...outlined, parts: outlined.parts.map((part) => ({ ...part, status: "outline" as const })) }),
     "session.history": () => Promise.resolve([
       ...done("1", "materials_list"), ...done("2", "write"), ...done("3", "write"), ...done("4", "write"), ...done("5", "course_check"),
@@ -493,7 +493,7 @@ it("第一次使用：问这门课叫什么，在主目录的 Repa/<名称> 新�
 
 it("做课进行中、还没有换用过自制课：标题栏不显示随包课的课名和今日 XP；做课的 Agent 运行时“先做”不可用", async () => {
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...python, revision: 2 }),
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 2, started: true }),
     "learning.building.get": () => Promise.resolve({ ...nothing, sessionId: "making-1" }),
   }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);
   const first = start(fake.client);
@@ -529,7 +529,7 @@ it("有学习任务时不显示整门课；新课作答时辅导栏用新课的�
     }],
   };
   const fake = backend({
-    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 9, course: outlined.course, task, restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: true } }),
+    "learning.state.get": () => Promise.resolve({ ...noCourse, revision: 9, started: true, course: outlined.course, task, restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: true } }),
     "learning.building.get": () => Promise.resolve(outlined),
     "session.history": (params) => Promise.resolve(params.sessionId === "tutor-1" ? [
       { id: "a1", type: "assistant", timestamp: iso, text: "", data: { stopReason: "toolUse", calls: [{ id: "c1", name: "learning_task", input: {} }] } },
@@ -560,7 +560,7 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
       item: { id: "q1", version: `sha256:${"1".repeat(64)}`, requires: ["block.markdown", "slot.text"], body: [{ type: "markdown" as const, text: "就绪是什么？" }], slots: [{ id: "a", type: "text" as const }] },
     }],
   };
-  let current: LearningState = { ...noCourse, revision: 9, course: outlined.course, task: review, restrictions: { kind: "review", tutorAllowed: false, referenceContentAllowed: false } };
+  let current: LearningState = { ...noCourse, revision: 9, started: true, course: outlined.course, task: review, restrictions: { kind: "review", tutorAllowed: false, referenceContentAllowed: false } };
   const fake = backend({
     "learning.state.get": () => Promise.resolve(current),
     "learning.building.get": () => Promise.resolve({ ...outlined, sessionId: null }),
@@ -590,7 +590,7 @@ it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的�
     startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
   };
   for (const wide of [false, true]) {
-    let current: LearningState = { ...noCourse, revision: 9, course: outlined.course, task: lesson, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true } };
+    let current: LearningState = { ...noCourse, revision: 9, started: true, course: outlined.course, task: lesson, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true } };
     const fake = backend({
       "learning.state.get": () => Promise.resolve(current),
       "learning.building.get": () => Promise.resolve(outlined),
@@ -653,7 +653,7 @@ it("课第一次可以学时，窄屏的做课抽屉里也有菜单；在抽屉�
     startedAt: at, deadlineAt: null, kps: [], submissions: [], deliveries: [],
   };
   const ready: LearningState = {
-    ...noCourse, revision: 3, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
+    ...noCourse, revision: 3, started: true, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
     menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "进程状态", topicIds: ["os01"] }] },
   };
   let current = ready;
@@ -679,7 +679,7 @@ it("课第一次可以学时，窄屏的做课抽屉里也有菜单；在抽屉�
 it("学过一节以后，做课的抽屉里不再放菜单", async () => {
   const fake = backend({
     "learning.state.get": () => Promise.resolve({
-      ...noCourse, revision: 9, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
+      ...noCourse, revision: 9, started: true, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
       progress: { ...progress, completedTopics: 1, totalTopics: 4 },
       menu: { menuId: "m2", candidates: [{ id: "c2", kind: "lesson", title: "进程控制块", topicIds: ["os02"] }] },
     }),

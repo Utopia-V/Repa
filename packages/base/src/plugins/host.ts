@@ -416,6 +416,13 @@ export async function openPluginHost(options: PluginHostOptions): Promise<Plugin
         },
         // 实例撤下以后不再转发它的事件。
         emit: (event) => { if (!entry.retired.signal.aborted) options.emit(plugin.id, event); },
+        backup() {
+          checkLive(entry);
+          const backup = options.backup;
+          if (backup === undefined) return Promise.reject(new RepaFault("backup_unavailable", "当前宿主不提供备份"));
+          // 备份最后在历史队列里复制历史库：与历史读取一样先共享地拿空间写锁，正在加上的实例拿不到就以 space_busy 失败，不与持锁的运行互等。
+          return track(admitted(entry, (wait) => space.writes.lock(() => backup(), wait)));
+        },
         prepareExport(request) {
           checkLive(entry);
           const sources = options.exports;

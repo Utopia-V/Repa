@@ -12,7 +12,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { brotliDecompressSync } from "node:zlib";
-import { copySpace, PREFIX_LATER_MS, TIME_ZONE, type PrefixReading, type Reading } from "./fixtures/test1-readings.js";
+import { openPluginHost, openSpace } from "@repa/base";
+import { ModelTestDriver } from "@repa/base/testing";
+import { createLearningPlugin } from "../src/plugin.js";
+import type { LearningState } from "../src/protocol.js";
+import { copySpace, PREFIX_LATER_MS, TIME_ZONE, WEB_CAPABILITIES, type PrefixReading, type Reading } from "./fixtures/test1-readings.js";
 
 const run = promisify(execFile);
 const FIXTURE = fileURLToPath(new URL("./fixtures/test1/", import.meta.url));
@@ -77,15 +81,22 @@ function readAll(): Promise<Map<string, Record<string, unknown>>> {
   return readings;
 }
 
-/** 全部空间的逐前缀读数，也在一个子进程里读完。 */
-let prefixReadings: Promise<Map<string, PrefixReading[]>> | undefined;
-function readAllPrefixes(): Promise<Map<string, PrefixReading[]>> {
-  prefixReadings ??= (async () => {
-    const spaces = prefixAnswers.spaces.map((entry) => ({ source: path.join(FIXTURE, entry.source) }));
-    const results = await readInChild<PrefixReading[]>(spaces, (root, index) => ({ root, model: prefixAnswers.spaces[index]?.model, prefixes: true }));
-    return new Map(prefixAnswers.spaces.map((entry, index) => [entry.id, results[index] ?? []]));
-  })();
-  return prefixReadings;
+/**
+ * 全部空间的逐前缀读数，也在一个子进程里读完。mode 为 fallback 时前缀没有基线，会话照测试版用当前的课解释（还没写下基线时的回退）；
+ * 为 baseline 时先经插件真实的基线选择（legacyBaseline）接上基线，再按基线读，即升级以后实际走的路。两种都与测试版的读数比较。
+ */
+const prefixReadings = new Map<string, Promise<Map<string, PrefixReading[]>>>();
+function readAllPrefixes(mode: "fallback" | "baseline"): Promise<Map<string, PrefixReading[]>> {
+  let readings = prefixReadings.get(mode);
+  if (!readings) {
+    readings = (async () => {
+      const spaces = prefixAnswers.spaces.map((entry) => ({ source: path.join(FIXTURE, entry.source) }));
+      const results = await readInChild<PrefixReading[]>(spaces, (root, index) => ({ root, model: prefixAnswers.spaces[index]?.model, prefixes: mode === "baseline" ? "baseline" : true }));
+      return new Map(prefixAnswers.spaces.map((entry, index) => [entry.id, results[index] ?? []]));
+    })();
+    prefixReadings.set(mode, readings);
+  }
+  return readings;
 }
 
 /**
@@ -145,16 +156,30 @@ test("逐前缀的标准答案与现在取数用的时区、能力和间隔相�
   assert.equal(prefixAnswers.laterMs, PREFIX_LATER_MS);
 });
 
-for (const space of prefixAnswers.spaces) {
-  test(`测试版数据 ${space.source} 的每个前缀（0 到 ${space.prefixes.length - 1} 条事实，各在最后一条事实时与 25 小时后）：现在的代码读出的各项与测试版相同`, async () => {
-    const actual = (await readAllPrefixes()).get(space.id) ?? [];
+/**
+ * 测试版读不出状态的前缀：丁用换用后的自制课读换课前的前缀时，Python 的课停在自制课里没有的知识点上，测试版的 state.get 整个失败。
+ * 现在画面退回到说明页，学习者可以中止（S2 有意的改变，见设计记录 2026-11-18-self-contained-records）。这些读数不与报错比较，
+ * 只核对现在读得出、当前任务停在讲解或例题页；其余前缀照常逐项比较。经宿主取回并中止的核对见本文件最后一项测试。
+ */
+const UNREADABLE_IN_TEST1: Record<string, number> = { d: 12 };
+
+for (const [mode, how] of [["fallback", "没有基线"], ["baseline", "经真实的基线选择接上基线"]] as const) for (const space of prefixAnswers.spaces) {
+  test(`测试版数据 ${space.source} 的每个前缀（0 到 ${space.prefixes.length - 1} 条事实，各在最后一条事实时与 25 小时后，${how}）：现在的代码读出的各项与测试版相同`, async () => {
+    const actual = (await readAllPrefixes(mode)).get(space.id) ?? [];
     assert.equal(actual.length, space.prefixes.length);
     // 逐项比较全部前缀，报出最早不同的那一处和不同的总数：最早的那一处之前的事实都读得相同，问题出在它这一条事实上。
     const differences: { facts: number; clock: "at" | "later"; field: string; actual: unknown; expected: unknown }[] = [];
+    let unreadable = 0;
     for (const [index, expected] of space.prefixes.entries()) {
       for (const clock of ["at", "later"] as const) {
         const got = actual[index]?.[clock] ?? {};
         const want = expected[clock];
+        if (want.error !== undefined) {
+          unreadable++;
+          const stage = (got.currentTask as { stage?: string } | null | undefined)?.stage;
+          assert.ok(got.error === undefined && (stage === "explanation" || stage === "example"), `${expected.facts} 条/${clock}：${JSON.stringify(got.error ?? stage)}`);
+          continue;
+        }
         for (const field of new Set([...Object.keys(got), ...Object.keys(want)])) {
           const left = comparable(field, got[field]);
           const right = comparable(field, want[field]);
@@ -162,6 +187,7 @@ for (const space of prefixAnswers.spaces) {
         }
       }
     }
+    assert.equal(unreadable, UNREADABLE_IN_TEST1[space.id] ?? 0, "测试版读不出状态的读数个数");
     const first = differences[0];
     if (first) {
       const where = differences.slice(0, 10).map((entry) => `${entry.facts} 条/${entry.clock}/${entry.field}`).join("，");
@@ -169,3 +195,54 @@ for (const space of prefixAnswers.spaces) {
     }
   });
 }
+
+test("升级以后再收到同一笔合法的补判（乙第二天补判开放题）：补判前后的读数与测试版收到这笔补判前后的读数相同，变化也就相同", async () => {
+  const source = path.join(FIXTURE, "home", "Repa", "操作系统 复习");
+  const lines = (await readFile(path.join(source, ".repa", "plugins", "learning", "records.jsonl"), "utf8")).split("\n").filter(Boolean);
+  const regrade = lines[46];
+  assert.ok(regrade && (JSON.parse(regrade) as { type: string }).type === "graded");
+  // 经插件方法取数会触发后台补判：有模型时假模型判不了，这份作答显示为判分失败；逐前缀的标准答案直接取会话的 view，不触发补判。
+  // 不给模型时两种取法读到的相同。
+  const [result] = await readInChild<[{ meaning: Record<string, unknown> }, { meaning: Record<string, unknown> }]>([{ source, facts: 46 }], (root) => ({ root, model: false, regrade }));
+  assert.ok(result);
+  const expected = prefixAnswers.spaces.find((entry) => entry.id === "b")?.prefixes;
+  assert.ok(expected);
+  // 这笔补判确实改变了读数：第二天补发 12 XP。
+  assert.notDeepEqual(expected[46]?.at.awards, expected[47]?.at.awards);
+  for (const [reading, prefix] of [[result[0], expected[46]], [result[1], expected[47]]] as const) {
+    assert.ok(prefix);
+    for (const [field, want] of Object.entries(prefix.at)) {
+      const got = comparable(field, reading.meaning[field]);
+      if (!sameReading(got, comparable(field, want))) assert.deepEqual(got, comparable(field, want), `${prefix.facts} 条/${field}`);
+    }
+  }
+});
+
+test("丁的那几个测试版读不出状态的前缀：经宿主取回的状态过得了协议校验，停在说明页；中止以后回到菜单", async (t) => {
+  const space = prefixAnswers.spaces.find((entry) => entry.id === "d");
+  assert.ok(space);
+  const counts = space.prefixes.filter((prefix) => prefix.at.error !== undefined).map((prefix) => prefix.facts);
+  assert.equal(counts.length * 2, UNREADABLE_IN_TEST1.d);
+  for (const count of counts) {
+    const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-test1-d-")));
+    t.after(() => rm(base, { recursive: true, force: true }));
+    const root = path.join(base, "space");
+    await copySpace(path.join(FIXTURE, space.source), root, count);
+    const last = (await readFile(path.join(root, ".repa", "plugins", "learning", "records.jsonl"), "utf8")).split("\n").filter(Boolean).at(-1) ?? "{}";
+    const now = (JSON.parse(last) as { at: number }).at + 60_000;
+    const opened = await openSpace(root, { watch: false });
+    const host = await openPluginHost({ space: opened, plugins: [createLearningPlugin()], now: () => now, models: new ModelTestDriver(), backup: async () => {}, emit: () => {}, onError: () => {} });
+    try {
+      const capabilities = { capabilities: WEB_CAPABILITIES };
+      const state = await host.call("learning", "state.get", {}, capabilities) as LearningState;
+      const stage = state.task?.phase.stage;
+      assert.ok(state.task && (stage === "explanation" || stage === "example"), `${count} 条：${stage}`);
+      const aborted = await host.call("learning", "task.abort", { taskId: state.task.taskId, expectedRevision: state.revision, expectedStage: stage }, capabilities) as LearningState;
+      assert.equal(aborted.task?.phase.stage, "aborted", `${count} 条`);
+      assert.ok(aborted.menu !== null, `${count} 条：中止以后没有菜单`);
+    } finally {
+      await host.close();
+      await opened.close();
+    }
+  }
+});

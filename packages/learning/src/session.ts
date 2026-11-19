@@ -4,7 +4,7 @@ import { canRender, contentVersion, modelFailureOf, type ClientCapabilities, typ
 import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
 import { content, type QuestionEntry } from "./check/items.js";
-import { CourseIndex, gradingNeed, needsModel, needsPython } from "./course-index.js";
+import { CourseIndex, gradingNeed, needsModel, needsPython, type IndexedQuestion } from "./course-index.js";
 import { courseStructure, StructureIndex } from "./course-structure.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Question, Topic } from "./format/schema.js";
@@ -25,9 +25,10 @@ import {
 import { feedbackOf, judgeAnswer } from "./judge.js";
 import { dayFormat, progressMenu, progressView } from "./progress.js";
 import type { ContentPage, Delivery, LearningMenu, LearningState, LearningTask, Submission } from "./protocol.js";
-import type { Fact, FactBody } from "./records-schema.js";
+import { isDeepStrictEqual } from "node:util";
+import type { Fact, FactBody, FactOf } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
-import { Replay } from "./replay.js";
+import { EMPTY_STRUCTURE, Replay, type Legacy } from "./replay.js";
 
 const POOLS = { lesson: "practice", review: "review", quiz: "quiz", retake: "quiz" } as const;
 const MODES = { lesson: "practice", review: "review", quiz: "quiz", retake: "quiz" } as const;
@@ -62,13 +63,19 @@ function resultAt(evidence: TaskEvidence): number {
   }
   return Math.max(...times);
 }
+/** 课停在课程里已没有的知识点上时，讲解页的说明。 */
+const REMOVED_PAGE = "这一节当时要讲的内容已从课程中删去，无法继续。请中止这一节。";
+
 /** 判不了的原因，只在内存里；模型请求失败时带上底座的分类。 */
 type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelFailure };
 
 /**
  * 一个空间里的学习会话：事实日志、当前课程、从事实重放出的状态，以及判分。教学方法和辅导共用它。
  * 课程有两种读法：重放、菜单、进度和选题的决定只读课程结构（structure），题面、讲解、判分和能力检查读完整的课程内容（course）。
- * 两者取自同一门当前课程。
+ * 两者取自同一门当前课程。已有的任务按各自开始时的结构计算（见 Replay）；新任务引用当前结构，见 taskFacts。
+ *
+ * 旧日志基线（legacy）：学习记录里有基线时按它；还没有基线而有测试版写下的任务时，按测试版的做法用当前结构解释整段日志，
+ * 这时不能开始新任务（见 taskFacts），由插件先写下基线。
  *
  * 判分没有结果（服务失败、模型没有把握、中途关闭）时什么也不写，这份作答尚无证据，不阻塞任务，也不算错。
  * 条件具备时自动补判：打开空间时，规则题当场补判或按改正后的答案重判；代码题等到声明 python.run 的前端来调用，
@@ -91,6 +98,10 @@ export class LearningSession {
   private readonly rendered = new Map<number, Promise<Rendered>>();
   private readonly explanations = new Map<string, Promise<string>>();
   private unlisten = () => {};
+  /** 学习记录里与当前结构相同的一份（结构事实或带结构的基线）的序号；还没有时为 undefined。 */
+  private recorded: number | undefined;
+  /** 基线是否已写进学习记录；没有时不能开始新任务。 */
+  private readonly baselineRecorded: boolean;
 
   private constructor(
     readonly records: LearningRecords,
@@ -99,10 +110,16 @@ export class LearningSession {
   ) {
     this.course = new CourseIndex(resolved);
     this.structure = new StructureIndex(courseStructure(resolved));
-    this.replay = new Replay(this.structure);
+    const legacy = recordedLegacy(records);
+    this.baselineRecorded = legacy !== undefined || !needsBaseline(records);
+    // 还没有基线：测试版用当前的课解释整段日志，这里照样。
+    this.replay = new Replay(this.structure, undefined, legacy ?? (this.baselineRecorded ? undefined : { upTo: records.revision, structure: this.structure }));
   }
 
-  /** 从头重放全部事实一次，再找出要补判和重判的作答；规则题当场判完。 */
+  /**
+   * 从头重放全部事实一次，再找出要补判和重判的作答。只读，不写学习记录：换用课程时先这样建好候选会话，
+   * 发布以后再调用 catchUp 补判，所以没有发布的课不会写下判分。
+   */
   static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host): Promise<LearningSession> {
     const session = new LearningSession(records, resolved, host);
     for (const fact of records.facts) {
@@ -114,28 +131,51 @@ export class LearningSession {
         session.ungraded.add(delivery.seq);
       }
     }
+    return session;
+  }
+
+  /** 规则题当场补判或按改正后的答案重判，写下判分。课程发布以后调用；日志尾部残缺时什么也不写。 */
+  async catchUp(): Promise<void> {
     const facts: FactBody[] = [];
-    for (const seq of session.ungraded) {
-      const prepared = await session.prepare(seq);
+    for (const seq of this.ungraded) {
+      const prepared = await this.prepare(seq);
       if (!prepared || gradingNeed(prepared.question) !== "rule") {
         continue;
       }
       try {
-        const judgement = await judgeAnswer(host, resolved.course, prepared.question, prepared.topic, prepared.answer);
+        const judgement = await judgeAnswer(this.host, this.course.course.course, prepared.question, prepared.topic, prepared.answer);
         facts.push({ type: "graded", delivery: seq, version: prepared.version, verdict: judgement.verdict, slots: judgement.slots });
       } catch {
         // 改过的题判不了，这份作答就仍然没有证据；不因此打不开空间。
-        session.failures.set(seq, { reason: "service_failure" });
+        this.failures.set(seq, { reason: "service_failure" });
       }
     }
-    if (facts.length && !records.incompleteTail) {
-      await records.write(() => facts);
+    if (facts.length && !this.records.incompleteTail) {
+      await this.records.write(() => facts);
     }
-    return session;
+  }
+
+  /**
+   * 开始一项新任务要写的事实，在 write 的回调里调用：任务引用当前的课程结构与规则；学习记录里还没有与之相同的一份结构时，
+   * 先写下它，与任务在同一次追加里，结构总在引用它的任务之前。
+   */
+  taskFacts(task: Omit<FactOf<"task">, "seq" | "at" | "structure" | "rules" | "course">): FactBody[] {
+    if (!this.baselineRecorded) throw new RepaFault("learning_log_blocked", "旧的学习记录还没有基线，不能开始新任务");
+    const facts: FactBody[] = [];
+    let structure = this.recorded;
+    if (structure === undefined) {
+      structure = this.records.revision + 1;
+      facts.push({ type: "structure", structure: this.structure.data });
+    }
+    facts.push({ ...task, course: { ...this.structure.data.course }, structure, rules: "test1" });
+    return facts;
   }
 
   private observe(fact: Fact): void {
     this.replay.apply(fact);
+    if ((fact.type === "structure" || fact.type === "baseline") && fact.structure && isDeepStrictEqual(fact.structure, this.structure.data)) {
+      this.recorded = fact.seq;
+    }
     if (fact.type === "answered" || fact.type === "appealed") {
       this.ungraded.add(fact.delivery);
     } else if (fact.type === "graded") {
@@ -151,10 +191,10 @@ export class LearningSession {
     if (!delivery || !answer) {
       throw new RepaFault("invalid_input", "找不到提交");
     }
-    const entry = this.course.questions.get(delivery.questionId);
-    const versions = await this.course.versionsOf(delivery.questionId);
-    // 题目已删除，或学习者看到的题面已经改了：不能按现在的答案判她当时的作答。
-    if (!entry || !versions || versions.item !== answer.seen) {
+    // 只用同一门课、同一道题、学习者看到的同一份题面的判分定义：题目已删除、题面改了或换了一门课，都不能按现在的答案判她当时的作答。
+    const versions = await this.seenQuestion(delivery);
+    const entry = versions && this.course.questions.get(delivery.questionId);
+    if (!entry || !versions) {
       this.ungraded.delete(seq);
       return undefined;
     }
@@ -165,6 +205,19 @@ export class LearningSession {
       return undefined;
     }
     return { question: entry.question, topic: entry.topic, answer, version: versions.question, count: delivery.grades.length };
+  }
+
+  /** 一份作答在当前课程里能不能再判：同一门课、同一道题、学习者看到的同一份题面。能时返回题目的两种版本。 */
+  private async seenQuestion(delivery: DeliveryRecord) {
+    const answer = delivery.answer;
+    if (!answer || delivery.task.structure.data.course.id !== this.structure.data.course.id) return undefined;
+    const versions = await this.course.versionsOf(delivery.questionId);
+    return versions?.item === answer.seen ? versions : undefined;
+  }
+
+  /** 一份已判的作答能不能按申诉重判，见 seenQuestion。 */
+  async regradable(delivery: DeliveryRecord): Promise<boolean> {
+    return (await this.seenQuestion(delivery)) !== undefined;
   }
 
   /**
@@ -302,12 +355,25 @@ export class LearningSession {
     return this.host.models.defaultModel() !== undefined;
   }
 
-  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。哪些题在池里按结构，题目本身取自课程内容。 */
+  /** 某个 topic 某类任务的题池：课用练习题，复习用复习题，测验与换题重考用测验题。哪些题在池里按当前结构，题目本身取自课程内容。 */
   pool(topicId: string, kind: TaskRecord["kind"]): QuestionEntry[] {
-    return this.structure.pool(topicId, POOLS[kind]).flatMap((id) => {
+    return this.entries(this.structure.pool(topicId, POOLS[kind])).found;
+  }
+
+  /**
+   * 一项已开始的任务能出的题：题号取自任务自己的结构（结算认得的就是这些），题面取自课程内容。
+   * removed 是任务结构里有、课程内容里已没有的题的个数：它们出不了，也不能拿别的题顶替。
+   */
+  taskPool(task: TaskRecord, topicId: string): { found: QuestionEntry[]; removed: number } {
+    return this.entries(task.structure.pool(topicId, POOLS[task.kind]));
+  }
+
+  private entries(ids: string[]): { found: QuestionEntry[]; removed: number } {
+    const found = ids.flatMap((id) => {
       const entry = this.course.questions.get(id);
       return entry ? [entry] : [];
     });
+    return { found, removed: ids.length - found.length };
   }
 
   /**
@@ -374,7 +440,7 @@ export class LearningSession {
         }) ?? false;
       };
       const title = (id: string) => this.course.topics.get(id)?.title ?? id;
-      menu = progressMenu(learningMenu(this.structure, fold, now, this.menuId(), supply, this.timeZone, title), this.replay, fold, this.structure);
+      menu = progressMenu(learningMenu(this.structure, fold, now, this.menuId(), supply, this.timeZone, title), this.replay, fold);
     }
     let restriction: LearningState["restrictions"]["kind"] = "none";
     if (restricted && evidence) {
@@ -386,6 +452,7 @@ export class LearningSession {
       state: {
         revision: this.records.revision,
         serverNow: now,
+        started: this.replay.tasks.length > 0,
         course: { id: course.id, title: course.title, version: course.version },
         task: shown ? await this.task(shown) : null,
         menu,
@@ -499,7 +566,19 @@ export class LearningSession {
     const topic = this.course.topics.get(task.topicIds[0] ?? "");
     const kp = topic?.kps.find((entry) => entry.id === kpId);
     if (!topic || !kp) {
-      throw new RepaFault("invalid_input", "当前知识点不存在");
+      // 课停在当前课程里已没有的知识点上（例如随包的课随应用更新删了它）：给一页说明，学习者可以中止这节课，状态照常读出。
+      // 任务还没翻到任何知识点（kpId 为空）时引用落在 topic 上，不带知识点。
+      const blocks: Content = [{ type: "markdown", text: REMOVED_PAGE }];
+      const topicId = task.topicIds[0] ?? "";
+      const ref = {
+        courseId: this.course.course.course.id,
+        topicId,
+        ...(kpId === "" ? {} : { kpId }),
+        id: `${kpId === "" ? topicId : kpId}.${stage}`,
+        version: await contentVersion(blocks),
+        kind: stage === "example" ? ("example" as const) : ("lesson" as const),
+      };
+      return { ref, origin: { taskId: taskId(task), content: ref }, offset: 0, total: blocks.length, blocks };
     }
     const ref = {
       courseId: this.course.course.course.id,
@@ -560,7 +639,9 @@ export class LearningSession {
       return [slotId, slot ? mapAnswer(value, slot, idMap, true) : value];
     }));
     const latest = delivery.grades.at(-1);
-    const appealed = delivery.appeal !== undefined && (!latest || delivery.appeal.seq > latest.seq);
+    const seen = await this.seenQuestion(delivery);
+    // 申诉以后题目删了、题面改了或换了课，就再也判不了：保留最后一次判分，不显示为等待重判。
+    const appealed = delivery.appeal !== undefined && (!latest || delivery.appeal.seq > latest.seq) && seen !== undefined;
     let processing: Submission["processing"];
     if (latest && !appealed) {
       processing = { status: "completed" };
@@ -579,12 +660,21 @@ export class LearningSession {
       processing,
       gradeRevision: delivery.grades.length,
     };
-    const entry = this.course.questions.get(delivery.questionId);
-    if (latest && entry && this.released(delivery)) {
+    const entry = await this.releasedQuestion(delivery);
+    if (latest && entry) {
       result.feedback = feedbackOf(latest, entry.question, shown.item, idMap, reference);
       result.explanation = content(entry.question.explanation);
     }
     return result;
+  }
+
+  /**
+   * 一份作答此刻可以放出反馈与解析的那道题：已经判过、任务允许放出（见 released），而且是学习者看到的同一份题面（见 seenQuestion）。
+   * 题面改了就不放：新版的解析不配旧题。作答查询、参考搜索与读取都经这里判断。
+   */
+  async releasedQuestion(delivery: DeliveryRecord): Promise<IndexedQuestion | undefined> {
+    if (!delivery.grades.length || !this.released(delivery) || !await this.seenQuestion(delivery)) return undefined;
+    return this.course.questions.get(delivery.questionId);
   }
 
   /** 课内判完就释放反馈与解析；复习和测验等任务结束。 */
@@ -609,4 +699,17 @@ export class LearningSession {
     }
     return cached;
   }
+}
+
+/** 学习记录里有测试版写下的任务（不带结构引用）而还没有基线：需要先写下基线。 */
+export function needsBaseline(records: LearningRecords): boolean {
+  return records.baseline === undefined && records.facts.some((fact) => fact.type === "task" && fact.structure === undefined);
+}
+
+/** 学习记录里的旧日志基线；没有时为 undefined。 */
+export function recordedLegacy(records: LearningRecords): Legacy | undefined {
+  const seq = records.baseline;
+  const fact = seq === undefined ? undefined : records.fact(seq);
+  if (fact?.type !== "baseline") return undefined;
+  return { upTo: fact.seq - 1, structure: fact.structure ? new StructureIndex(fact.structure) : EMPTY_STRUCTURE };
 }

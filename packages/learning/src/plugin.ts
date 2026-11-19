@@ -1,8 +1,8 @@
-import { readdir, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RepaFault } from "@repa/base";
-import { errorText, modelFailureOf } from "@repa/base/protocol";
+import { RepaFault, writeJson } from "@repa/base";
+import { errorText, modelFailureOf, parse } from "@repa/base/protocol";
 import {
   checkFormat, currentRun, type AgentWork, type Host, type MessageDecision, type Plugin, type PluginInstance, type PluginMethod, type Tool,
 } from "@repa/base/plugin";
@@ -11,6 +11,7 @@ import { frontendPython, sandboxPython, type CheckPython } from "./check/python.
 import { beginText, completeTopics, EXPANSION_SIZE, expansionTask, openBuilding, outlineTopics, saveRecord, saveSettings, type BuildingRecord } from "./course-building.js";
 import { COURSE_EXAMPLE, COURSE_GUIDE, CONFIRM_CONCURRENCY, CONFIRM_REQUESTS, courseTools } from "./course-tools.js";
 import { loadCourseSources, type CourseSource, type ResolvedCourse } from "./course-sources.js";
+import { courseStructure, CourseStructureSchema, StructureIndex, type CourseStructure } from "./course-structure.js";
 import { expansionBrief } from "./expansion-brief.js";
 import { connectExport } from "./export.js";
 import { connectLearning } from "./flow.js";
@@ -18,13 +19,20 @@ import { TOPICS_DIRECTORY } from "./format/load.js";
 import { emptyProgress } from "./progress.js";
 import { learningMethods, type BuildingEvent, type CourseBuilding, type LearningInput, type LearningResult, type LearningState } from "./protocol.js";
 import { LearningRecords, RECORDS_FILE } from "./records.js";
-import { LearningSession } from "./session.js";
+import { EMPTY_STRUCTURE, Replay } from "./replay.js";
+import { LearningSession, needsBaseline, recordedLegacy } from "./session.js";
 import { CHECKS, CourseStore, hasSpaceCourse, onlyAdds, readSpaceCourse, SPACE_COURSE } from "./space-course.js";
 import { visibleLearningResponse } from "./submission-visibility.js";
 import { connectTutor, TUTOR_AGENT, TUTOR_TOOLS, tutorAgent, type Tutor, type TutorHooks } from "./tutor.js";
 
-/** 学习记录的格式版本：2 起只记事实，3 起每项任务带课程的标识与版本。此前版本的开发数据不转换，提示删除后重新打开。 */
-export const LEARNING_FORMAT_VERSION = 3;
+/**
+ * 学习记录的格式版本：2 起只记事实，3 起每项任务带课程的标识与版本，4 起学习记录带课程结构与旧日志基线、任务按结构计算。
+ * 此前版本的开发数据不转换，提示删除后重新打开。4 的读者直接读 3 的数据；标记在第一次写入新含义的内容之前、备份成功之后才改成 4，
+ * 所以测试版（读者是 3）此后必定拒读，而没有写过任何东西的空间仍可由测试版打开。
+ */
+export const LEARNING_FORMAT_VERSION = 4;
+/** 这个版本的读者还能直接读的最早格式。 */
+const OLDEST_READABLE = 3;
 
 /** 时间一律取自底座的 host.now()，插件不另设时钟；测试通过宿主的 now 拨动时间。 */
 export interface LearningPluginOptions {
@@ -61,6 +69,47 @@ type Current = Ready | Unready;
 const NOT_BUILT = "这个空间的课还没有做好";
 
 /**
+ * 测试版 v0.1.0-test.1 随包的 Python 课的结构，从标签上的课程文件取出后冻结。旧日志的基线用它，而不是以后安装包里同名的新版：
+ * 测试版当时就是按这一份解释学习记录的。生成方法与摘要见 legacy/README.md。
+ */
+export async function test1Python(): Promise<CourseStructure> {
+  const text = await readFile(new URL("../legacy/test1-python.json", import.meta.url), "utf8");
+  return parse(CourseStructureSchema, JSON.parse(text));
+}
+
+/**
+ * 测试版打开这个空间时用哪门课的结构解释整段学习记录，照测试版的做法认：换用过的副本；没有换用过就是随包的课（bundled），
+ * 但空间里有 course/ 而随包的课没有做到一半的任务时，测试版不显示任何一门课（不带 structure）。副本读不出时为 broken：
+ * 测试版也读不出，不定基线。插件首次打开测试版的学习记录时按它写下基线；与测试版逐前缀比较的测试也调用它。
+ */
+export async function legacyBaseline(input: {
+  records: LearningRecords;
+  store: CourseStore;
+  files: Host["files"];
+  now: number;
+  bundled: () => Promise<CourseStructure>;
+}): Promise<{ structure?: CourseStructure } | "broken"> {
+  const active = await input.store.active();
+  if (active) {
+    try {
+      return { structure: courseStructure(await input.store.load(active)) };
+    } catch {
+      return "broken";
+    }
+  }
+  const bundled = await input.bundled();
+  if (await hasSpaceCourse(input.files)) {
+    const index = new StructureIndex(bundled);
+    const replay = new Replay(index, undefined, { upTo: input.records.revision, structure: index });
+    for (const fact of input.records.facts) replay.apply(fact);
+    replay.settle(input.now);
+    const evidence = replay.currentEvidence();
+    if (evidence === undefined || evidence.outcome !== undefined) return {};
+  }
+  return { structure: bundled };
+}
+
+/**
  * 创建学习插件。打开时核对数据目录的格式标记，读入学习记录，再按空间决定学哪门课：换用过空间里的课，就学换用的那一份；
  * 空间里有 course/ 而还没有换用过，就没有可学的课；都没有时学随包的课程。方法的返回值和错误都经同一处按当前限制隐藏反馈。
  */
@@ -71,18 +120,20 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       const format = path.join(host.space.dataDir, "format.json");
       const entries = await readdir(host.space.dataDir);
       if (entries.length === 0) {
-        await writeFile(format, `${JSON.stringify({ version: LEARNING_FORMAT_VERSION })}\n`, { flag: "wx", mode: 0o600 });
+        // 什么都还没写：标记先写最早能读的版本，测试版仍能打开；第一次写入时再升，见 upgradeFormat。
+        await writeFile(format, `${JSON.stringify({ version: OLDEST_READABLE })}\n`, { flag: "wx", mode: 0o600 });
       } else if (!entries.includes("format.json")) {
         throw new RepaFault("unknown_data_format", "学习插件的数据没有格式标记，可能是旧的开发数据；删除 .repa/plugins/learning/ 后重新打开空间");
       }
-      if (await checkFormat(format, LEARNING_FORMAT_VERSION) < LEARNING_FORMAT_VERSION) {
+      const version = await checkFormat(format, LEARNING_FORMAT_VERSION);
+      if (version < OLDEST_READABLE) {
         throw new RepaFault("unknown_data_format", "学习记录是旧格式的开发数据，不再读取；删除 .repa/plugins/learning/ 后重新打开空间");
       }
       // 上次检查中途退出留下的临时副本；打开时还没有检查在进行。
       await rm(path.join(host.space.dataDir, CHECKS), { recursive: true, force: true });
       const records = await LearningRecords.open(path.join(host.space.dataDir, RECORDS_FILE), () => host.now());
       try {
-        return await openLearning(host, records, options);
+        return await openLearning(host, records, options, version);
       } catch (error) {
         await records.close();
         throw error;
@@ -100,13 +151,14 @@ function defaultPython(host: Host): CheckPython[] {
   return [sandboxPython, frontendPython(host.services)];
 }
 
-async function openLearning(host: Host, records: LearningRecords, options: LearningPluginOptions): Promise<PluginInstance> {
+async function openLearning(host: Host, records: LearningRecords, options: LearningPluginOptions, version: number): Promise<PluginInstance> {
   const store = new CourseStore(host.space.dataDir, {
     python: options.python ? options.python(host) : defaultPython(host),
     ...(options.packagesDirectory === undefined ? {} : { packagesDirectory: options.packagesDirectory }),
   });
   const sources = options.sources ?? [{ kind: "bundled", directory: fileURLToPath(new URL("../courses/python/", import.meta.url)) }];
 
+  /** 按一门课建好学习会话与教学方法。只读：补判由调用方在这门课发布以后调用 session.catchUp 写下。 */
   async function build(course: ResolvedCourse, space?: string): Promise<Ready> {
     const session = await LearningSession.open(records, course, host);
     try {
@@ -163,10 +215,52 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     });
   }
 
+  const test1Structure = () => legacyBaseline({
+    records, store, files: host.files, now: host.now(),
+    // 自定义来源（测试）就用它；缺省的随包课用冻结的测试版那一份。
+    bundled: async () => options.sources ? courseStructure(await loadCourseSources(sources, host.files)) : test1Python(),
+  });
+
+  /**
+   * 首次用记录结构的版本打开测试版留下的学习记录：先等一次空间备份成功，再在末尾追加旧日志基线。基线之前的任务此后一律按它计算。
+   * 日志尾部残缺时不能追加，照测试版只读完整的部分（会话按当前的课解释，与测试版相同），恢复以后再写。
+   */
+  async function recordBaseline(structure?: CourseStructure): Promise<void> {
+    await records.write(() => [{ type: "baseline", rules: "test1", ...(structure ? { structure } : {}) }]);
+  }
+
+  /**
+   * 第一次写入新含义的内容（任何学习事实，或换用时发布 course.json）之前把格式标记升到当前版本：已有学习数据时先等一次空间备份成功，
+   * 失败就不写，学习记录与标记都不动。升过以后测试版打开这个空间只停用学习插件，不会按旧含义接着写。
+   */
+  let marked = version >= LEARNING_FORMAT_VERSION;
+  async function upgradeFormat(): Promise<void> {
+    if (marked) return;
+    if (records.revision > 0 || (await store.active()) !== undefined) {
+      try {
+        await host.backup();
+      } catch (error) {
+        throw new RepaFault("backup_failed", `升级学习记录之前的备份没有完成，学习记录没有改动：${errorText(error)}`);
+      }
+    }
+    await writeJson(path.join(host.space.dataDir, "format.json"), { version: LEARNING_FORMAT_VERSION });
+    marked = true;
+  }
+  records.beforeWrite = upgradeFormat;
+
+  if (needsBaseline(records) && !records.incompleteTail) {
+    const found = await test1Structure();
+    if (found !== "broken") await recordBaseline(found.structure);
+  }
+
   let current: Current;
   const active = await store.active();
+  // 基线不带结构：测试版当时不显示任何一门课，升级以后同样，等学习者换用空间里的课。
+  const masked = recordedLegacy(records)?.structure === EMPTY_STRUCTURE;
   if (active) {
     current = await buildSpace(active);
+  } else if (masked && await hasSpaceCourse(host.files)) {
+    current = { kind: "unready", reason: NOT_BUILT };
   } else {
     current = await build(await loadCourseSources(sources, host.files));
     // 空间里有 course/ 而还没有换用过：没有可学的课。学习者在随包的课里还有做到一半的任务时，先让他做完，下次打开再说。
@@ -175,11 +269,15 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
       current = { kind: "unready", reason: NOT_BUILT };
     }
   }
+  // 正在用的课已经是发布了的：按它补判规则题。
+  if (current.kind === "ready") await current.session.catchUp();
 
   // 换用要在没有方法调用进行时进行：调用开始时取当前的课，换用等进行中的调用结束，换用期间新的调用等它完成。
   // 否则一次调用可能在“判定学习者不忙”之后按旧课开始任务。辅导的工具和提问前的判断只读不写学习记录，不必等；
   // 也不能等：开始作答的方法会中止辅导，辅导若在等换用就互相等住。
   let swapping: Promise<unknown> | undefined;
+  /** 换用发布出错以后，学习插件停下的原因；重开空间之前不再换用。 */
+  let stopped: string | undefined;
   const running = new Set<Promise<unknown>>();
 
   async function use<T>(action: (state: Current) => Promise<T>): Promise<T> {
@@ -210,26 +308,48 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
   }
 
   /**
-   * 换用检查过的这一份。学习者有做到一半的任务时，只有新的一版只增不改（已展开的部分一字不差）才换，否则不换。
-   * 旧会话先退下：等它在途的判分写完，再按新的一份打开，新会话读到这些判分，按改过的答案该重判的照常重判；
+   * 换用检查过的这一份，先验证、后发布。学习者有做到一半的任务时，只有新的一版只增不改（已展开的部分一字不差）才换，否则不换。
+   * 次序：副本落盘；旧会话在途的判分写完；按副本只读地建好新会话（重放全部记录、接上教学方法），建不起来就报错，旧的课照常在用；
+   * 原子写 course.json 发布；旧会话退下；新会话这时才按新的内容补判；最后删掉别的副本。发布之前中断，多留一份没有发布的副本，
+   * 重开仍是旧的课；发布之后中断，重开就是新的课，补判在打开时做。没有发布的课不会写下判分。
    * 进行中的任务从同样的记录和同样的内容重放出来，照常继续。
    */
   function switchTo(id: string, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>): Promise<"unchanged" | "busy" | "switched"> {
     return exclusive(async () => {
+      if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
       if (current.kind === "ready" && current.space === id) return "unchanged";
-      if (current.kind === "ready") {
-        if (await taskTopics(current.session) !== undefined && !onlyAdds(current.course, await read())) return "busy";
-      }
+      const candidate = await read();
+      if (current.kind === "ready" && await taskTopics(current.session) !== undefined && !onlyAdds(current.course, candidate)) return "busy";
       await keep();
-      if (current.kind === "ready") await retire(current);
-      const next = await buildSpace(id);
-      current = next;
-      await store.activate(id);
-      if (next.kind === "unready") {
-        host.emit({ type: "learning.changed", revision: records.revision, taskId: null, menuId: null });
-        announceBuilding();
-        throw new RepaFault("course_switch_failed", `检查通过，但换用出错：${next.reason}`);
+      if (current.kind === "ready") await current.session.idle();
+      // 还没有基线：测试版的学习记录要按测试版当时的课解释，基线不从候选课取。日志尾部残缺时照常报 learning_log_blocked；
+      // 否则是换用过的副本读不出，修好副本（例如从备份恢复）之前不换用，免得把这段历史永远按另一门课解释。
+      if (needsBaseline(records)) {
+        if (records.incompleteTail) throw new RepaFault("learning_log_blocked", "日志尾部残缺或写入结果不明，请关闭空间后恢复");
+        throw new RepaFault("course_copy_broken", "换用过的课程副本读不出来，学习记录还没有按它定下基线；先从备份恢复空间，再换用");
       }
+      let next: Ready;
+      try {
+        next = await build(await store.load(id), id);
+      } catch (error) {
+        throw new RepaFault("course_switch_failed", `检查通过，但换用出错，学的仍是原来的课：${error instanceof Error ? error.message : String(error)}`);
+      }
+      await upgradeFormat();
+      try {
+        await store.publish(id);
+      } catch (error) {
+        // course.json 写到一半出错，盘上指向哪一份说不准：学习插件就此停下，不再按哪一门课写学习记录，重开空间时从盘上读。
+        stopped = `换用时写 course.json 出错，学习插件已停下，请重新打开空间：${error instanceof Error ? error.message : String(error)}`;
+        await retire(next);
+        if (current.kind === "ready") await retire(current);
+        current = { kind: "unready", reason: stopped };
+        throw new RepaFault("course_switch_failed", stopped);
+      }
+      const previous = current;
+      current = next;
+      if (previous.kind === "ready") await retire(previous);
+      await next.session.catchUp();
+      await store.prune(id);
       next.session.announce();
       announceBuilding();
       return "switched";
@@ -242,6 +362,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return {
       revision: records.revision,
       serverNow: now,
+      started: records.facts.some((fact) => fact.type === "task"),
       course: null,
       task: null,
       menu: null,
