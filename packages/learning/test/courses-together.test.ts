@@ -17,6 +17,7 @@ import type { Question, Topic } from "../src/format/schema.js";
 import { QUIZ_EVERY_XP } from "../src/parameters.js";
 import type { LearningInput, LearningMethod, LearningResult, LearningState } from "../src/protocol.js";
 import { LearningRecords } from "../src/records.js";
+import type { PendingQuiz } from "../src/replay.js";
 import { LearningSession } from "../src/session.js";
 import { DAY_MS } from "../src/student-model.js";
 import { course as baseCourse, referenceAnswer, start } from "./fixtures/learning-session.js";
@@ -179,8 +180,9 @@ test("增量相同时取最近有作答的那门课；窗口从上一场确定�
   await f.finish();
   await f.select("jia", "lesson", "t02");
   await f.finish();
-  assert.equal(f.session.replay.pending?.n, 2);
-  assert.equal(f.session.replay.pending?.course, "jia");
+  const second = f.session.replay.pending as PendingQuiz | undefined;
+  assert.equal(second?.n, 2);
+  assert.equal(second?.course, "jia");
 });
 
 test("被选的课没有可考的题：在有可考内容的课里选，即使它的增量少", async (t) => {
