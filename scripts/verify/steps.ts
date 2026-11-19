@@ -2,11 +2,12 @@
  * 走查的步骤。每一步像学习者那样操作界面，再用 expect 写下必须成立的事；已知而尚未修好的界面问题用 known 写，
  * 不成立记为预期失败，修好以后自动翻成“已修好”。步骤按顺序依赖前一步留下的状态，一步不通过，后面的不再运行。
  */
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
 import { parse, stringify } from "yaml";
 
+import { strings } from "../../apps/web/src/strings/zh-CN.js";
 import type { App } from "./app.js";
 import type { Page } from "./browser.js";
 import { confirmationAnswers, courseFiles, courseQuestions, type QuestionDefinition } from "./course.js";
@@ -697,6 +698,90 @@ export const STEPS: Step[] = [
       await page.click({ name: /^保存$/u, selector: "button" });
       await until("对话框关上", async () => (await openDialog(page)) === "", 15_000);
       checks.expect("填对的 key 验证通过，对话框直接关上，显示已连接", await connected(), checked().join("；"));
+    },
+  },
+  {
+    id: "move-space",
+    title: "把课程文件夹移到别处：重开后说明上次的课打不开，旧位置不再列出；从新位置选中打开，学习进度、会话和备份照旧",
+    async run({ app, page }, checks) {
+      await page.click({ name: "学习", selector: "a, button" });
+      const before = learnView(await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000));
+      const sessionsBefore = (await (await app.rpc()).call("session.list", {})).length;
+      const from = path.join(app.home, "Repa", COURSE_NAME);
+      const to = path.join(app.home, "移动后", COURSE_NAME);
+      // 学习者关掉应用，在文件管理器里把课程文件夹移走，再打开应用。关闭时的那份备份还在原位置的一组。
+      await app.stopBackend();
+      const old = await backups(app);
+      await mkdir(path.dirname(to), { recursive: true });
+      await rename(from, to);
+      await app.startBackend();
+      await app.open();
+      const missing = await page.waitText("无法打开上次的空间", 30_000);
+      await page.shot("move-space-missing");
+      checks.expect("说明上次的课打不开和原因", missing.includes(`无法打开上次的空间 ${COURSE_NAME}`) && missing.includes("文件夹不存在，可能已被删除或移走。"),
+        /无法打开上次的空间[\s\S]{0,60}/u.exec(missing)?.[0]);
+      checks.expect("旧位置不再列在最近打开里", !missing.includes(from));
+      await page.click({ name: /^选择(其他)?文件夹$/u, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "移动后", selector: "button" });
+      await page.waitText(path.dirname(to), 10_000);
+      await page.click({ name: COURSE_NAME, selector: "button" });
+      await page.waitText("这是已有的学习空间。", 10_000);
+      await page.click({ name: /^打开$/u, selector: "button" });
+      const text = await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000);
+      await page.shot("move-space-reopened");
+      const after = learnView(text);
+      checks.expect("学习页与移动前相同：整门课、今日 XP、菜单", JSON.stringify(after) === JSON.stringify(before), `${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+      const sessionsAfter = (await (await app.rpc()).call("session.list", {})).length;
+      checks.expect("会话都还在", sessionsAfter === sessionsBefore, `${sessionsBefore} → ${sessionsAfter}`);
+
+      // 打开了空间时，侧栏里进选空间页的那一项写的是课名。
+      await page.click({ name: COURSE_NAME, selector: "a" });
+      const list = await page.waitText("最近打开", 15_000);
+      checks.expect("最近打开里是新位置，没有旧位置", list.includes(to) && !list.includes(from));
+
+      // 备份按空间的位置分组：新位置另起一组。打开空间以后就检查一次，那时做的就是新位置的第一份，带着移动前的学习记录。
+      await until("新位置的第一份备份", async () => (await backups(app)).some((entry) => !old.includes(entry)), 30_000);
+      const newest = (await backups(app)).find((entry) => !old.includes(entry)) ?? "";
+      const manifest = JSON.parse(await readFile(path.join(newest, "manifest.json"), "utf8")) as { root?: string };
+      const copied = await readFile(path.join(newest, "data", "plugins", "learning", "records.jsonl"), "utf8").catch(() => "");
+      checks.expect("移动后的备份记的是新位置，带着学习记录", manifest.root === to && copied.includes("\"type\":\"answered\""), manifest.root);
+    },
+  },
+  {
+    id: "course-location",
+    title: "新建课程时换位置：选另一个文件夹，课建在它下面的 Repa 里；之后新建仍放在那里",
+    async run({ app, page }, checks) {
+      const change = strings["learningSpace.first.location.change.action"];
+      const choose = strings["folderPicker.location.action"];
+      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
+      const other = path.join(app.home, "资料 盘");
+      const folder = path.join(other, "Repa");
+      await mkdir(other, { recursive: true });
+      await page.click({ name: "新建课程", selector: "a" });
+      const first = await page.waitText("保存位置：", 15_000);
+      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
+      await page.click({ name: change, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "资料 盘", selector: "button" });
+      const picked = await page.waitText(other, 10_000);
+      await page.shot("course-location-picker");
+      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
+      await page.click({ name: choose, selector: "button", near: "上一级" });
+      await until("选择框关上", async () => (await openDialog(page)) === "");
+      await page.fill("课程名称", "线性代数");
+      const named = await page.waitText(path.join(folder, "线性代数"), 10_000);
+      await page.shot("course-location-named");
+      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "线性代数"), where(named));
+      await page.click({ name: /^创建$/u, selector: "button" });
+      await page.waitText("想学的内容与目标", 20_000);
+      checks.expect("课建在选定位置下", await access(path.join(folder, "线性代数", ".repa", "format.json")).then(() => true, () => false));
+
+      await app.reopen();
+      await page.waitText("想学的内容与目标", 30_000);
+      await page.click({ name: "新建课程", selector: "a" });
+      const again = await page.waitText("保存位置：", 15_000);
+      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
     },
   },
 ];

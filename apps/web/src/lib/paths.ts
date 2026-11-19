@@ -17,3 +17,11 @@ export function joinPath(parent: string, ...names: string[]): string {
   const separator = parent.includes("\\") && !parent.includes("/") ? "\\" : "/";
   return [parent.replace(/[\\/]+$/u, ""), ...names].join(separator);
 }
+
+/**
+ * 学习者选了一个位置以后，课程放在哪个文件夹：选的文件夹本身叫 Repa 时就用它，否则在它下面用 Repa 子文件夹。
+ * 与缺省的“用户目录下的 Repa”一致，也与 Windows 安装程序选安装位置时的做法一致：选 D:\ 得到 D:\Repa。
+ */
+export function repaFolderIn(location: string): string {
+  return folderName(location).toLowerCase() === "repa" ? location : joinPath(location, "Repa");
+}

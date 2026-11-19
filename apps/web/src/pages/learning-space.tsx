@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { SelectionButton } from "@/components/ui/selection-button";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
-import { FolderPickerDialog } from "@/features/folder-picker";
+import { FolderPickerDialog, LocationPickerDialog } from "@/features/folder-picker";
 import { SpaceBackups } from "@/features/space-backups";
 import { useAppStore, useAppStoreApi } from "@/hooks/use-app-store";
 import { errorCode } from "@/lib/errors";
@@ -70,7 +70,8 @@ export function LearningSpacePage() {
   // 选择框放在两种布局之外：读取完成时布局切换，不会卸载已经打开的选择框。
   return <>
     {!loadFailed && recent?.length === 0
-      ? <FirstSpace title={t("learningSpace.first.title")} onPick={() => setPicking(true)} onCreated={goHome} />
+      // 上次的空间打不开（例如课程文件夹被移走了）而没有别的最近空间时，这里也说明原因，“选择文件夹”就在下面。
+      ? <FirstSpace title={t("learningSpace.first.title")} previous={resumeFailure} onPick={() => setPicking(true)} onCreated={goHome} />
       : <RecentSpaces
         spaces={spaces}
         active={active}
@@ -105,15 +106,24 @@ export function NewSpacePage() {
 }
 
 /**
- * 第一次使用时没有可继续的空间：问这门课叫什么，在用户主目录的 Repa/<名称> 新建空间并打开，落到放课件的起点。
- * 主目录取自后端（不带路径的 space.browse 从它开始）；三个系统都放在这里，Windows 的“文档”常被 OneDrive 接管。
+ * 第一次使用时没有可继续的空间：问这门课叫什么，在“我的 Repa 文件夹”下的 <名称> 新建空间并打开，落到放课件的起点。
+ * Repa 文件夹缺省是用户主目录下的 Repa，主目录取自后端（不带路径的 space.browse 从它开始）；三个系统都放在这里，
+ * Windows 的“文档”常被 OneDrive 接管。C 盘小的学习者可以换个位置，选过以后下次新建仍放在那里。
  * 名称不能作文件夹名、或那个文件夹已经有别的内容时如实报错，不替他改名。选已有的文件夹作为次要动作保留。
  */
-function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): void; onCreated(): void }) {
+function FirstSpace({ title, previous, onPick, onCreated }: {
+  title: string;
+  /** 重新打开上次的空间失败的原因。 */
+  previous?: { root: string; error: unknown } | undefined;
+  onPick(): void;
+  onCreated(): void;
+}) {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const defaultModel = useAppStore((state) => state.resources.defaultModel);
   const loadModelSettings = useAppStore((state) => state.loadModelSettings);
   const openSpace = useAppStore((state) => state.openSpace);
+  const chosenFolder = useAppStore((state) => state.repaFolder);
+  const setRepaFolder = useAppStore((state) => state.setRepaFolder);
   // 换到新建的空间会中止正在进行的运行，所以运行中不能建。
   const running = useAppStore((state) => state.conversation.run !== "idle");
   const [home, setHome] = useState<string>();
@@ -121,13 +131,15 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [failure, setFailure] = useState<unknown>();
+  const [choosingLocation, setChoosingLocation] = useState(false);
   const nameId = useId();
   const hintId = useId();
   const errorId = useId();
 
+  // 选过位置就不再需要主目录。
   useEffect(() => {
-    browseFolder().then((listing) => setHome(listing.path), setHomeError);
-  }, [browseFolder]);
+    if (chosenFolder === undefined) browseFolder().then((listing) => setHome(listing.path), setHomeError);
+  }, [browseFolder, chosenFolder]);
 
   // 做课要用模型：全新用户在建课之前就看到先去连一个，不必建好课、走到做课那一步才发现。建课本身不需要模型，不拦。
   useEffect(() => {
@@ -137,7 +149,9 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
 
   const trimmed = name.trim();
   const invalid = trimmed !== "" && !validFolderName(trimmed);
-  const root = home !== undefined && trimmed !== "" && !invalid ? joinPath(home, "Repa", trimmed) : undefined;
+  const folder = chosenFolder ?? (home === undefined ? undefined : joinPath(home, "Repa"));
+  const root = folder !== undefined && trimmed !== "" && !invalid ? joinPath(folder, trimmed) : undefined;
+  const location = root ?? folder;
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -156,6 +170,7 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
   // 在工作区里垂直居中；底部留白多一些，视觉重心略高于几何中心。
   return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 pt-16 pb-24 md:px-8">
     <h2 className="text-display weight-semibold">{title}</h2>
+    {previous && <ErrorNotice title={t("learningSpace.open.error", { value: t("learningSpace.lastSpace.label"), root: folderName(previous.root) })} error={previous.error} />}
     {noModel && <div className="grid gap-3">
       <StatusNotice status="error" title={t("common.noModel.title")}><p>{t("making.noModel.description")}</p></StatusNotice>
       <div><Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button></div>
@@ -167,13 +182,16 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
         value={name}
         disabled={creating}
         aria-invalid={invalid || undefined}
-        aria-describedby={invalid ? errorId : root ? hintId : undefined}
+        aria-describedby={invalid ? errorId : location !== undefined ? hintId : undefined}
         onChange={(event) => setName(event.target.value)}
       />
-      {invalid
-        ? <p id={errorId} className="m-0 text-body text-destructive">{t("learningSpace.first.name.invalid.error")}</p>
-        : root && <p id={hintId} className="m-0 text-caption break-all text-muted-foreground">{t("learningSpace.first.location.hint", { path: root })}</p>}
-      {homeError !== undefined && <ErrorNotice title={t("learningSpace.first.home.error")} error={homeError} />}
+      {invalid && <p id={errorId} className="m-0 text-body text-destructive">{t("learningSpace.first.name.invalid.error")}</p>}
+      {/* 位置一直显示，没起名时是 Repa 文件夹本身，C 盘紧张的人在起名之前就看得到放在哪、能换。 */}
+      {!invalid && location !== undefined && <div className="flex flex-wrap items-center gap-x-2">
+        <p id={hintId} className="m-0 text-caption break-all text-muted-foreground">{t("learningSpace.first.location.hint", { path: location })}</p>
+        <Button variant="ghost" size="compact" disabled={creating} onClick={() => setChoosingLocation(true)}>{t("learningSpace.first.location.change.action")}</Button>
+      </div>}
+      {chosenFolder === undefined && homeError !== undefined && <ErrorNotice title={t("learningSpace.first.home.error")} error={homeError} />}
       {failure !== undefined && <ErrorNotice title={t("learningSpace.first.create.error")} error={failure} />}
       {running && <p className="m-0 text-body text-muted-foreground">{t("learningSpace.recent.running.hint")}</p>}
       <div className="flex flex-wrap items-center gap-3">
@@ -181,6 +199,7 @@ function FirstSpace({ title, onPick, onCreated }: { title: string; onPick(): voi
         <Button variant="ghost" disabled={creating || running} onClick={onPick} leadingIcon={FolderSearch}>{t("learningSpace.chooseFolder.action")}</Button>
       </div>
     </form>
+    <LocationPickerDialog open={choosingLocation} onOpenChange={setChoosingLocation} onChosen={setRepaFolder} />
   </div>;
 }
 

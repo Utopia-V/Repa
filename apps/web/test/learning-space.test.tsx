@@ -204,3 +204,13 @@ it("上次的空间打不开时回到选空间页并说明原因", async () => {
   const notice = await screen.findByRole("alert");
   expect(within(notice).getByText("无法打开上次的空间 calculus")).toBeTruthy();
 });
+
+it("上次的空间打不开、也没有别的最近空间时，第一屏同样说明原因，可以选择文件夹找到它", async () => {
+  const { client } = fakeBackend([], { failOpen: new RpcError(-32000, "文件夹不存在，可能已被删除或移走。", { code: "not_found" }) });
+  const router = start(client, "/notes/calculus");
+  await waitFor(() => expect(router.state.location.pathname).toBe("/learning-space"));
+  expect(await screen.findByRole("heading", { name: "创建第一门课" })).toBeTruthy();
+  const notice = (await screen.findByText("无法打开上次的空间 calculus")).closest("[role=alert]");
+  expect(notice?.textContent).toContain("文件夹不存在，可能已被删除或移走。");
+  expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
+});

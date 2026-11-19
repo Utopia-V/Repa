@@ -16,13 +16,38 @@ import {
 } from "@/components/ui/dialog";
 import { ErrorNotice } from "@/components/domain/error-notice";
 import { useAppStore } from "@/hooks/use-app-store";
+import { repaFolderIn } from "@/lib/paths";
 import { t } from "@/lib/strings";
 
 type Listing = Result<"space.browse">;
 type Roots = Result<"space.roots">;
 type View = { kind: "folder"; listing: Listing } | { kind: "roots"; roots: Roots };
 
+/** 选定当前浏览到的文件夹以后做什么：两种选择框共用浏览，只在这里不同。 */
+interface Choice {
+  action: string;
+  /** 当前文件夹下面的一句说明。 */
+  hint(listing: Listing): string;
+  allowed(listing: Listing): boolean;
+  /** 选定这个文件夹；失败时抛出，以 errorTitle 为标题显示原因，选择框留着。 */
+  choose(path: string): Promise<void>;
+  errorTitle: string;
+}
+
+/** 选一个文件夹作为学习空间并打开它。 */
 export function FolderPickerDialog({ open, onOpenChange, onOpened }: { open: boolean; onOpenChange(open: boolean): void; onOpened?(): void }) {
+  const openSpace = useAppStore((state) => state.openSpace);
+  const choice: Choice = {
+    action: t("common.open.action"),
+    hint: (listing) => (listing.space ? t("folderPicker.existing.hint") : t("folderPicker.new.hint")),
+    allowed: () => true,
+    async choose(path) {
+      await openSpace(path);
+      onOpenChange(false);
+      onOpened?.();
+    },
+    errorTitle: t("folderPicker.open.error"),
+  };
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent>
       <DialogHeader>
@@ -30,18 +55,41 @@ export function FolderPickerDialog({ open, onOpenChange, onOpened }: { open: boo
         <DialogDescription>{t("folderPicker.dialog.description")}</DialogDescription>
       </DialogHeader>
       {/* 内容随对话框打开挂载，每次打开都从用户目录重新开始。 */}
-      <FolderBrowser onOpened={() => {
-        onOpenChange(false);
-        onOpened?.();
-      }} />
+      <FolderBrowser choice={choice} />
     </DialogContent>
   </Dialog>;
 }
 
-function FolderBrowser({ onOpened }: { onOpened(): void }) {
+/**
+ * 选新建课程放在哪里，也就是“我的 Repa 文件夹”的位置：选的文件夹叫 Repa 就用它，否则用它下面的 Repa，见 repaFolderIn。
+ * 已有的学习空间不能作为位置，否则新课会建在一门课的文件夹里。
+ */
+export function LocationPickerDialog({ open, onOpenChange, onChosen }: { open: boolean; onOpenChange(open: boolean): void; onChosen(folder: string): void }) {
+  const choice: Choice = {
+    action: t("folderPicker.location.action"),
+    hint: (listing) => (listing.space ? t("folderPicker.existing.hint") : t("folderPicker.location.hint", { path: repaFolderIn(listing.path) })),
+    allowed: (listing) => !listing.space,
+    choose(path) {
+      onChosen(repaFolderIn(path));
+      onOpenChange(false);
+      return Promise.resolve();
+    },
+    errorTitle: t("folderPicker.open.error"),
+  };
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>{t("folderPicker.location.title")}</DialogTitle>
+        <DialogDescription>{t("folderPicker.location.description")}</DialogDescription>
+      </DialogHeader>
+      <FolderBrowser choice={choice} />
+    </DialogContent>
+  </Dialog>;
+}
+
+function FolderBrowser({ choice }: { choice: Choice }) {
   const browseFolder = useAppStore((state) => state.browseFolder);
   const listRoots = useAppStore((state) => state.listRoots);
-  const openSpace = useAppStore((state) => state.openSpace);
   const [view, setView] = useState<View>();
   const [roots, setRoots] = useState<Roots>([]);
   const [loading, setLoading] = useState(true);
@@ -85,15 +133,14 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
     else void show(async () => ({ kind: "roots", roots }));
   }
 
-  async function openCurrent() {
+  async function chooseCurrent() {
     if (!listing) return;
     setOpening(true);
     setError(undefined);
     try {
-      await openSpace(listing.path);
-      onOpened();
+      await choice.choose(listing.path);
     } catch (failure) {
-      setError({ title: t("folderPicker.open.error"), error: failure });
+      setError({ title: choice.errorTitle, error: failure });
       setOpening(false);
     }
   }
@@ -131,17 +178,15 @@ function FolderBrowser({ onOpened }: { onOpened(): void }) {
         </ul>)}
 
       {listing?.truncated && <p className="text-body text-muted-foreground">{t("folderPicker.truncated.hint")}</p>}
-      {listing && <p className="text-body text-muted-foreground">
-        {listing.space ? t("folderPicker.existing.hint") : t("folderPicker.new.hint")}
-      </p>}
+      {listing && <p className="text-body break-all text-muted-foreground">{choice.hint(listing)}</p>}
     </div>
 
     <DialogFooter>
       <DialogClose asChild>
         <Button variant="tertiary">{t("common.cancel.action")}</Button>
       </DialogClose>
-      <Button disabled={!listing || loading || opening} onClick={() => { void openCurrent(); }}>
-        {opening ? t("common.opening.status") : t("common.open.action")}
+      <Button disabled={!listing || !choice.allowed(listing) || loading || opening} onClick={() => { void chooseCurrent(); }}>
+        {opening ? t("common.opening.status") : choice.action}
       </Button>
     </DialogFooter>
   </>;

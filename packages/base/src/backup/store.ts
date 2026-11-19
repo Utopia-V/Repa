@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readdir, readFile, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { Value } from "typebox/value";
@@ -8,7 +8,7 @@ import {
   BackupManifestSchema, parse, RepaFault,
   type BackupInfo, type BackupManifest, type BackupSpace, type BackupStatus,
 } from "../schema.js";
-import { LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
+import { folderExists, LOCK_NAME, RESTORE_NAMES, spaceKey } from "../space/paths.js";
 import { move, syncDirectory } from "../storage.js";
 import { copying, copyTree, isCode, publish, remove, syncCopies, walk } from "./copy.js";
 
@@ -125,14 +125,7 @@ export async function listBackups(home: string): Promise<BackupSpace[]> {
     const stored = await readGroup(path.join(home, "backups", group));
     const root = stored[0]?.manifest.root;
     if (root === undefined) continue;
-    let exists = true;
-    try {
-      exists = (await stat(root)).isDirectory();
-    } catch (error) {
-      if (!isCode(error, "ENOENT", "ENOTDIR")) throw error;
-      exists = false;
-    }
-    result.push({ root, exists, backups: stored.map(backupInfo) });
+    result.push({ root, exists: await folderExists(root), backups: stored.map(backupInfo) });
   }
   return result.sort((a, b) => a.root.localeCompare(b.root));
 }
