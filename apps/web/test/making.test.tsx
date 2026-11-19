@@ -124,7 +124,7 @@ it("还没有课时学习页是做课的起点：列出课件，读不出文字�
   expect(cards.getByText("making.materials.slides.label18")).toBeTruthy();
   expect(cards.getByText("这份 PDF 没有文字层，可能是扫描件或图片，读不出文字。")).toBeTruthy();
   // 没有课也没有做课的对话时不说“没有任务”，右侧也还没有面板。
-  expect(screen.queryByText("现在没有任务，也没有可以开始的内容。")).toBeNull();
+  expect(screen.queryByText("当前没有任务，也没有可开始的内容。")).toBeNull();
   expect(screen.queryByRole("complementary")).toBeNull();
 
   fireEvent.change(screen.getByLabelText("making.request.label"), { target: { value: "一月中旬考试" } });
@@ -358,7 +358,7 @@ it("菜单为空时用界面自己的说明，有恢复时间时写出几点以�
   start(fake.client);
 
   const menu = within(await screen.findByRole("region", { name: "接下来" }));
-  expect(menu.getByText(/^现在没有可以开始的内容。 \d{2}:\d{2} 以后可以继续。$/u)).toBeTruthy();
+  expect(menu.getByText(/^当前没有可开始的内容。 \d{2}:\d{2} 以后可以继续。$/u)).toBeTruthy();
 });
 
 it("只有轮廓时不显示菜单那句“现在没有可以开始的内容”；连续写的文件在做课的对话里合成一行", async () => {
@@ -381,7 +381,7 @@ it("只有轮廓时不显示菜单那句“现在没有可以开始的内容”�
   expect(panel.getByText("toolActivity.count.label3")).toBeTruthy();
   expect(panel.getAllByText("写入文件")).toHaveLength(1);
   expect(screen.getByRole("region", { name: "outline.title" })).toBeTruthy();
-  expect(screen.queryByText("现在没有可以开始的内容。")).toBeNull();
+  expect(screen.queryByText("当前没有可开始的内容。")).toBeNull();
 });
 
 it("搜索和读网页在做课的对话里显示成界面文字，不显示工具的内部名字", async () => {
@@ -569,7 +569,7 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
   const store = start(fake.client);
 
   const tutor = within(await screen.findByRole("complementary"));
-  expect(tutor.getByText("复习和测验期间不能问辅导，结束后再问。")).toBeTruthy();
+  expect(tutor.getByText("复习与测验期间不能提问，结束后可以提问。")).toBeTruthy();
   await vi.waitFor(() => expect(store.getState().conversation.status).toBe("ready"));
   expect(tutor.queryByText("就绪是只差处理机的状态。")).toBeNull();
 
@@ -606,28 +606,28 @@ it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的�
     const header = () => within(screen.getByRole("banner"));
 
     await screen.findByText("PCB 记下进程的一切。");
-    if (wide) expect(await screen.findByRole("complementary", { name: "辅导" })).toBeTruthy();
-    else expect(await header().findByRole("button", { name: "问辅导" })).toBeTruthy();
+    if (wide) expect(await screen.findByRole("complementary", { name: "提问" })).toBeTruthy();
+    else expect(await header().findByRole("button", { name: "提问" })).toBeTruthy();
     expect(header().queryByRole("button", { name: "learn.making.action" })).toBeNull();
 
     for (const phase of [{ stage: "completed" as const, outcome: "passed" as const }, { stage: "aborted" as const, reason: "" }]) {
       await changed({ ...lesson, phase });
       expect(await header().findByRole("button", { name: "learn.making.action" })).toBeTruthy();
       if (wide) {
-        expect(screen.getByRole("complementary", { name: "辅导" })).toBeTruthy();
+        expect(screen.getByRole("complementary", { name: "提问" })).toBeTruthy();
         fireEvent.click(header().getByRole("button", { name: "learn.making.action" }));
         expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
         await vi.waitFor(() => expect(store.getState().conversation.sessionId).toBe("making-1"));
-        fireEvent.click(header().getByRole("button", { name: "问辅导" }));
-        expect(await screen.findByRole("complementary", { name: "辅导" })).toBeTruthy();
+        fireEvent.click(header().getByRole("button", { name: "提问" }));
+        expect(await screen.findByRole("complementary", { name: "提问" })).toBeTruthy();
       } else {
         fireEvent.click(header().getByRole("button", { name: "learn.making.action" }));
         expect(await screen.findByRole("dialog", { name: "making.panel.label" })).toBeTruthy();
         await vi.waitFor(() => expect(store.getState().conversation.sessionId).toBe("making-1"));
         fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
         await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-        fireEvent.click(header().getByRole("button", { name: "问辅导" }));
-        expect(await screen.findByRole("dialog", { name: "辅导" })).toBeTruthy();
+        fireEvent.click(header().getByRole("button", { name: "提问" }));
+        expect(await screen.findByRole("dialog", { name: "提问" })).toBeTruthy();
         fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
         await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       }
@@ -640,7 +640,7 @@ it("结果画面上辅导与做课都进得去：窄屏两个入口各开各的�
     if (wide) expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
     else {
       expect(await header().findByRole("button", { name: "learn.making.action" })).toBeTruthy();
-      expect(header().queryByRole("button", { name: "问辅导" })).toBeNull();
+      expect(header().queryByRole("button", { name: "提问" })).toBeNull();
     }
     cleanup();
     localStorage.clear();
@@ -673,7 +673,7 @@ it("课第一次可以学时，窄屏的做课抽屉里也有菜单；在抽屉�
   expect(await screen.findByText("进程有三种状态。")).toBeTruthy();
   expect(calls(fake.call, "learning.menu.select")).toEqual([{ menuId: "m1", candidateId: "c1" }]);
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(screen.getByRole("button", { name: "问辅导" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "提问" })).toBeTruthy();
 });
 
 it("学过一节以后，做课的抽屉里不再放菜单", async () => {

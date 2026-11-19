@@ -213,12 +213,12 @@ it("提供方拒绝 key 时不保存、对话框留着可以重填；连不上�
 
   fireEvent.change(key, { target: { value: "sk-wrong" } });
   fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
-  expect(await within(keyDialog).findByText("这个 API key 无效，请核对后重新填写。")).toBeTruthy();
+  expect(await within(keyDialog).findByText("API key 无效，请核对后重新填写。")).toBeTruthy();
   expect(within(keyDialog).getByLabelText("DeepSeek API key")).toBeTruthy();
 
   fireEvent.change(key, { target: { value: "sk-offline" } });
   fireEvent.click(within(keyDialog).getByRole("button", { name: "保存" }));
-  expect(await within(keyDialog).findByText("已保存，但未能确认这个 key 是否可用。")).toBeTruthy();
+  expect(await within(keyDialog).findByText("已保存，但未能验证该 key 是否可用。")).toBeTruthy();
   fireEvent.click(within(keyDialog).getByRole("button", { name: "完成" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   expect(within(section("模型提供方")).getByText("DeepSeek")).toBeTruthy();
