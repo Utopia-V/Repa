@@ -31,11 +31,11 @@ const noCourse: LearningState = {
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-const nothing: CourseBuilding = { key: null, folder: null, course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: null };
+const nothing: CourseBuilding = { key: "c1", folder: "courses/操作系统", course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: null };
 const files: Material[] = [
-  { path: "materials/第一章.pdf", size: 2048, status: "text", format: "pdf", parts: 52 },
-  { path: "materials/引论.pptx", size: 4096, status: "text", format: "pptx", parts: 18 },
-  { path: "materials/扫描.pdf", size: 9000, status: "failed", format: "pdf", reason: "scanned", message: "这份 PDF 没有文字层，可能是扫描件或图片，读不出文字。" },
+  { path: "courses/操作系统/materials/第一章.pdf", size: 2048, status: "text", format: "pdf", parts: 52 },
+  { path: "courses/操作系统/materials/引论.pptx", size: 4096, status: "text", format: "pptx", parts: 18 },
+  { path: "courses/操作系统/materials/扫描.pdf", size: 9000, status: "failed", format: "pdf", reason: "scanned", message: "这份 PDF 没有文字层，可能是扫描件或图片，读不出文字。" },
 ];
 const source = { title: "第二章课件", file: "materials/第二章.pdf", where: "第 3–8 张" };
 const outlined: CourseBuilding = {
@@ -133,7 +133,7 @@ it("还没有课时学习页是做课的起点：列出课件，读不出文字�
   await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我把课件放进了 materials/……" }]));
   // 通用 Agent 的会话：不指定 agent。
   expect(calls(fake.call, "session.create")).toEqual([{}]);
-  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: true, request: "一月中旬考试" }]);
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: true, request: "一月中旬考试", course: "c1" }]);
   // 页面换成做课：右侧是做课的对话，正文等轮廓出来。
   expect(await screen.findByRole("complementary", { name: "making.panel.label" })).toBeTruthy();
   expect(screen.getByText("outline.pending.status")).toBeTruthy();
@@ -175,7 +175,7 @@ it("没有课件时写了想学什么就能开始：输入框问想学什么，�
   fireEvent.click(button);
 
   await vi.waitFor(() => expect(calls(fake.call, "session.send")).toEqual([{ sessionId: "making-1", text: "我手里没有课件……" }]));
-  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用" }]);
+  expect(calls(fake.call, "learning.building.begin")).toEqual([{ sessionId: "making-1", materials: false, request: "线性代数，期末考试用", course: "c1" }]);
 });
 
 it("添加课件：只列课件格式的文件，在本机文件夹里勾选，由课件插件复制进 materials/；已有同名文件时如实报错，勾选不丢", async () => {
@@ -206,7 +206,7 @@ it("添加课件：只列课件格式的文件，在本机文件夹里勾选，�
 
   fireEvent.click(dialog.getByRole("button", { name: "filePicker.add.action1" }));
   await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  expect(calls(fake.call, "materials.add")).toEqual([{ paths: ["/home/me/课件/第一章.pdf"] }, { paths: ["/home/me/课件/第一章.pdf"] }]);
+  expect(calls(fake.call, "materials.add")).toEqual([{ folder: "courses/操作系统", paths: ["/home/me/课件/第一章.pdf"] }, { folder: "courses/操作系统", paths: ["/home/me/课件/第一章.pdf"] }]);
   expect(await screen.findByText("第一章.pdf")).toBeTruthy();
 });
 
@@ -326,8 +326,15 @@ const python: LearningState = {
   menu: { menuId: "m1", candidates: [{ id: "c1", kind: "lesson", title: "给数据起名，再按顺序读", topicIds: ["py01"], course: "c1" }] },
 };
 
-it("还没有学习记录的空间整页是起点：不显示随包课的课名、今日 XP 和菜单；改学随包课以后显示原来的菜单", async () => {
-  const fake = backend({ "learning.state.get": () => Promise.resolve(python) });
+it("还没有可学的课时整页是起点；学习者选了自带的 Python 课，它成为空间里的课，显示它的菜单", async () => {
+  let chosen = false;
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve(chosen ? python : noCourse),
+    "learning.courses.useBundled": () => {
+      chosen = true;
+      return Promise.resolve({ courses: [{ key: "bundled-python", folder: null, bundled: true, title: null, learnable: true, missing: false }], canCreate: false });
+    },
+  });
   start(fake.client);
 
   expect(await screen.findByRole("button", { name: "making.start.action" })).toBeTruthy();
@@ -337,6 +344,7 @@ it("还没有学习记录的空间整页是起点：不显示随包课的课名�
 
   fireEvent.click(screen.getByRole("button", { name: "making.useBundled.action" }));
   expect(await screen.findByText("给数据起名，再按顺序读")).toBeTruthy();
+  expect(calls(fake.call, "learning.courses.useBundled")).toEqual([{}]);
   expect(screen.getByRole("heading", { name: "Python：读懂代码，说清需求" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "making.start.action" })).toBeNull();
 });
@@ -452,11 +460,12 @@ it("重开应用或刷新页面后，本机记着的会话正是做课的那一�
   expect((panel.getByRole("button", { name: "发送" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-it("第一次使用：问这门课叫什么，在主目录的 Repa/<名称> 新建空间并打开，落到放课件的起点；不能作文件夹名或文件夹已有内容时如实报错", async () => {
+it("第一次使用：问这门课叫什么，主目录的 Repa 文件夹就是空间，课建在其中的 courses/<名称>，落到放课件的起点；不能作文件夹名或文件夹已有内容时如实报错", async () => {
   let attempts = 0;
   const fake = backend({
     "space.list": () => Promise.resolve([]),
     "space.browse": () => Promise.resolve({ path: "/home/me", parent: "/home", space: false, truncated: false, entries: [] }),
+    "learning.courses.create": () => Promise.resolve({ courses: [{ key: "c1", folder: "courses/操作系统", bundled: false, title: null, learnable: false, missing: false }], canCreate: false }),
     "space.create": (params) => (++attempts === 1
       ? Promise.reject(Object.assign(new Error("这个文件夹已经存在，里面有别的内容"), { data: { code: "directory_not_empty" } }))
       : Promise.resolve({ root: params.root, opening: "opening-1", plugins: [] })),
@@ -479,15 +488,16 @@ it("第一次使用：问这门课叫什么，在主目录的 Repa/<名称> 新�
   expect(create.disabled).toBe(true);
 
   fireEvent.change(name, { target: { value: "  操作系统 " } });
-  expect(await screen.findByText("learningSpace.first.location.hint/home/me/Repa/操作系统")).toBeTruthy();
+  expect(await screen.findByText("learningSpace.first.location.hint/home/me/Repa/courses/操作系统")).toBeTruthy();
   fireEvent.click(create);
   expect(await screen.findByText("这个文件夹已经存在，里面有别的内容")).toBeTruthy();
   expect((name as HTMLInputElement).value).toBe("  操作系统 ");
 
   fireEvent.click(create);
   await vi.waitFor(() => expect(router.state.location.pathname).toBe("/learn"));
-  expect(calls(fake.call, "space.create")).toEqual([{ root: "/home/me/Repa/操作系统", fresh: true }, { root: "/home/me/Repa/操作系统", fresh: true }]);
-  expect(store.getState().space).toBe("/home/me/Repa/操作系统");
+  expect(calls(fake.call, "space.create")).toEqual([{ root: "/home/me/Repa", fresh: true }, { root: "/home/me/Repa", fresh: true }]);
+  expect(calls(fake.call, "learning.courses.create")).toEqual([{ name: "操作系统" }]);
+  expect(store.getState().space).toBe("/home/me/Repa");
   expect(await screen.findByRole("region", { name: "making.materials.title" })).toBeTruthy();
 });
 
@@ -681,7 +691,7 @@ it("学过一节以后，做课的抽屉里不再放菜单", async () => {
     "learning.state.get": () => Promise.resolve({
       ...noCourse, revision: 9, started: true, course: outlined.course, restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
       progress: { ...progress, completedTopics: 1, totalTopics: 4 },
-      menu: { menuId: "m2", candidates: [{ id: "c2", kind: "lesson", title: "进程控制块", topicIds: ["os02"] }] },
+      menu: { menuId: "m2", candidates: [{ id: "c2", kind: "lesson", title: "进程控制块", topicIds: ["os02"], course: "c1" }] },
     }),
     "learning.building.get": () => Promise.resolve(outlined),
   }, [{ id: "making-1", createdAt: iso, updatedAt: iso, agent: "general" }]);

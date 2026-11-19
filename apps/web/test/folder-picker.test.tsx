@@ -184,7 +184,7 @@ it("读取最近列表期间打开的选择框，在页面切换到首次引导�
   expect(screen.getByRole("dialog", { name: "选择文件夹" })).toBe(dialog);
 });
 
-it("新建课程时可以换位置：选 D 盘得到 D:\\Repa，课建在它下面；下次新建仍放在那里", async () => {
+it("新建课程时可以换位置：选 D 盘得到 D:\\Repa，它就是空间，课建在其中的 courses 下；下次新建仍放在那里", async () => {
   const { call, client } = fakeBackend(tree);
   renderPage(client);
   await screen.findByRole("heading", { name: "创建第一门课" });
@@ -207,9 +207,9 @@ it("新建课程时可以换位置：选 D 盘得到 D:\\Repa，课建在它下�
 
   await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   fireEvent.change(screen.getByLabelText("课程名称"), { target: { value: "操作系统" } });
-  expect(screen.getByText("learningSpace.first.location.hintD:\\Repa\\操作系统")).toBeTruthy();
+  expect(screen.getByText("learningSpace.first.location.hintD:\\Repa\\courses\\操作系统")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "创建" }));
-  await waitFor(() => expect(call).toHaveBeenCalledWith("space.create", { root: "D:\\Repa\\操作系统", fresh: true }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("space.create", { root: "D:\\Repa", fresh: true }));
   cleanup();
 
   // 重开应用：位置保存在浏览器里，不再从用户目录算。这里只留下位置，免得页面列出刚建的课而不显示新建课程。
