@@ -22,6 +22,9 @@ try {
   installed = true;
   const executable = path.join(target, "Repa.exe");
   await access(executable);
+  // 安装程序不在 C 盘留下自己的副本（electron-builder 为自动更新存的那一份），见 installer.nsh。
+  const storedInstaller = path.join(process.env.LOCALAPPDATA ?? path.join(os.homedir(), "AppData", "Local"), "repa-desktop-updater", "installer.exe");
+  if (await access(storedInstaller).then(() => true, () => false)) throw new Error(`安装以后 ${storedInstaller} 仍在`);
   const result = await verifyApplication({ application: path.join(target, "resources/app"), executable, temporary });
   console.log(JSON.stringify({ installer, installedTo: "temporary directory", ...result }, null, 2));
 } finally {

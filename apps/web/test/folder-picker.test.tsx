@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { RpcError, type RepaClient } from "@repa/base/client";
@@ -7,6 +7,15 @@ import { StoreProvider } from "../src/hooks/use-app-store";
 import { createAppStore } from "../src/lib/store";
 import { LearningSpacePage } from "../src/pages/learning-space";
 import { fakeClient } from "./fake-client";
+
+// 选位置这几处的文字还是占位，测试里换成键名（参数照常跟在后面），按键名找元素。
+vi.mock("../src/strings/zh-CN", async (importOriginal) => {
+  const { strings } = await importOriginal<typeof import("../src/strings/zh-CN")>();
+  const byKey = /^(folderPicker\.location|learningSpace\.first\.location)/u;
+  return {
+    strings: Object.fromEntries(Object.entries(strings).map(([key, value]) => [key, byKey.test(key) ? key + (value.match(/\{\w+\}/gu) ?? []).join("") : value])),
+  };
+});
 
 afterEach(() => { cleanup(); localStorage.clear(); });
 
@@ -44,11 +53,12 @@ function fakeBackend(folders: Record<string, Folder>, options: { failOpen?: unkn
           truncated: false,
         });
       }
-      case "space.open": {
+      case "space.open":
+      case "space.create": {
         if (options.failOpen) return Promise.reject(options.failOpen);
         const root = params.root ?? "";
         recent.unshift(root);
-        return Promise.resolve({ root });
+        return Promise.resolve({ root, opening: "opening-1", plugins: [] });
       }
     }
     return Promise.reject(new Error(`未模拟的方法 ${method}`));
@@ -172,4 +182,61 @@ it("读取最近列表期间打开的选择框，在页面切换到首次引导�
   // 模态框打开时页面其余部分对辅助技术隐藏，因此按 hidden 查找背后的标题。
   expect(await screen.findByRole("heading", { name: "创建第一门课", hidden: true })).toBeTruthy();
   expect(screen.getByRole("dialog", { name: "选择文件夹" })).toBe(dialog);
+});
+
+it("新建课程时可以换位置：选 D 盘得到 D:\\Repa，课建在它下面；下次新建仍放在那里", async () => {
+  const { call, client } = fakeBackend(tree);
+  renderPage(client);
+  await screen.findByRole("heading", { name: "创建第一门课" });
+  // 起名之前就看得到放在哪：缺省是用户目录下的 Repa。
+  expect(await screen.findByText("learningSpace.first.location.hintC:\\Users\\aqua\\Repa")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "learningSpace.first.location.change.action" }));
+  const dialog = await screen.findByRole("dialog", { name: "folderPicker.location.title" });
+  await within(dialog).findByRole("heading", { name: "C:\\Users\\aqua" });
+  const up = within(dialog).getByRole("button", { name: "上一级" });
+  fireEvent.click(up);
+  await within(dialog).findByRole("heading", { name: "C:\\Users" });
+  fireEvent.click(up);
+  await within(dialog).findByRole("heading", { name: "C:\\" });
+  fireEvent.click(up);
+  fireEvent.click(within(await within(dialog).findByRole("list", { name: "磁盘" })).getByRole("button", { name: "D:" }));
+  await within(dialog).findByRole("heading", { name: "D:\\" });
+  expect(within(dialog).getByText("folderPicker.location.hintD:\\Repa")).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "folderPicker.location.action" }));
+
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  fireEvent.change(screen.getByLabelText("课程名称"), { target: { value: "操作系统" } });
+  expect(screen.getByText("learningSpace.first.location.hintD:\\Repa\\操作系统")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "创建" }));
+  await waitFor(() => expect(call).toHaveBeenCalledWith("space.create", { root: "D:\\Repa\\操作系统", fresh: true }));
+  cleanup();
+
+  // 重开应用：位置保存在浏览器里，不再从用户目录算。这里只留下位置，免得页面列出刚建的课而不显示新建课程。
+  const saved = JSON.parse(localStorage.getItem("repa.web.preferences") ?? "{}") as { state: { repaFolder?: string } };
+  expect(saved.state.repaFolder).toBe("D:\\Repa");
+  localStorage.setItem("repa.web.preferences", JSON.stringify({ state: { repaFolder: saved.state.repaFolder }, version: 0 }));
+  const next = fakeBackend(tree);
+  renderPage(next.client);
+  await screen.findByRole("heading", { name: "创建第一门课" });
+  expect(await screen.findByText("learningSpace.first.location.hintD:\\Repa")).toBeTruthy();
+  expect(next.call).not.toHaveBeenCalledWith("space.browse", expect.anything());
+});
+
+it("选位置时选到的文件夹已经叫 Repa 就直接用它；已有的学习空间不能作为位置", async () => {
+  renderPage(fakeBackend({ ...tree, "C:\\Users\\aqua": { children: ["Repa", "physics"] }, "C:\\Users\\aqua\\Repa": { children: [] } }).client);
+  await screen.findByRole("heading", { name: "创建第一门课" });
+  fireEvent.click(await screen.findByRole("button", { name: "learningSpace.first.location.change.action" }));
+  const dialog = await screen.findByRole("dialog", { name: "folderPicker.location.title" });
+  await within(dialog).findByRole("list", { name: "子文件夹" });
+
+  fireEvent.click(within(dialog).getByRole("button", { name: /physics/ }));
+  await within(dialog).findByRole("heading", { name: "C:\\Users\\aqua\\physics" });
+  expect(within(dialog).getByText("这是已有的学习空间。")).toBeTruthy();
+  expect((within(dialog).getByRole("button", { name: "folderPicker.location.action" }) as HTMLButtonElement).disabled).toBe(true);
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "上一级" }));
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Repa" }));
+  await within(dialog).findByRole("heading", { name: "C:\\Users\\aqua\\Repa" });
+  expect(within(dialog).getByText("folderPicker.location.hintC:\\Users\\aqua\\Repa")).toBeTruthy();
 });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, readlink, realpath } from "node:fs/promises";
+import { lstat, mkdir, readFile, readlink, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { RepaFault } from "../schema.js";
@@ -19,6 +19,16 @@ export const RESTORE_NAMES = { marker: "restore.json", staging: "restore-staging
  */
 export function spaceKey(root: string): string {
   return createHash("sha256").update(root).digest("hex").slice(0, 16);
+}
+
+/** 空间文件夹是否还在：被移动、删除或所在的盘没有接上时为假，其他读取错误照常抛出。 */
+export async function folderExists(root: string): Promise<boolean> {
+  try {
+    return (await stat(root)).isDirectory();
+  } catch (error) {
+    if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false;
+    throw error;
+  }
 }
 
 // 同时检查输入路径与解析后的路径，符号链接不能把文件接口带出空间。

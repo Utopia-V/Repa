@@ -43,6 +43,7 @@ import { errorText, RepaFault, type Confirmation, type Confirm } from "../schema
 import { SettingsStore } from "../settings.js";
 import { createSpace, openSpace, type Space } from "../space.js";
 import { browseDirectory, listRoots } from "../space/browse.js";
+import { folderExists } from "../space/paths.js";
 import { ReverseRequests } from "./reverse.js";
 import { errorResponse, parseRequest, RpcFault, type RpcId } from "./json-rpc.js";
 
@@ -528,8 +529,14 @@ export async function startServer(options: ServerOptions = {}): Promise<RepaServ
         peer.serial = ++initialized;
         return { version: PROTOCOL_VERSION, serverId };
       }
-      case "space.list":
-        return settings.get().recentSpaces;
+      case "space.list": {
+        // 只列还在的文件夹：学习者把课程文件夹移到别处以后，旧位置不再列出，从新位置打开一次就排到最前。
+        // 记录本身不改，所在的盘重新接上时又会列出。查不出在不在的（没有权限、盘没有就绪）仍然列出，打开它时会报出原因：
+        // 一个文件夹查不出，不能让整份列表读不出来。
+        const recent = settings.get().recentSpaces;
+        const present = await Promise.all(recent.map((root) => folderExists(root).catch(() => true)));
+        return recent.filter((_, index) => present[index]);
+      }
       case "space.open":
         return loadSpace(p<"space.open">().root, false);
       case "space.create":

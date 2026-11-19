@@ -83,6 +83,7 @@ export const strings = {
   "learningSpace.first.title": "创建第一门课",
   "learningSpace.first.name.label": "课程名称",
   "learningSpace.first.location.hint": "保存位置：{path}",
+  "learningSpace.first.location.change.action": "更改",
   "learningSpace.first.name.invalid.error": "名称不能含 \\ / : * ? \" < > |，也不能以点或空格结尾。",
   "learningSpace.first.home.error": "无法读取用户目录",
   "learningSpace.first.create.action": "创建",
@@ -140,6 +141,10 @@ export const strings = {
   "folderPicker.truncated.hint": "子文件夹太多，只显示了其中一部分。",
   "folderPicker.existing.hint": "这是已有的学习空间。",
   "folderPicker.new.hint": "会在这个文件夹里保存 Repa 的数据。",
+  "folderPicker.location.title": "课程保存位置",
+  "folderPicker.location.description": "新建的课程都保存在所选位置的 Repa 文件夹中。所选文件夹名为 Repa 时直接使用，否则在其中新建一个 Repa 文件夹。",
+  "folderPicker.location.hint": "课程将保存在 {path}",
+  "folderPicker.location.action": "保存在这里",
 
   // 选本机文件（添加课件）
   "filePicker.dialog.title": "添加课件",
