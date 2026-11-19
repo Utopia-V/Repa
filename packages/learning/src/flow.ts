@@ -75,7 +75,7 @@ export async function connectLearning(
     if (task.kind === "lesson" && (invalidShownKp || rewound)) {
       throw stale("当前交付已失去课内资格，请中止后重新选择");
     }
-    if (!topicEligible(session.structure, session.before(), task.topicIds[0] ?? "", task.kind, session.clock())) {
+    if (!session.owns(task) || !topicEligible(session.structure, session.gate(session.before()), task.course, task.topicIds[0] ?? "", task.kind, session.clock())) {
       throw stale("任务已失去学习资格，请中止当前任务后重新选择");
     }
   }
@@ -89,7 +89,7 @@ export async function connectLearning(
   async function nextQuestion(evidence: TaskEvidence, capabilities: ClientCapabilities | undefined, topicId?: string): Promise<FactBody> {
     const task = evidence.task;
     const id = topicId ?? task.topicIds[0] ?? "";
-    const topic = session.course.topics.get(id);
+    const topic = session.owns(task) ? session.course.topics.get(id) : undefined;
     const { found, removed } = session.taskPool(task, id);
     let pool = found;
     if (task.retakes !== undefined) {
@@ -135,7 +135,7 @@ export async function connectLearning(
     }
     const entry = task.kind === "lesson"
       ? candidates[0]
-      : candidates.find((candidate) => session.replay.firstDelivered(candidate.question.id) === undefined) ?? candidates[0];
+      : candidates.find((candidate) => session.replay.firstDelivered(task.course, candidate.question.id) === undefined) ?? candidates[0];
     if (!entry) {
       const first = pool[0];
       const missing = first ? session.missing(first.question, topic, capabilities) : [];
@@ -189,7 +189,7 @@ export async function connectLearning(
     await session.write(async () => {
       const state = await session.state(capabilities);
       const candidate = state.menu?.candidates.find((entry) => entry.id === input.candidateId);
-      if (!candidate || state.menu?.menuId !== input.menuId) {
+      if (!candidate || state.menu?.menuId !== input.menuId || candidate.course !== session.key) {
         throw stale("菜单已失效");
       }
       restricted = candidate.kind !== "lesson";

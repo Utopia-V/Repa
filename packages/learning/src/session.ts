@@ -5,6 +5,7 @@ import type { Student } from "@repa/learning-model";
 import { PYTHON_RUN } from "@repa/python-runner/protocol";
 import { content, type QuestionEntry } from "./check/items.js";
 import { CourseIndex, gradingNeed, needsModel, needsPython, type IndexedQuestion } from "./course-index.js";
+import { scoped } from "./course-key.js";
 import { courseStructure, StructureIndex } from "./course-structure.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Question, Topic } from "./format/schema.js";
@@ -15,6 +16,7 @@ import {
   deliveryId,
   isQuiz,
   lessonPractice,
+  obligations,
   submissionId,
   taskId,
   type DeliveryRecord,
@@ -82,6 +84,8 @@ type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelF
  */
 export class LearningSession {
   readonly replay: Replay;
+  /** 当前这门课在空间里的键：新任务记下它，学习状态按它加编号查。 */
+  readonly key: string;
   readonly course: CourseIndex;
   readonly structure: StructureIndex;
   readonly timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -102,19 +106,21 @@ export class LearningSession {
     readonly records: LearningRecords,
     resolved: ResolvedCourse,
     readonly host: Host,
+    key: string,
     legacy?: Legacy,
   ) {
     this.course = new CourseIndex(resolved);
     this.structure = new StructureIndex(courseStructure(resolved));
-    this.replay = new Replay(this.structure, undefined, legacy);
+    this.key = key;
+    this.replay = new Replay(key, this.structure, undefined, legacy);
   }
 
   /**
    * 从头重放全部事实一次，再找出要补判和重判的作答。只读，不写学习记录：换用课程时先这样建好候选会话，
-   * 发布以后再调用 catchUp 补判，所以没有发布的课不会写下判分。legacy 只给测试里的对照重放用，见 Replay 的 Legacy。
+   * 发布以后再调用 catchUp 补判，所以没有发布的课不会写下判分。key 是这门课在空间里的键；legacy 只给测试里的对照重放用，见 Replay 的 Legacy。
    */
-  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host, legacy?: Legacy): Promise<LearningSession> {
-    const session = new LearningSession(records, resolved, host, legacy);
+  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host, key: string, legacy?: Legacy): Promise<LearningSession> {
+    const session = new LearningSession(records, resolved, host, key, legacy);
     for (const fact of records.facts) {
       session.observe(fact);
     }
@@ -159,7 +165,7 @@ export class LearningSession {
       structure = this.records.revision + 1;
       facts.push({ type: "structure", structure: this.structure.data });
     }
-    facts.push({ ...task, course: { ...this.structure.data.course }, structure });
+    facts.push({ ...task, course: { key: this.key, ...this.structure.data.course }, structure });
     return facts;
   }
 
@@ -199,12 +205,20 @@ export class LearningSession {
     return { question: entry.question, topic: entry.topic, answer, version: versions.question, count: delivery.grades.length };
   }
 
-  /** 一份作答在当前课程里能不能再判：同一门课、同一道题、学习者看到的同一份题面。能时返回题目的两种版本。 */
+  /**
+   * 一份作答在当前课程里能不能再判：同一门课（任务所属的课的键）、同一道题、学习者看到的同一份题面。能时返回题目的两种版本。
+   * 算历史用的结构不决定这一点：两门课可以有同号、同题面的题。
+   */
   private async seenQuestion(delivery: DeliveryRecord) {
     const answer = delivery.answer;
-    if (!answer || delivery.task.structure.data.course.id !== this.structure.data.course.id) return undefined;
+    if (!answer || !this.owns(delivery.task)) return undefined;
     const versions = await this.course.versionsOf(delivery.questionId);
     return versions?.item === answer.seen ? versions : undefined;
+  }
+
+  /** 任务属于当前这门课：它的题面、讲解和题目只到这门课的内容里找。 */
+  owns(task: TaskRecord): boolean {
+    return task.course === this.key;
   }
 
   /** 一份已判的作答能不能按申诉重判，见 seenQuestion。 */
@@ -262,7 +276,7 @@ export class LearningSession {
     let model: boolean | undefined;
     for (const seq of this.ungraded) {
       const delivery = this.replay.delivery(seq);
-      const entry = delivery && this.course.questions.get(delivery.questionId);
+      const entry = delivery && this.owns(delivery.task) ? this.course.questions.get(delivery.questionId) : undefined;
       if (!entry || this.attempted.has(seq) || this.inflight.has(seq) || (needsPython(entry.question) && !python)) {
         continue;
       }
@@ -357,7 +371,8 @@ export class LearningSession {
    * removed 是任务结构里有、课程内容里已没有的题的个数：它们出不了，也不能拿别的题顶替。
    */
   taskPool(task: TaskRecord, topicId: string): { found: QuestionEntry[]; removed: number } {
-    return this.entries(task.structure.pool(topicId, POOLS[task.kind]));
+    const ids = task.structure.pool(topicId, POOLS[task.kind]);
+    return this.owns(task) ? this.entries(ids) : { found: [], removed: ids.length };
   }
 
   private entries(ids: string[]): { found: QuestionEntry[]; removed: number } {
@@ -410,7 +425,7 @@ export class LearningSession {
     const now = this.clock();
     this.replay.settle(now);
     const evidence = this.replay.currentEvidence();
-    const fold = this.replay.fold();
+    const fold = this.gate(this.replay.fold());
     const finished = !evidence || evidence.outcome !== undefined;
     const restricted = Boolean(evidence && evidence.task.kind !== "lesson" && !finished);
     // 结束的任务只在得出结果的那个本地自然日里留作当前画面；换了一天（按日期，不按经过的小时数），打开时就是菜单。
@@ -422,7 +437,7 @@ export class LearningSession {
         const available = this.questions(id, kind, capabilities);
         if (kind !== "lesson") return available.length > 0;
         // 课要把每个没过的知识点的必做题都做完，所以这些题都得是调用方能用的。
-        const inherited = fold.lessons.get(id) ?? [];
+        const inherited = fold.lessons.get(scoped(this.key, id)) ?? [];
         const practice = lessonPractice(this.structure, id);
         const usable = new Set(available.map((entry) => entry.question.id));
         return this.structure.topics.get(id)?.kps.every((kp) => {
@@ -432,7 +447,7 @@ export class LearningSession {
         }) ?? false;
       };
       const title = (id: string) => this.course.topics.get(id)?.title ?? id;
-      menu = progressMenu(learningMenu(this.structure, fold, now, this.menuId(), supply, this.timeZone, title), this.replay, fold);
+      menu = progressMenu(learningMenu(this.structure, this.key, fold, now, this.menuId(), supply, this.timeZone, title), this.replay, fold, this.key);
     }
     let restriction: LearningState["restrictions"]["kind"] = "none";
     if (restricted && evidence) {
@@ -445,13 +460,18 @@ export class LearningSession {
         revision: this.records.revision,
         serverNow: now,
         started: this.replay.tasks.length > 0,
-        course: { id: course.id, title: course.title, version: course.version },
+        course: { key: this.key, id: course.id, title: course.title, version: course.version },
         task: shown ? await this.task(shown) : null,
         menu,
         restrictions: { kind: restriction, tutorAllowed: !this.closed(evidence), referenceContentAllowed: !this.closed(evidence) },
-        progress: progressView(this.replay, fold, this.structure, now, this.timeZone),
+        progress: progressView(this.replay, fold, this.structure, this.key, now, this.timeZone),
       },
     };
+  }
+
+  /** 学习状态里还要求的强制补救：只有当前这门课现在的结构里还有的 topic，见 obligations。 */
+  gate(fold: Fold): Fold {
+    return obligations(fold, (key) => (key === this.key ? this.structure : undefined));
   }
 
   /**
@@ -468,16 +488,19 @@ export class LearningSession {
     for (const delivery of task.answered) {
       submissions.push(await this.submission(delivery));
     }
-    const topics = task.topicIds.map((id) => ({ id, title: this.course.topics.get(id)?.title ?? id }));
+    // 别的课的任务（换课以前留下的）在这门课的内容里没有标题，退回为编号。
+    const content = (id: string) => (this.owns(task) ? this.course.topics.get(id) : undefined);
+    const topics = task.topicIds.map((id) => ({ id, title: content(id)?.title ?? id }));
     const kpTitles = new Map<string, string>();
     for (const id of task.topicIds) {
-      for (const kp of this.course.topics.get(id)?.kps ?? []) {
+      for (const kp of content(id)?.kps ?? []) {
         kpTitles.set(kp.id, kp.title);
       }
     }
     return {
       taskId: taskId(task),
       kind: task.kind,
+      course: task.course,
       topics,
       phase: await this.phase(evidence),
       startedAt: evidence.startedAt,
@@ -555,7 +578,7 @@ export class LearningSession {
 
   /** 课内讲解页或例题页。 */
   async page(task: TaskRecord, kpId: string, stage: "explanation" | "example"): Promise<ContentPage> {
-    const topic = this.course.topics.get(task.topicIds[0] ?? "");
+    const topic = this.owns(task) ? this.course.topics.get(task.topicIds[0] ?? "") : undefined;
     const kp = topic?.kps.find((entry) => entry.id === kpId);
     if (!topic || !kp) {
       // 课停在当前课程里已没有的知识点上（例如随包的课随应用更新删了它）：给一页说明，学习者可以中止这节课，状态照常读出。
@@ -589,11 +612,11 @@ export class LearningSession {
     let cached = this.rendered.get(delivery.seq);
     if (!cached) {
       cached = (async () => {
-        const entry = this.course.questions.get(delivery.questionId);
+        const entry = this.owns(delivery.task) ? this.course.questions.get(delivery.questionId) : undefined;
         const identity = {
           deliveryId: deliveryId(delivery),
           submissionId: submissionId(delivery),
-          repeated: this.replay.firstDelivered(delivery.questionId) !== delivery.seq,
+          repeated: this.replay.firstDelivered(delivery.task.course, delivery.questionId) !== delivery.seq,
         };
         if (!entry) {
           const draft = {

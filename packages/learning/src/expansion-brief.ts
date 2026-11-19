@@ -5,7 +5,7 @@
  */
 import type { ResolvedCourse } from "./course-sources.js";
 import type { Kp, Topic } from "./format/schema.js";
-import { SPACE_COURSE } from "./space-course.js";
+import { courseFolder } from "./space-course.js";
 
 /**
  * 更早的部分最多列多少个概念名，按先修图上离要展开的部分由近到远取整个部分。四十多节、每节三个知识点的课学到第三十节时
@@ -67,7 +67,7 @@ function detailedText(topic: Topic): string {
  * “之前”指先修图上的祖先（学习者学这几部分之前一定学过）和已经学过的部分；展开了但既不是祖先也没学过的，学习者未必见过，不列。
  * 其余的部分列在最后，作为还没有讲到的：讲解用到属于它们的术语时，先用几句话说清，可以注明后面哪一部分细讲。
  */
-export function expansionBrief(course: ResolvedCourse, topicIds: readonly string[], learned: ReadonlySet<string>): string {
+export function expansionBrief(course: ResolvedCourse, location: string, topicIds: readonly string[], learned: ReadonlySet<string>): string {
   const topics = new Map(course.topics.map((topic) => [topic.id, topic]));
   const order = new Map(course.course.topics.map((id, index) => [id, index]));
   const parts = new Set(topicIds);
@@ -121,7 +121,7 @@ export function expansionBrief(course: ResolvedCourse, topicIds: readonly string
     }
     if (omitted.length > 0) {
       const count = omitted.reduce((sum, topic) => sum + topic.kps.length, 0);
-      sections.push(`另有 ${omitted.length} 个更早的部分（共 ${count} 个概念）没有列出；要查时用 grep 在 ${SPACE_COURSE}/topics/ 里搜概念名（概念卡的 name）。`);
+      sections.push(`另有 ${omitted.length} 个更早的部分（共 ${count} 个概念）没有列出；要查时用 grep 在 ${courseFolder(location)}/topics/ 里搜概念名（概念卡的 name）。`);
     }
   }
   if (outline.length > 0) {

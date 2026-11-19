@@ -1,3 +1,4 @@
+import { scoped } from "./course-key.js";
 import { RepaFault } from "@repa/base";
 import { contentVersion, type Content } from "@repa/base/protocol";
 import type { ResolvedCourse } from "./course-sources.js";
@@ -74,7 +75,8 @@ export function requireReferenceAccess(view: LearningView): LearningView {
  * 只提供当前课程里的内容；课程换版以后，旧版本的引用按不存在处理。
  */
 export async function visibleContent(session: LearningSession, view: LearningView, index: ReferenceContent[]): Promise<ContentPage[]> {
-  const tasks = session.replay.tasks;
+  // 只看这门课的任务：别的课里同号的题与 topic 不是这里的内容。
+  const tasks = session.replay.tasks.filter((task) => session.owns(task));
   const currentTask = view.state.task;
   const originalDeliveries = new Map<string, { taskId: string; deliveryId: string }>();
   for (const task of tasks) {
@@ -86,7 +88,7 @@ export async function visibleContent(session: LearningSession, view: LearningVie
   }
   const pages: ContentPage[] = [];
   for (const entry of index) {
-    const learned = view.student[entry.ref.topicId];
+    const learned = view.student[scoped(session.key, entry.ref.topicId)];
     const active = currentTask?.topics.some((topic) => topic.id === entry.ref.topicId);
     if (!learned && !active) {
       continue;

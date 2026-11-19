@@ -1,8 +1,9 @@
 /**
- * 给通用 Agent 做课用的四项工具：course_check 检查空间里的 course/，course_confirm 让另一次模型调用不看答案重做题目，
+ * 给通用 Agent 做课用的四项工具：course_check 检查一门课的 course/，course_confirm 让另一次模型调用不看答案重做题目，
  * course_use 检查通过、题目都核对过以后让学习换用它，
  * course_brief 写出要展开的部分的轮廓和学习者在它们之前学到的概念（后台展开的任务里也是这一段）。
  * 写课的说明随包附带，插件的提示说明指过去；工具输出写成分行文字，做课的 Agent 照着改课。
+ * 四项工具都有可选的 course，写课的文件夹；在一门课的做课对话或后台展开里不写就是那门课，空间里只有一门自己的课时也不必写。
  */
 
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ import { Type } from "typebox";
 
 import type { ConfirmOutcome, ConfirmResult } from "./check/confirm.js";
 import { formatDiagnostic } from "./format/diagnostics.js";
-import { SPACE_COURSE, type CourseCheck } from "./space-course.js";
+import type { CourseCheck } from "./space-course.js";
 
 /** 写课的说明：随包附带，通用 Agent 用 read 读取（read 可以读空间之外的文件）。src 与 dist 到包根目录的距离相同。 */
 export const COURSE_GUIDE = fileURLToPath(new URL("../guides/making-courses.md", import.meta.url));
@@ -23,14 +24,21 @@ export const COURSE_EXAMPLE = fileURLToPath(new URL("../guides/example-course", 
 /** 一页最多列几处问题。一处约一两行，40 处在模型一次读得完的量之内。 */
 export const CHECK_PAGE = 40;
 
+const course = Type.Optional(Type.String({
+  minLength: 1, maxLength: 300,
+  description: "哪门课：课的文件夹，相对空间根，例如 courses/操作系统；空间根上的课写 .。在这门课的做课对话或后台展开里，或空间里只有一门自己的课时，可以不写",
+}));
 const CheckParametersSchema = object({
+  course,
   offset: Type.Optional(Type.Integer({ minimum: 0, description: "从第几处问题开始列，默认 0；上一页的末尾会写明下一页的 offset" })),
 });
-const UseParametersSchema = object({});
+const UseParametersSchema = object({ course });
 const BriefParametersSchema = object({
+  course,
   topicIds: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 8, description: "要展开的 topic id，按要写的先后" }),
 });
 const ConfirmParametersSchema = object({
+  course,
   topicIds: Type.Array(Type.String({ minLength: 1, maxLength: 64 }), { minItems: 1, maxItems: 8, description: "要核对的 topic id" }),
 });
 
@@ -44,24 +52,32 @@ export const CONFIRM_CONCURRENCY = 8;
 /** course_use 不换用时列出的缺记录的题最多几道，其余只给总数。 */
 const MISSING_PAGE = 40;
 
-/** 插件给工具的入口：读 course/、检查、核对、换用，以及学习者现在学的是哪一份。 */
+/**
+ * 插件给工具的入口：读一门课的 course/、检查、核对、换用，以及学习者现在学的是哪一份。course 是工具参数里写的课的文件夹，
+ * 没写时由插件按这次运行属于哪门课取缺省，取不到时报错并列出有哪些课。没有 course/ 时返回 { missing: 那个文件夹 }。
+ */
 export interface CourseActions {
-  /** 检查 course/；没有 course/ 时为 undefined。 */
-  check(): Promise<CourseCheck | undefined>;
+  /** 检查 course/。 */
+  check(course: string | undefined): Promise<CourseCheck | Missing>;
   /**
    * 检查 course/，通过、每道由程序判分的题都有当前核对记录，而且不打乱学习者做到一半的任务时换用。
-   * unconfirmed：检查通过，但有题缺核对记录，没有换用。没有 course/ 时为 undefined。
+   * unconfirmed：检查通过，但有题缺核对记录，没有换用。
    */
-  use(): Promise<{ checked: CourseCheck; outcome: "unchanged" | "busy" | "switched" | "unconfirmed" } | undefined>;
-  /** 对这几个 topic 里缺当前记录的题做模型核对，一致的记下；signal 是这次工具调用的取消信号。没有 course/ 时为 undefined。 */
-  confirm(topicIds: string[], signal: AbortSignal): Promise<ConfirmResult | undefined>;
-  /** 学习者现在学的是哪一份、学过哪些部分、后台是否正在展开，一句话。 */
-  status(): Promise<string>;
+  use(course: string | undefined): Promise<{ checked: CourseCheck; outcome: "unchanged" | "busy" | "switched" | "unconfirmed" } | Missing>;
+  /** 对这几个 topic 里缺当前记录的题做模型核对，一致的记下；signal 是这次工具调用的取消信号。 */
+  confirm(course: string | undefined, topicIds: string[], signal: AbortSignal): Promise<{ folder: string; result: ConfirmResult } | Missing>;
+  /** 学习者现在学的是这门课的哪一份、学过哪些部分、后台是否正在展开，一句话。 */
+  status(course: string | undefined): Promise<string>;
   /** 这几部分的轮廓和学习者在它们之前学到的概念，按学习者现在学的那一份算。 */
-  brief(topicIds: string[]): Promise<string>;
+  brief(course: string | undefined, topicIds: string[]): Promise<string>;
 }
 
-const NO_COURSE = `空间里没有 ${SPACE_COURSE}/ 文件夹。做课的格式与顺序见 ${COURSE_GUIDE}。`;
+/** 课的文件夹里还没有 course/。 */
+export interface Missing {
+  missing: string;
+}
+
+const noCourse = (missing: Missing) => `${missing.missing}/ 文件夹不存在。做课的格式与顺序见 ${COURSE_GUIDE}。`;
 
 /** 一次检查的结果：统计、没有运行或没有核对的部分，以及从 offset 起的一页问题。 */
 export function checkText(checked: CourseCheck, offset = 0): string {
@@ -73,8 +89,8 @@ export function checkText(checked: CourseCheck, offset = 0): string {
   const course = summary.course ? `课程 ${summary.course.id} ${summary.course.version}，` : "";
   const counts = `完整 topic ${summary.topics.complete} 个、骨架 ${summary.topics.outline} 个，题目 ${summary.questions} 道`;
   lines.push(checked.passed
-    ? `${SPACE_COURSE}/ 通过检查：${course}${counts}${warnings > 0 ? `；提醒 ${warnings} 处` : ""}。`
-    : `${SPACE_COURSE}/ 没有通过检查：错误 ${errors} 处${warnings > 0 ? `、提醒 ${warnings} 处` : ""}。${summary.course ? `${course}${counts}。` : ""}`);
+    ? `${checked.folder}/ 通过检查：${course}${counts}${warnings > 0 ? `；提醒 ${warnings} 处` : ""}。`
+    : `${checked.folder}/ 没有通过检查：错误 ${errors} 处${warnings > 0 ? `、提醒 ${warnings} 处` : ""}。${summary.course ? `${course}${counts}。` : ""}`);
   if (!summary.course) {
     // 清单读不出来时还不知道课里有没有要运行 Python 的题，不下结论。
   } else if (!summary.python) {
@@ -133,10 +149,10 @@ function unfinishedReason(outcome: ConfirmOutcome): string {
 }
 
 /** 一次核对的结果：没有通过的题逐道列出（编号、模型的作答、标准答案、模型的说明），全部一致时一句话。 */
-export function confirmText(result: ConfirmResult, topicIds: string[]): string {
+export function confirmText(result: ConfirmResult, topicIds: string[], folder: string): string {
   const errors = result.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (errors.length > 0) {
-    return `${SPACE_COURSE}/ 读不出来，没有核对：${errors.slice(0, 5).map(formatDiagnostic).join("；")}。先用 course_check 改到通过。`;
+    return `${folder}/ 读不出来，没有核对：${errors.slice(0, 5).map(formatDiagnostic).join("；")}。先用 course_check 改到通过。`;
   }
   const { outcomes } = result;
   const lines: string[] = [];
@@ -175,30 +191,30 @@ export function courseTools(actions: CourseActions): Tool[] {
   return [
     {
       name: "course_check",
-      description: `检查空间里 ${SPACE_COURSE}/ 的课：逐处列出哪个文件、哪一行、错在哪里、怎样改，错误多时分页。只检查，不改变学习者在学的课。`,
+      description: "检查一门课的 course/：逐处列出哪个文件、哪一行、错在哪里、怎样改，错误多时分页。只检查，不改变学习者在学的课。",
       parameters: CheckParametersSchema,
       async execute(raw) {
-        const { offset = 0 } = parse(CheckParametersSchema, raw);
-        const checked = await actions.check();
-        if (!checked) return { text: NO_COURSE };
-        return { text: `${checkText(checked, offset)}\n\n学习者现在学的：${await actions.status()}` };
+        const { course, offset = 0 } = parse(CheckParametersSchema, raw);
+        const checked = await actions.check(course);
+        if ("missing" in checked) return { text: noCourse(checked) };
+        return { text: `${checkText(checked, offset)}\n\n学习者现在学的：${await actions.status(course)}` };
       },
     },
     {
       name: "course_use",
-      description: `检查空间里 ${SPACE_COURSE}/ 的课，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。`
+      description: "检查一门课的 course/，通过以后让学习者改学这一版；没通过就不换，学习者学的仍是上一次换用的那一版。"
         + "有题还没有当前的核对记录（course_confirm）时不换；学习者正在做一项任务时，这一版改了展开过的部分也不换。",
       parameters: UseParametersSchema,
       async execute(raw) {
-        parse(UseParametersSchema, raw);
-        const used = await actions.use();
-        if (!used) return { text: NO_COURSE };
+        const { course } = parse(UseParametersSchema, raw);
+        const used = await actions.use(course);
+        if ("missing" in used) return { text: noCourse(used) };
         const { checked, outcome } = used;
         if (!checked.passed) {
-          return { text: `没有换用。${checkText(checked)}\n\n学习者现在学的：${await actions.status()}` };
+          return { text: `没有换用。${checkText(checked)}\n\n学习者现在学的：${await actions.status(course)}` };
         }
         if (outcome === "unconfirmed") {
-          return { text: `${missingText(checked)}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status()}` };
+          return { text: `${missingText(checked)}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status(course)}` };
         }
         const head = {
           unchanged: "这一版与学习者正在学的相同，没有变化。",
@@ -206,7 +222,7 @@ export function courseTools(actions: CourseActions): Tool[] {
           busy: "检查通过，但没有换用：学习者正在做一项任务（课、复习或测验），而这一版改了展开过的部分，换用会打乱它。"
             + "等他做完再运行 course_use；只展开轮廓、增加部分而不改展开过的部分时，可以立即换用。",
         }[outcome];
-        return { text: `${head}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status()}` };
+        return { text: `${head}\n${checkText(checked)}\n\n学习者现在学的：${await actions.status(course)}` };
       },
     },
     {
@@ -216,10 +232,10 @@ export function courseTools(actions: CourseActions): Tool[] {
         + `course_check 通过以后用；每次最多发 ${CONFIRM_REQUESTS} 个请求，会花模型的费用。`,
       parameters: ConfirmParametersSchema,
       async execute(raw, context) {
-        const { topicIds } = parse(ConfirmParametersSchema, raw);
-        const result = await actions.confirm(topicIds, context.signal);
-        if (!result) return { text: NO_COURSE };
-        return { text: confirmText(result, topicIds) };
+        const { course, topicIds } = parse(ConfirmParametersSchema, raw);
+        const confirmed = await actions.confirm(course, topicIds, context.signal);
+        if ("missing" in confirmed) return { text: noCourse(confirmed) };
+        return { text: confirmText(confirmed.result, topicIds, confirmed.folder) };
       },
     },
     {
@@ -228,8 +244,8 @@ export function courseTools(actions: CourseActions): Tool[] {
         + "前面已有展开过的部分时，展开之前先用它，讲解里就知道哪些术语可以直接用、哪些要先说清。",
       parameters: BriefParametersSchema,
       async execute(raw) {
-        const { topicIds } = parse(BriefParametersSchema, raw);
-        return { text: await actions.brief(topicIds) };
+        const { course, topicIds } = parse(BriefParametersSchema, raw);
+        return { text: await actions.brief(course, topicIds) };
       },
     },
   ];

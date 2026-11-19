@@ -1,4 +1,5 @@
 import type { ModelConfig } from "@repa/learning-model";
+import { scoped } from "./course-key.js";
 import { StructureIndex } from "./course-structure.js";
 import {
   deadlineAt,
@@ -30,6 +31,8 @@ export interface Award {
 export interface Legacy {
   upTo: number;
   structure: StructureIndex;
+  /** 这些任务的学习状态归哪门课的键（那些任务事实里还没有记课的键）。 */
+  key: string;
 }
 
 /** 累计 XP 到了门槛、尚未开始的测验。n 是第几场，atXp 是出现时的累计值，用来算延后窗口。 */
@@ -37,6 +40,8 @@ export interface PendingQuiz {
   n: number;
   atXp: number;
   topicIds: string[];
+  /** 题单所属的课：选 topic 时用的那门课的键。 */
+  course: string;
 }
 
 /**
@@ -83,7 +88,9 @@ export class Replay {
   /** 最近重放的事实序号。 */
   private position = 0;
 
+  /** key 与 structure 是当前的课，只用于为新的测验选 topic。 */
   constructor(
+    private readonly key: string,
     private readonly structure: StructureIndex,
     private readonly model: ModelConfig = STUDENT_MODEL,
     private readonly legacy?: Legacy,
@@ -105,9 +112,9 @@ export class Replay {
     return this.deliveries.values();
   }
 
-  /** 这道题第一次交付的事实序号；出过的题再出时标记为重复。 */
-  firstDelivered(questionId: string): number | undefined {
-    return this.firstDeliveries.get(questionId);
+  /** 这门课的这道题第一次交付的事实序号；出过的题再出时标记为重复。 */
+  firstDelivered(key: string, questionId: string): number | undefined {
+    return this.firstDeliveries.get(scoped(key, questionId));
   }
 
   /**
@@ -117,7 +124,7 @@ export class Replay {
   currentEvidence(): TaskEvidence | undefined {
     const task = this.current;
     if (!task) return undefined;
-    const inherited = task.kind === "lesson" ? this.before().lessons.get(task.topicIds[0] ?? "") : undefined;
+    const inherited = task.kind === "lesson" ? this.before().lessons.get(scoped(task.course, task.topicIds[0] ?? "")) : undefined;
     return taskEvidence(task, inherited);
   }
 
@@ -126,7 +133,7 @@ export class Replay {
     if (this.stale) {
       let fold = emptyFold();
       for (const task of this.tasks.slice(0, -1)) {
-        fold = foldTask(fold, taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? "")), this.model);
+        fold = foldTask(fold, taskEvidence(task, fold.lessons.get(scoped(task.course, task.topicIds[0] ?? ""))), this.model);
       }
       this.prefix = fold;
       this.stale = false;
@@ -170,7 +177,7 @@ export class Replay {
           previous.nextAt = fact.at;
           // 结束的课记下此刻实际继承的进度：按它得出结论、结算 XP，再叠加进学习状态；之后它自己的判分改变时也按它结算。
           const prefix = this.before();
-          const inherited = prefix.lessons.get(previous.topicIds[0] ?? "");
+          const inherited = prefix.lessons.get(scoped(previous.course, previous.topicIds[0] ?? ""));
           if (previous.kind === "lesson" && inherited) previous.inherited = inherited;
           const entry = taskEvidence(previous, previous.inherited);
           this.observe(previous, fact.at, entry);
@@ -182,6 +189,7 @@ export class Replay {
           at: fact.at,
           kind: fact.kind,
           topicIds: [...fact.topics],
+          course: this.taskCourse(fact),
           structure: this.taskStructure(fact),
           ...(fact.retakes === undefined ? {} : { retakes: fact.retakes }),
           ...(fact.practice === undefined ? {} : { practice: fact.practice }),
@@ -208,7 +216,8 @@ export class Replay {
         };
         task.deliveries.push(delivery);
         this.deliveries.set(fact.seq, delivery);
-        if (!this.firstDeliveries.has(fact.question)) this.firstDeliveries.set(fact.question, fact.seq);
+        const first = scoped(task.course, fact.question);
+        if (!this.firstDeliveries.has(first)) this.firstDeliveries.set(first, fact.seq);
         if (task.kind === "quiz" && task.deliveries.length === 1) this.pending = undefined;
         changed = task;
         break;
@@ -271,6 +280,12 @@ export class Replay {
     }
   }
 
+  /** 任务所属的课：事实里记着的键（对照用的 legacy 之内归它给的那门课）。 */
+  private taskCourse(fact: Extract<Fact, { type: "task" }>): string {
+    if (this.legacy && fact.seq <= this.legacy.upTo) return this.legacy.key;
+    return fact.course.key;
+  }
+
   /** 任务开始时的课程结构：它引用的那一份（对照用的 legacy 见 Legacy）。 */
   private taskStructure(fact: Extract<Fact, { type: "task" }>): StructureIndex {
     if (this.legacy && fact.seq <= this.legacy.upTo) return this.legacy.structure;
@@ -323,22 +338,25 @@ export class Replay {
     if (due) {
       const n = this.consumed + 1;
       this.sampled = state;
-      this.pending = { n, atXp: this.trigger, topicIds: this.pick(n) };
+      const picked = this.pick(n);
+      this.pending = { n, atXp: this.trigger, topicIds: picked.topicIds, course: picked.course };
     } else if (this.pending && this.sampled !== state) {
       this.sampled = state;
-      this.pending.topicIds = this.pick(this.pending.n);
+      const picked = this.pick(this.pending.n);
+      this.pending.topicIds = picked.topicIds;
+      this.pending.course = picked.course;
     }
   }
 
   /** 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。新的测验从当前结构选 topic（对照用的 legacy 之内按它的结构）。 */
-  private pick(n: number): string[] {
+  private pick(n: number): { topicIds: string[]; course: string } {
     const fold = this.fold();
-    const structure = this.legacy && this.position <= this.legacy.upTo ? this.legacy.structure : this.structure;
-    if (!structure.order.some((topic) => fold.student[topic.id] && structure.quizTopics.has(topic.id))) {
-      return [];
+    const [structure, course] = this.legacy && this.position <= this.legacy.upTo ? [this.legacy.structure, this.legacy.key] : [this.structure, this.key];
+    if (!structure.order.some((topic) => fold.student[scoped(course, topic.id)] && structure.quizTopics.has(topic.id))) {
+      return { topicIds: [], course };
     }
     this.samplings++;
-    return sampleTopics(this.tasks, fold, structure, n);
+    return { topicIds: sampleTopics(this.tasks, fold, structure, course, n), course };
   }
 
   /** 测验出现后又攒够延后窗口，就只提供测验。 */
