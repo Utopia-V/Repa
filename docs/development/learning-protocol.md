@@ -36,7 +36,7 @@ if (state.ok) renderLearning(state.value);
 
 ### 状态与方法
 
-所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，只表示学习记录的位置：首次打开测试版的空间时插件追加的基线、新任务之前写下的课程结构也计在内，所以不能用它判断学习者开始过没有，那由 `started`（学习记录里有没有任务）给出；有没有可学的课看 `course`。学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、失败的课休息到时、复习到期、结束的任务到第二天不再是当前画面）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间；`etaDate` 是估计完课的本地日期，与 `day` 同一时区，`null` 表示当前没有足够依据显示估算。
+所有时间都是服务端 Unix 毫秒。`revision` 是学习记录里事实的条数，只表示学习记录的位置：新任务之前写下的课程结构也计在内，所以不能用它判断学习者开始过没有，那由 `started`（学习记录里有没有任务）给出；有没有可学的课看 `course`。空间里有几门可学的课时，`course` 是当前任务所属的那门，没有任务时是第一门；`courses` 列出每一门的键、`id`、标题、版本与完成的 topic 数，菜单候选与任务都带 `course`（课的键），菜单是几门课合成的一份，见[教学流程](learning-flow.md#任务菜单与重算)，进度、XP 与日目标是几门课的合计。学习者的操作和判分写入事实后递增；到时自然发生的变化（截止、失败的课休息到时、复习到期、结束的任务到第二天不再是当前画面）不写事实，`revision` 不变，重新查询即可看到。单纯刷新页面不重抽菜单。日进度另带本地自然日及 `timeZone`，完成率在 0 到 1 之间；`etaDate` 是估计完课的本地日期，与 `day` 同一时区，`null` 表示当前没有足够依据显示估算。
 
 | 方法 | 输入与结果 |
 | --- | --- |
@@ -89,7 +89,7 @@ if (state.ok) renderLearning(state.value);
 
 答案、解析和私有 rubric 不出现在作答前的 Item。practice 的反馈及解析在判分完成后释放，review 在任务结束后释放，quiz 与 retake 在整场交卷或超时后释放。查询、事件、前端内容读取和 Agent 工具共用这项授权检查。`processing: completed` 可以先于反馈释放，因此前端不能把“已判”当成“可看答案”。测试计划中的检查代码对前端可见，完整参考解仍按反馈时机释放；代码题的期望表达式在作答被接受以后随判分请求进入前端的 Worker，与释放规则的关系见 [python.run](#pythonrun)。
 
-`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。作答期间两者都为 false：课内有一道题等着作答时，以及 review、quiz 的 preparing 和进行阶段；课内答完这道题、review 和 quiz 结束后重新开放。`kind` 只说明是不是复习或测验带来的限制，课内作答期间仍为 `none`。`ContentRef` 带课程、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供当前课程里的内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
+`restrictions.tutorAllowed` 和 `referenceContentAllowed` 表示当前允许的行为。作答期间两者都为 false：课内有一道题等着作答时，以及 review、quiz 的 preparing 和进行阶段；课内答完这道题、review 和 quiz 结束后重新开放。`kind` 只说明是不是复习或测验带来的限制，课内作答期间仍为 `none`。`ContentRef` 带课程、课在空间里的键 `course`、topic、可选 KP、内容身份、版本和种类；`ContentPage` 带块范围、总块数和原学习位置，概念卡因此能回到原例题。读取只提供空间里可学的课的当前内容：课程换版以后，旧版本的引用按不存在处理，明确报输入错误，不悄悄换成最新版本。
 
 后端先筛掉调用方用不了的题再选题：显示不了的（按 `canRender` 核对 `requires`）、要运行 Python 而调用方没有声明 `python.run` 的，以及没有可用模型时要由模型判分的开放题。菜单只提供每个没过的知识点都有能用的题的课，交付也只在能用的题里选。题池里有题却一道也用不了时，返回缺项（`missing_capability`）并保留原任务，等待可用连接；只缺可用模型时返回 `model_required`。交付前仍调用 `missingDeliveryCapabilities(context.caller?.capabilities, delivery)` 再核对一次：它复用 `canRender`，并为代码题补查 `python.run`；带测试的 Parsons 在 `requiresServices` 声明该服务。
 
@@ -103,7 +103,7 @@ if (state.ok) renderLearning(state.value);
 
 学习页经 `building.get` 读整门课的样子，这几个方法不等学习任务，学习者上课时照常可用：
 
-- `key` 与 `folder` 是这份状态属于哪门课：它在空间里的键与文件夹（相对空间根，`courses/<名>`）；空间里还没有自己的课时都为 `null`。做课的几个方法都可以写 `course`（课的键），不写时是正在学的那门自己的课，或空间里唯一的一门。
+- `key` 与 `folder` 是这份状态属于哪门课：它在空间里的键与文件夹（相对空间根，`courses/<名>`）；空间里还没有自己的课时都为 `null`。做课的几个方法都可以写 `course`（课的键），不写时是空间里唯一的一门自己的课；有几门自己的课而没写时，`building.get` 的 `key` 为 `null`。学习页按学习者选中的课传 `course`。
 - `course` 是这门课换用过的那一版；为 `null` 时还没有（学的是随包的课，或还没有可学的课），`parts` 随之为空。否则 `parts` 按课程清单的顺序列出各部分（topic）：`title`、一句话的 `summary`、在材料里的出处 `sources`（来源标题、`file` 或 `url`、`where`），以及 `status`：`outline` 只有轮廓，`ready` 已展开、可以学，`learned` 学过。全部是 `outline` 时只有轮廓。
 - `expansion` 是正在后台展开的部分：`topicIds`、`startedAt`，以及那次后台运行的会话 `sessionId`（还没建立时为 `null`）；没有展开在进行时为 `null`。
 - `lastFailure` 是最近一次展开没有成功的原因，成功或新的一次开始以后为 `null`。`code` 为 `failed`（没能开始或运行出错，例如没有可用模型、模型请求报错，`message` 是底层报错的原文；模型请求失败时 `failure` 是底座的分类，界面按它说明原因，原文折叠在下面）、`cancelled`（被学习者取消，或应用在展开中途关闭）、`not_expanded`（运行结束了而这几部分仍是轮廓），界面文字由前端按 `code` 书写。
@@ -112,7 +112,7 @@ if (state.ok) renderLearning(state.value);
 
 `building.begin` 在学习页开始做课时调用：前端先用 `session.create` 新建一个通用 Agent 的会话（不填 `agent`），再以 `{ sessionId, materials, request? }` 调用它，插件记下这是做课的对话（花费算在里面，之后的 `building.get` 给出它），返回 `{ text }`，前端把 `text` 用 `session.send` 发给这段会话。`materials` 是开始时这门课的 `materials/` 里有没有课件；空间里还没有课时，插件先以空间的文件夹名在 `courses/` 下新建一门；`request` 是学习者写的要求，有课件时可以省略，没有课件时是他想学什么（学习页在没有课件时要写了想学什么才能开始）。两种情况的第一条消息不同；消息里给模型的固定部分由插件写，前端不拼。再次调用时换成新的会话，以前的仍算在花费里。
 
-`courses.list` 列出空间里的课（`key`、`folder`、`bundled`、正在学的那门的 `title`、`learnable`、文件夹已不在的 `missing`）与 `canCreate`。`courses.create { name }` 在 `courses/<name>/` 新建一门课，带一份空的 `AGENTS.md`，登记成草稿；这一步只在还没有课的空间里建第一门。`courses.useBundled` 让随包的课成为空间里的一门课。两者都返回之后的列表。
+`courses.list` 列出空间里的课（`key`、`folder`、`bundled`、可学的课的 `title`、`learnable`、文件夹已不在的 `missing`）与 `canCreate`。`courses.create { name }` 在 `courses/<name>/` 新建一门课，带一份空的 `AGENTS.md`，登记成草稿；空间里可以有任意多门课，这个名字已经登记过就返回原来那门，文件夹已存在而没登记就登记它。`courses.useBundled` 让随包的课成为空间里的一门课。两者都返回之后的列表。
 
 `building.expand` 立即在后台展开：`topicIds` 省略时为课程顺序里最前面的两个轮廓部分。它不看自动展开的设置，返回展开开始以后的状态。`building.cancel` 取消正在进行的展开，等它停下再返回。`settings.get` 与 `settings.set` 读写学习插件的设置，目前只有 `autoExpand`（缺省为真）：为真时，已经展开过一段、学习者学到已展开部分只剩一节没学而后面还有轮廓时，插件在后台展开接下来的部分。
 

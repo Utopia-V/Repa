@@ -10,7 +10,7 @@
 
 底座按包根目录的 `repa-plugin.json` 加载本插件，插件 id 为 `learning`，入口是构建后的 `dist/plugin.js`。开发时在仓库根目录运行 `npm run dev:learning -- --home /absolute/repa-home`：它先构建库包，再加载本插件与课件插件启动底座，通用 Agent 与辅导 Agent `learning-tutor` 都能直接对话，见[辅导说明](../../docs/development/learning-tutor.md#agent-与学习产品入口)。
 
-在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。一个空间学一门课：换用过空间 `course/` 里的课就学它，空间里有 `course/` 而还没有换用过就没有可学的课（学习者在原来的课里还有做到一半的任务时，先让他做完），都没有时学 `sources` 给出的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
+在代码里装配时调用 `createLearningPlugin({ sources, packagesDirectory, connect })`。空间里换用过的自制课与学习者选过的随包课同时在学，共用一份学习记录、菜单、XP 与测验；都没有时没有可学的课。`sources` 给出随包的课程，缺省是随包的 Python 课，见[课程来源](../../docs/development/learning-records.md#课程来源与模型)。`packagesDirectory` 是 `course_check` 运行 Python 核对用的离线包目录；`connect` 换掉教学方法的装配，测试用它取回学习会话，换用课程时为新的会话再调用一次。插件打开时先核对数据目录的格式标记，再读入学习记录、重放出学习状态，见[学习记录说明](../../docs/development/learning-records.md#插件与接入)。
 
 ### 从前端调用
 
@@ -221,6 +221,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 | --- | --- | --- | --- |
 | `QUIZ_EVERY_XP`、`QUIZ_WINDOW_XP` | 测验多久出现一次，出现以后还能推迟多少 | MA 公开（官网与书），但 2026 年的一次采访给了另一个间隔 | MA 官方口径的更新；测验来得太密或太疏 |
 | `QUIZ_DURATION_MS`、`QUIZ_TOPICS` | 测验限时与题量 | 时长取 MA 采访里的口述例子；题量是 Repa 猜测，MA 按预计用时决定题量 | 学习者实际用时与超时的比例 |
+| 测验选课 | 空间里有几门课时，一场测验只从一门课出题：在有可考内容的课里，取上一次确定题单以来非测验 XP 增量最多的，并列取最近有作答的 | Repa 猜测，没有依据；MA 没有公开几门课同时在学时怎样安排 | 有一门课长期测不到，或测验总落在刚学过的那门 |
 | 测验选题（`sampleTopics`） | 在学过、有测验题的 topic 里，先选以往测验（含换题重考）测过次数最少的，次数相同时按这一场的 seed 随机；补足的 topic 优先出学习者没见过的题 | MA 公开随机选一组多样的已学 topic，降低以往测过的、被其他可测 topic 覆盖的 topic 的优先级（How Our AI Works），降低多少没有公开；按测过次数排序是 Repa 的细化，被覆盖的 topic 还没有降低优先级 | 有 topic 长期测不到，或连续几场考到同一批 |
 | repa-xp-v1（`MIN_PASS_XP`、`REVIEW_XP`、`QUIZ_XP`，课按 topic 的预计用时乘答对的比例） | 每项任务给多少 XP，测验也由课和复习的 XP 触发 | Repa 猜测；MA 公开 XP 大致等于专注学习的分钟数、按表现奖惩，计算式没有公开 | 学习者实际用时与所得 XP 的对比 |
 | `DEFAULT_DAILY_GOAL_XP` | 默认的每日目标 | Repa 猜测 | 学习者普遍改成别的目标 |
@@ -230,6 +231,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 | 名称 | 控制什么 | 出处 | 什么证据会改变它 |
 | --- | --- | --- | --- |
 | `MENU_SIZE` | 菜单最多列几项 | Repa 猜测；MA 采访说菜单最多几项、通常更少 | 学习者觉得选择太少或太多 |
+| `MENU_COURSE_ORDER` | 空间里有几门课时，各门课的候选怎样并成一份菜单：任何一门课的强制补救在前；再是各门课到期的复习，按 memory 从低到高；再是新课，几门课轮流给，每轮先给最久没学的那门 | Repa 猜测，没有依据；MA 没有公开几门课同时在学时怎样安排 | 学习者同时学几门课时，是否有一门长期轮不到，或想专心学一门却总被另一门的候选打断 |
 | 相近项不同列（`learningMenu`） | 同一 topic、有直接依赖或共享直接先修的候选不同时出现 | Repa 猜测；MA 公开要把相近的新概念错开，相似的判定方法没有公开 | 学习者混淆相近的内容 |
 | 完课估算（`ETA_WINDOW_DAYS`、`ETA_MIN_ACTIVE_DAYS`） | 剩余课时除以最近每天平均的学习量，写成日期；学习量按 XP 计 | Repa 猜测；MA 公开按近期每天的 XP 估计完课时间 | 估计的日期与实际完课日期的偏差 |
 
