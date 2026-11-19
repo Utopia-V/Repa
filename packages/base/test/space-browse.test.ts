@@ -206,3 +206,28 @@ test("最近空间只列还在的文件夹：移走以后不列，移回来又�
   await rename(moved, physics);
   assert.deepEqual(await client.call("space.list", {}), [history, physics]);
 });
+
+test("最近空间里有一个文件夹查不出在不在时，它仍然列出，别的不受影响", {
+  skip: process.platform === "win32" ? "Windows 上 chmod 只改只读属性，去不掉读取权限" : process.getuid?.() === 0 ? "root 不受权限位限制" : false,
+}, async (t) => {
+  const directory = await fixture(t, ["home", "locked/physics", "history"]);
+  const locked = path.join(directory, "locked");
+  const physics = path.join(locked, "physics");
+  const history = path.join(directory, "history");
+  const server = await startServer({ home: path.join(directory, "home"), plugins: [] });
+  const client = await RepaClient.connect(server.connection);
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  await client.call("space.open", { root: physics });
+  await client.call("space.open", { root: history });
+  await client.call("space.close", {});
+
+  await chmod(locked, 0o000);
+  try {
+    assert.deepEqual(await client.call("space.list", {}), [history, physics]);
+  } finally {
+    await chmod(locked, 0o755);
+  }
+});
