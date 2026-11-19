@@ -17,7 +17,8 @@ type BackupGroup = { root: string; exists: boolean };
 type Chosen = { group: BackupGroup; backup: BackupInfo };
 
 /**
- * 选空间页的备份：各空间的备份从新到旧，可以恢复到原位置或新文件夹，可以删除“恢复前”的备份。
+ * 选空间页的备份：各空间的备份从新到旧，可以恢复到原位置或新文件夹，可以删除“恢复前”的备份；
+ * 文件夹已不存在的那一组可以整组删除（这一组不会再轮换，否则永远占着地方）。
  * 平时收起，只占一行；show 变化时（打开空间报 restore_incomplete）展开并带到那个空间的备份。
  * 恢复以后由 onRestored 打开恢复好的空间。没有任何备份时整节不出现。
  */
@@ -27,6 +28,7 @@ export function SpaceBackups({ show, onRestored }: { show?: { root: string; n: n
   const [expanded, setExpanded] = useState(false);
   const [restoring, setRestoring] = useState<Chosen>();
   const [deleting, setDeleting] = useState<Chosen>();
+  const [deletingAll, setDeletingAll] = useState<BackupGroup>();
   const groups = useRef(new Map<string, HTMLElement>());
   const listId = useId();
 
@@ -80,6 +82,12 @@ export function SpaceBackups({ show, onRestored }: { show?: { root: string; n: n
           <div className="flex flex-wrap items-center gap-2">
             <span className="weight-semibold">{folderName(group.root)}</span>
             {!group.exists && <Badge variant="dot" color="gray">{t("learningSpace.backup.missing.label")}</Badge>}
+            {!group.exists && <Button
+              variant="ghost"
+              className="ml-auto"
+              aria-label={t("learningSpace.backup.deleteAll.label", { name: folderName(group.root) })}
+              onClick={() => setDeletingAll(group)}
+            >{t("learningSpace.backup.deleteAll.action")}</Button>}
           </div>
           <span className="text-caption break-all text-muted-foreground">{group.root}</span>
         </div>
@@ -113,6 +121,9 @@ export function SpaceBackups({ show, onRestored }: { show?: { root: string; n: n
     </Dialog>
     <Dialog open={deleting !== undefined} onOpenChange={(open) => { if (!open) setDeleting(undefined); }}>
       {deleting && <DeleteDialog chosen={deleting} onDeleted={() => setDeleting(undefined)} />}
+    </Dialog>
+    <Dialog open={deletingAll !== undefined} onOpenChange={(open) => { if (!open) setDeletingAll(undefined); }}>
+      {deletingAll && <DeleteAllDialog group={deletingAll} onDeleted={() => setDeletingAll(undefined)} />}
     </Dialog>
   </section>;
 }
@@ -224,6 +235,46 @@ function DeleteDialog({ chosen, onDeleted }: { chosen: Chosen; onDeleted(): void
     <DialogHeader>
       <DialogTitle>{t("learningSpace.backup.delete.title", { time: dateTime(chosen.backup.createdAt, { seconds: true }) })}</DialogTitle>
       <DialogDescription>{folderName(chosen.group.root)}</DialogDescription>
+    </DialogHeader>
+    {failure !== undefined && <ErrorNotice title={t("learningSpace.backup.delete.error")} error={failure} />}
+    <DialogFooter>
+      <DialogClose asChild><Button variant="tertiary" disabled={busy}>{t("common.cancel.action")}</Button></DialogClose>
+      <Button variant="destructive" disabled={busy} aria-busy={busy} onClick={() => { void remove(); }}>{t("learningSpace.backup.delete.confirm.action")}</Button>
+    </DialogFooter>
+  </DialogContent>;
+}
+
+/**
+ * 删除文件夹已不存在的那一组的全部备份：对每份调用 backup.delete，删到最后一份时后端去掉空的组目录。
+ * 删哪几份按点确认时列表里的为准：中途失败再点一次，已经删掉的不会再删。
+ */
+function DeleteAllDialog({ group, onDeleted }: { group: BackupGroup; onDeleted(): void }) {
+  const deleteBackup = useAppStore((state) => state.deleteBackup);
+  const backups = useAppStore((state) => state.resources.backups.data);
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<unknown>();
+  const name = folderName(group.root);
+
+  async function remove() {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      const listed = backups?.find((item) => item.root === group.root)?.backups ?? [];
+      for (const backup of listed) await deleteBackup(group.root, backup.id);
+      onDeleted();
+    } catch (error) {
+      setFailure(error);
+      setBusy(false);
+    }
+  }
+
+  return <DialogContent size="sm">
+    <DialogHeader>
+      <DialogTitle>{t("learningSpace.backup.deleteAll.title", { name })}</DialogTitle>
+      <DialogDescription>
+        {t("learningSpace.backup.deleteAll.description")}
+        <span className="block break-all">{group.root}</span>
+      </DialogDescription>
     </DialogHeader>
     {failure !== undefined && <ErrorNotice title={t("learningSpace.backup.delete.error")} error={failure} />}
     <DialogFooter>
