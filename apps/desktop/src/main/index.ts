@@ -30,6 +30,10 @@ const quitting = createQuitHandler({
   backend: () => backend,
   quit: () => { app.quit(); },
   report: (error) => { console.error(error); },
+  // 页面据此不再显示断线、不再重连，收尾慢时显示说明和立即退出的按钮。
+  closing: () => {
+    for (const window of BrowserWindow.getAllWindows()) window.webContents.send("repa:quitting");
+  },
 });
 
 /** 安装包把 Pyodide 文件和 wheel 复制到应用目录的 pyodide/，见 scripts/package-application.mjs。 */
@@ -96,6 +100,12 @@ ipcMain.handle("repa:get-connection", async (event) => {
   }
 });
 
+// 收尾慢时页面上的“立即退出”：与收尾期间再退出一次相同，结束后端进程。
+ipcMain.handle("repa:quit-now", (event) => {
+  if (!fromMainPage(event)) throw new Error("拒绝非主页面退出应用。");
+  app.quit();
+});
+
 // 只打开反馈包和插件导出的数据包，与 Web 开发服务器的同名端点一致：页面不能借它在文件管理器里打开任意路径。
 const REVEALABLE_FILE = /^repa-(?:feedback|[a-z0-9][a-z0-9-]*-export)-[\d-]+\.zip$/u;
 
@@ -142,6 +152,8 @@ function createWindow() {
   });
 
   window.once("ready-to-show", () => window.show());
+  // macOS 上关窗口不退出应用，照常关；其他平台关窗口就是退出，窗口留到后端收尾完成。
+  if (process.platform !== "darwin") window.on("close", quitting.closeWindow);
   window.webContents.setWindowOpenHandler(({ url }) => openInBrowser(url, (url) => shell.openExternal(url)));
 
   if (process.env.ELECTRON_RENDERER_URL) {

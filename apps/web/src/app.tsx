@@ -6,7 +6,7 @@ import { PYTHON_RUN, servePythonRun } from "@repa/python-runner/browser";
 import { useStore } from "zustand";
 
 import { routes } from "./routes";
-import { StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
+import { QuittingNotice, StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
 import { StoreProvider } from "@/hooks/use-app-store";
 import { interactionCapabilities } from "@/lib/ask";
 import { TrialRunnerProvider } from "@/hooks/use-trial-runner";
@@ -88,8 +88,13 @@ export function App({
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<BootstrapState>({ status: "starting" });
   const connected = useStore(store, (current) => current.connected);
+  // 桌面端退出时后端是应用自己关的：停止连接后端，不显示断线、不重连。
+  const [quitting, setQuitting] = useState(false);
+  useEffect(() => repaHost()?.onQuitting(() => { setQuitting(true); }), []);
 
   useEffect(() => {
+    // 开始退出时上一轮的清理已经停下连接、取消重连。
+    if (quitting) return;
     let active = true;
     let client: RepaClient | undefined;
     let removeListener: (() => void) | undefined;
@@ -146,14 +151,17 @@ export function App({
       stopPython?.();
       void client?.close();
     };
-  }, [attempt, loadConnection, pythonRunner, store]);
+  }, [attempt, loadConnection, pythonRunner, quitting, store]);
 
   useEffect(() => () => pythonRunner.close(), [pythonRunner]);
   useEffect(() => () => trialRunner.close(), [trialRunner]);
 
+  const quittingNotice = quitting && <QuittingNotice onQuitNow={() => { void repaHost()?.quitNow(); }} />;
+
   if (state.status !== "ready") {
     return (
       <main className="grid min-h-dvh place-items-center p-4 md:p-8">
+        {quittingNotice}
         <div className="w-full max-w-xl">
           <StartupPanel
             failure={state.status === "failed" ? { error: state.error } : undefined}
@@ -168,7 +176,8 @@ export function App({
     <StoreProvider store={store}>
       <TrialRunnerProvider runner={trialRunner}>
         <div className="flex min-h-dvh flex-col">
-          {!connected && (
+          {quittingNotice}
+          {!connected && !quitting && (
             <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
               <ReconnectionNotice />
             </div>

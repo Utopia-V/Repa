@@ -75,7 +75,7 @@ describe("Web App bootstrap", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
     const getConnection = vi.fn().mockResolvedValueOnce(connection).mockResolvedValueOnce({ url: 1 });
-    window.repaHost = { getConnection, revealFile: vi.fn() };
+    window.repaHost = { getConnection, revealFile: vi.fn(), onQuitting: vi.fn(() => vi.fn()), quitNow: vi.fn() };
     try {
       const view = render(<App store={createAppStore()} />);
       await screen.findByRole("link", { name: "学习空间" });
@@ -228,4 +228,82 @@ it("断线时停掉 python.run：进行中的运行被取消、运行器关闭�
 
   await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
   expect(second.listeners.has("service.request")).toBe(true);
+});
+
+describe("桌面端退出", () => {
+  /** 桌面端宿主替身：quit() 模拟主进程开始收尾时发来的通知。 */
+  function desktopHost() {
+    let quitting: (() => void) | undefined;
+    const host = {
+      getConnection: vi.fn(() => Promise.resolve(connection)),
+      revealFile: vi.fn(),
+      onQuitting: vi.fn((listener: () => void) => { quitting = listener; return () => { quitting = undefined; }; }),
+      quitNow: vi.fn(() => Promise.resolve()),
+    };
+    return { host, quit: () => { act(() => quitting?.()); } };
+  }
+
+  function connectedClient() {
+    let listener: ((connected: boolean) => void) | undefined;
+    const client = {
+      close: vi.fn(() => Promise.resolve()),
+      on: vi.fn(() => vi.fn()),
+      onConnectionChange: vi.fn((value: (connected: boolean) => void) => {
+        listener = value;
+        return () => { listener = undefined; };
+      }),
+    };
+    vi.mocked(RepaClient.connect).mockResolvedValue(client as unknown as RepaClient);
+    return { client, disconnect: () => { act(() => listener?.(false)); } };
+  }
+
+  afterEach(() => { delete window.repaHost; });
+
+  it("后端收尾时不显示断线、不重连；2 秒内收尾完就什么也不显示", async () => {
+    const { host, quit } = desktopHost();
+    const { disconnect } = connectedClient();
+    window.repaHost = host;
+    render(<App store={createAppStore()} />);
+    await screen.findByRole("link", { name: "学习空间" });
+    vi.useFakeTimers();
+    quit();
+    disconnect();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1999); });
+    expect(screen.queryByText("后端连接已中断，正在自动重连…")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("link", { name: "学习空间" })).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+    expect(RepaClient.connect).toHaveBeenCalledOnce();
+    expect(host.getConnection).toHaveBeenCalledOnce();
+  });
+
+  it("收尾超过 2 秒，盖上说明和“立即退出”；Esc 不收起它，点按钮请主进程立即退出", async () => {
+    const { host, quit } = desktopHost();
+    connectedClient();
+    window.repaHost = host;
+    render(<App store={createAppStore()} />);
+    await screen.findByRole("link", { name: "学习空间" });
+    vi.useFakeTimers();
+    quit();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    const dialog = screen.getByRole("dialog", { name: "正在保存并退出" });
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByRole("dialog", { name: "正在保存并退出" })).toBeTruthy();
+    expect(host.quitNow).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "立即退出" }));
+    expect(host.quitNow).toHaveBeenCalledOnce();
+  });
+
+  it("后端还在启动时退出：停下启动，收尾慢时同样显示说明", async () => {
+    const { host, quit } = desktopHost();
+    host.getConnection.mockReturnValue(new Promise(() => {}));
+    window.repaHost = host;
+    render(<App store={createAppStore()} />);
+    expect(screen.getByRole("heading", { name: "正在准备 Repa" })).toBeTruthy();
+    vi.useFakeTimers();
+    quit();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByRole("dialog", { name: "正在保存并退出" })).toBeTruthy();
+  });
 });

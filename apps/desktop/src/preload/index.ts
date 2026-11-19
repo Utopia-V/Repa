@@ -4,4 +4,10 @@ import { contextBridge, ipcRenderer } from "electron";
 contextBridge.exposeInMainWorld("repaHost", {
   getConnection: () => ipcRenderer.invoke("repa:get-connection"),
   revealFile: (path: string) => ipcRenderer.invoke("repa:reveal-file", path),
+  onQuitting: (listener: () => void) => {
+    const handler = () => { listener(); };
+    ipcRenderer.on("repa:quitting", handler);
+    return () => { ipcRenderer.removeListener("repa:quitting", handler); };
+  },
+  quitNow: () => ipcRenderer.invoke("repa:quit-now"),
 });

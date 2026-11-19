@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
 import { LoaderCircle, Network, RefreshCw, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { describeError } from "@/lib/errors";
 import { t } from "@/lib/strings";
@@ -58,5 +60,33 @@ export function ReconnectionNotice() {
         {t("connection.reconnecting.status")}
       </p>
     </Card>
+  );
+}
+
+/**
+ * 退出时后端收尾超过这么久才显示说明。Repa 的假设：收尾（停下模型请求、最后备份一次、提交空间历史）平时不到 1 秒，
+ * 超过 2 秒才值得打扰学习者。
+ */
+export const QUIT_NOTICE_DELAY_MS = 2000;
+
+/**
+ * 桌面端退出时后端收尾太慢，盖在页面上的说明和“立即退出”。窗口留到收尾完成，等多久由学习者决定。
+ * 不能关掉：Esc 和点外面都不收起它，此时页面已不再连接后端，收起来也做不了什么。
+ */
+export function QuittingNotice({ onQuitNow }: { onQuitNow: () => void }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => { setShown(true); }, QUIT_NOTICE_DELAY_MS);
+    return () => { clearTimeout(timer); };
+  }, []);
+  return (
+    <Dialog open={shown}>
+      <DialogContent size="sm" showCloseButton={false}>
+        <DialogTitle>{t("connection.quitting.status")}</DialogTitle>
+        <DialogFooter>
+          <Button onClick={onQuitNow}>{t("connection.quitNow.action")}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

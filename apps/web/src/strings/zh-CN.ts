@@ -57,6 +57,8 @@ export const strings = {
   "connection.startup.failed.message": "本机服务没有启动。可重试；多次失败时请重新安装 Repa。",
   "connection.startup.status": "正在启动。安装后首次启动约需一分钟。",
   "connection.reconnecting.status": "后端连接已中断，正在自动重连…",
+  "connection.quitting.status": "正在保存并退出",
+  "connection.quitNow.action": "立即退出",
   "connection.notConnected.error": "尚未连接后端。",
 
   // 侧栏

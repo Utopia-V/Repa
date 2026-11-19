@@ -4,6 +4,10 @@ export interface RepaHost {
   /** 主进程启动的后端连接；经 IPC 传来，使用前要核对形状。 */
   getConnection(): Promise<unknown>;
   revealFile(path: string): Promise<void>;
+  /** 应用开始退出、主进程请后端收尾时通知页面；返回取消订阅的函数。 */
+  onQuitting(listener: () => void): () => void;
+  /** 不再等收尾，结束后端进程并退出。 */
+  quitNow(): Promise<void>;
 }
 
 declare global {
