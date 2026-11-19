@@ -1,4 +1,6 @@
 import type { KnowledgeGraph } from "@repa/learning-model";
+import { identifier, object } from "@repa/base/protocol";
+import { Type, type Static } from "typebox";
 import type { Pool } from "./check/items.js";
 import { needsModel } from "./course-index.js";
 import type { ResolvedCourse } from "./course-sources.js";
@@ -6,41 +8,47 @@ import type { ResolvedCourse } from "./course-sources.js";
 /**
  * 一个知识点的结构。题目只记 id，按课程里的顺序；完整题面、判分方式、能力需求属于课程内容（见 CourseIndex）。
  * 例题也记下，因为课程里的题目查找一向包括例题（CourseIndex.questions），重放按题目 id 归属作答时与之相同。
+ * keyPrerequisites 是停在这个知识点时要补的 topic（见 foldTask）；open 是 practice 里要由模型按 rubric 判分的题（开放题）：
+ * 不计入必做，有可用模型才出。
  */
-export interface KpStructure {
-  id: string;
-  /** 停在这个知识点时要补的 topic，见 foldTask。 */
-  keyPrerequisites: string[];
-  example?: string;
-  practice: string[];
-  review: string[];
-  quiz: string[];
-  /** practice 里要由模型按 rubric 判分的题（开放题）：不计入必做，有可用模型才出。 */
-  open: string[];
-}
+const KpStructureSchema = object({
+  id: identifier,
+  keyPrerequisites: Type.Array(identifier),
+  example: Type.Optional(identifier),
+  practice: Type.Array(identifier),
+  review: Type.Array(identifier),
+  quiz: Type.Array(identifier),
+  open: Type.Array(identifier),
+});
+/** 一个知识点的结构。 */
+export type KpStructure = Static<typeof KpStructureSchema>;
 
-/** 一个 topic 的结构。标题、讲解等给人看的内容不在其中。 */
-export interface TopicStructure {
-  id: string;
-  /** outline 的 topic 还没有内容，不进菜单。 */
-  status: "outline" | "complete";
-  /** 课的预计分钟数，XP 的基数，也用于估算完课日期。 */
-  minutes: number;
-  prerequisites: string[];
-  /** 包含关系（FIRe 沿它传递信用）；零权重的边不传信用，不记，也不放进图里。 */
-  encompassings: { topic: string; weight: number }[];
-  kps: KpStructure[];
-}
+/**
+ * 一个 topic 的结构。标题、讲解等给人看的内容不在其中。outline 的 topic 还没有内容，不进菜单；minutes 是课的预计分钟数，
+ * XP 的基数，也用于估算完课日期；encompassings 是包含关系（FIRe 沿它传递信用），零权重的边不传信用，不记，也不放进图里。
+ */
+const TopicStructureSchema = object({
+  id: identifier,
+  status: Type.Enum(["outline", "complete"]),
+  minutes: Type.Integer({ minimum: 0 }),
+  prerequisites: Type.Array(identifier),
+  encompassings: Type.Array(object({ topic: identifier, weight: Type.Number({ exclusiveMinimum: 0 }) })),
+  kps: Type.Array(KpStructureSchema),
+});
+/** 一个 topic 的结构。 */
+export type TopicStructure = Static<typeof TopicStructureSchema>;
 
 /**
  * 重放与教学流程用到的课程结构：课程身份，按课程顺序的 topic、知识点、各题池的题目 id、必做与开放题、分钟数、先修与关键先修、
- * 包含关系。它是纯数据，可以原样写成 JSON 再读回，不引用课程文件；任务的结论、XP、学生模型、补救、测验与菜单都只由它和学习记录决定。
- * 题面渲染、判分、所需服务是否可用读完整的课程内容，不经这里。
+ * 包含关系。它是纯数据，原样写进学习记录的结构事实（records-schema.ts），任务按序号引用它；任务的结论、XP、学生模型、补救、测验与菜单
+ * 都只由它和学习记录决定。题面渲染、判分、所需服务是否可用读完整的课程内容，不经这里。
  */
-export interface CourseStructure {
-  course: { id: string; version: string };
-  topics: TopicStructure[];
-}
+export const CourseStructureSchema = object({
+  course: object({ id: identifier, version: identifier }),
+  topics: Type.Array(TopicStructureSchema),
+});
+/** 课程结构。 */
+export type CourseStructure = Static<typeof CourseStructureSchema>;
 
 /** 题目在结构里的位置。open 只对练习题有意义，见 KpStructure.open。 */
 export interface QuestionPlace {

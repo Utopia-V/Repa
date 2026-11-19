@@ -44,6 +44,7 @@ export async function openSession(file: string, directory: string, models: Model
     emit: () => {},
   } as unknown as Host;
   const session = await LearningSession.open(records, resolved, host);
+  await session.catchUp();
   const { methods } = await connectLearning(session);
   const caller = { capabilities: { interaction: { supports: [...INTERACTION_CAPABILITIES] }, services: [] } };
   async function call<M extends LearningMethod>(name: M, input: LearningInput<M>): Promise<unknown> {

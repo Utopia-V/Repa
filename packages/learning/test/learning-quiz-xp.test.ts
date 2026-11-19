@@ -385,6 +385,28 @@ test("任务带 topic 与知识点的标题：课里、受限的测验与复习�
   assert.deepEqual(review.task?.kps.map((kp) => kp.title), [kpTitle(`${wrong}.k1`)]);
 });
 
+test("准备中的测验按开始时的结构出题：开始以后课程把测验题全换了编号，重开时不拿结算认不出的新题顶替，明确报缺题；空卷不会通过", async (t) => {
+  const f = await fixture(t);
+  await f.qualify();
+  f.failStart(true);
+  await assert.rejects(f.select("quiz"));
+  assert.equal((await f.state()).task?.phase.stage, "preparing");
+  await f.writeTopics((topics) => {
+    for (const topic of topics) {
+      for (const kp of topic.kps) kp.quiz = (kp.quiz ?? []).map((question) => ({ ...question, id: `${question.id}9` }));
+    }
+  });
+  await f.reopen();
+  f.failStart(false);
+  await assert.rejects(f.call("task.resume", await f.guard()), (error: unknown) =>
+    error instanceof RpcError && error.data !== null && typeof error.data === "object"
+      && "code" in error.data && error.data.code === "questions_removed",
+  );
+  const state = await f.state();
+  assert.equal(state.task?.phase.stage, "preparing");
+  assert.equal(state.task?.deliveries.length, 0);
+});
+
 test("准备失败沿受限入口重开；截止前收下的开放题作答没判出结果时测验照样按时结束，重开补判后结果与 XP 随之更新", async (t) => {
   const f = await fixture(t, true);
   await f.qualify();
@@ -558,10 +580,9 @@ test("午夜前交卷、原定截止在次日的测验，结果是交卷那天�
   assert.equal((await f.state()).task, null);
 });
 
-test("测验里题目已从课程删除的 topic 不是学习者的原因：没答也不算错，不更新、不补救；其余都答对时这场测验通过", async (t) => {
+test("测验按开始时的课程结构判定：开考以后课程删了其中一道题，这道题照样算出过、没答算错；交卷以后再删题，结论与 XP 都不变", async (t) => {
   const f = await fixture(t);
   await f.qualify();
-  const learned = (await f.fold()).student;
   const running = await f.select("quiz");
   const deliveries = running.task?.deliveries ?? [];
   const last = deliveries[3];
@@ -569,7 +590,7 @@ test("测验里题目已从课程删除的 topic 不是学习者的原因：没�
   for (let index = 0; index < 3; index++) {
     await f.submit(index);
   }
-  // 作者把第四个 topic 刚出的那道测验题从课程里删掉了。
+  // 作者把第四个 topic 刚出的那道测验题从课程里删掉了。测验开始时的结构里有它：出了而没答，这个 topic 失败。
   const removed = f.replay().delivery(Number(last.deliveryId.slice(1)))?.questionId;
   assert.ok(removed);
   await f.writeTopics((topics) => {
@@ -580,11 +601,19 @@ test("测验里题目已从课程删除的 topic 不是学习者的原因：没�
   await f.reopen();
   await f.call("quiz.finish", await f.guard());
   const ended = await f.state();
-  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "passed" });
-  const fold = await f.fold();
-  assert.deepEqual(fold.student[last.topicId], learned[last.topicId]);
-  assert.equal(fold.forced.size, 0);
-  assert.equal(ended.menu?.candidates.some((entry) => entry.kind === "retake"), false);
+  assert.deepEqual(ended.task?.phase, { stage: "completed", outcome: "failed" });
+  const before = { awards: [...f.replay().awards], forced: [...(await f.fold()).forced] };
+  assert.deepEqual(before.forced, [[last.topicId, "review"]]);
+  // 交卷以后再删前三个 topic 的测验题：结论、XP 和补救都按这场测验开始时的结构，不变。
+  const answered = deliveries.slice(0, 3).map((delivery) => f.replay().delivery(Number(delivery.deliveryId.slice(1)))?.questionId);
+  await f.writeTopics((topics) => {
+    for (const topic of topics) {
+      for (const kp of topic.kps) kp.quiz = (kp.quiz ?? []).filter((question) => !answered.includes(question.id));
+    }
+  });
+  await f.reopen();
+  assert.deepEqual((await f.state()).task?.phase, { stage: "completed", outcome: "failed" });
+  assert.deepEqual({ awards: f.replay().awards, forced: [...(await f.fold()).forced] }, before);
 });
 
 test("第二场测验先考以往没测过的 topic，再从测过的里补足，补足的 topic 出学习者没见过的题", async (t) => {
@@ -917,7 +946,7 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   let seq = 0;
   /** 一场测验：answered 里的题作答了，unanswered 里的题只出了、没有作答。 */
   const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
-    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], deliveries: [], answered: [], timedOut: false };
+    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], structure: index, deliveries: [], answered: [], timedOut: false };
     for (const questionId of [...answered, ...unanswered]) {
       const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, grades: [] };
       task.deliveries.push(delivery);

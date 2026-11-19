@@ -41,8 +41,13 @@ export interface TaskRecord {
   at: number;
   kind: TaskKind;
   topicIds: string[];
+  /**
+   * 这项任务开始时的课程结构：结论、奖励、学生模型的更新与补救都按它计算。旧日志基线之前的任务是基线的结构，
+   * 之后的任务是它引用的结构事实。
+   */
+  structure: StructureIndex;
   retakes?: number;
-  /** 课开始时记下的各知识点练习，按知识点顺序；这项记录之前的课没有，按当前课程计算。 */
+  /** 课开始时记下的各知识点练习，按知识点顺序；这项记录之前的课没有，按任务的结构计算。 */
   practice?: NonNullable<FactOf<"task">["practice"]>;
   /** 课开始时记下的分钟数，XP 的基数。 */
   minutes?: number;
@@ -126,10 +131,10 @@ export const isCompleted = (outcome: Outcome | undefined) =>
  */
 export type TopicResult = "pass" | "fail" | "pending" | "untested";
 
-export function quizResult(task: TaskRecord, attempts: Attempt[], structure: StructureIndex, topicId: string): TopicResult {
+export function quizResult(task: TaskRecord, attempts: Attempt[], topicId: string): TopicResult {
   const own = attempts.filter((attempt) => attempt.topicId === topicId);
   if (own.length === 0) {
-    const delivered = task.deliveries.some((delivery) => structure.questions.get(delivery.questionId)?.topicId === topicId);
+    const delivered = task.deliveries.some((delivery) => task.structure.questions.get(delivery.questionId)?.topicId === topicId);
     return delivered ? "fail" : "untested";
   }
   if (own.some(answeredCorrectly)) {
@@ -172,7 +177,8 @@ export function deadlineAt(task: TaskRecord): number | null {
  * 复习按 seed 打散知识点顺序，seed 由任务序号得出，重放时顺序不变。课按开始时记下的知识点：之后加进课程的知识点
  * 不是这节课的要求，已从课程删除的无从显示也无从取证。
  */
-export function taskKps(task: TaskRecord, structure: StructureIndex): string[] {
+export function taskKps(task: TaskRecord): string[] {
+  const { structure } = task;
   const topics = isQuiz(task.kind) ? task.topicIds : task.topicIds.slice(0, 1);
   const kps = topics.flatMap((id) => structure.topics.get(id)?.kps.map((kp) => kp.id) ?? []);
   if (task.practice) {
@@ -213,9 +219,10 @@ export function lessonRequirement(structure: StructureIndex, topicId: string): {
 
 /**
  * 一节课各知识点的练习，按开始时记下的算：之后加进课程的题不是这节课的要求，也不改变提前失败的判断，已经得出的结论不因此改写。
- * 已不在这个知识点练习里的题出不了，从中去掉；记下的必做题都不在了，按当前课程。没有记下的（加这项记录之前的课）按当前课程。
+ * 已不在任务结构里这个知识点练习中的题从中去掉；记下的必做题都不在了，按任务的结构。没有记下的（加这项记录之前的课）按任务的结构。
  */
-export function taskPractice(task: TaskRecord, structure: StructureIndex): Map<string, KpPractice> {
+export function taskPractice(task: TaskRecord): Map<string, KpPractice> {
+  const { structure } = task;
   const current = lessonPractice(structure, task.topicIds[0] ?? "");
   if (!task.practice) {
     return current;
@@ -321,12 +328,13 @@ function reviewVerdict(entry: TaskEvidence): "pass" | "fail" | undefined {
  * 没判出结果的作答不算对也不算错：任务结束时，只有它们怎样判都改变不了的结论才当场得出，否则结论待定（unresolved）。复习的通过是例外：只看有证据的作答，判出来以后重算。
  * 复习不限时，中途离开下次接着做；判满题数仍不通过而它们判对还能通过时结论待定；学习者中止复习时，已经不可能通过的记失败，其他情形尚无证据。测验没答的题算错。
  */
-export function taskEvidence(task: TaskRecord, structure: StructureIndex, inherited: KpProgress[] | undefined): TaskEvidence {
+export function taskEvidence(task: TaskRecord, inherited: KpProgress[] | undefined): TaskEvidence {
+  const { structure } = task;
   const attempts: Attempt[] = [];
   for (const delivery of task.answered) {
     const entry = structure.questions.get(delivery.questionId);
     const answer = delivery.answer;
-    // 题目已不在当前课程里：无法归属，也无法判分，不作为证据。
+    // 题目不在这项任务的结构里：无法归属，不作为证据。
     if (!entry || !answer) {
       continue;
     }
@@ -339,8 +347,8 @@ export function taskEvidence(task: TaskRecord, structure: StructureIndex, inheri
       ...(delivery.grades.length ? { verdict: delivery.grades.at(-1)?.verdict } : {}),
     });
   }
-  const kpIds = taskKps(task, structure);
-  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, taskPractice(task, structure)) : undefined;
+  const kpIds = taskKps(task);
+  const lesson = task.kind === "lesson" ? lessonProgress(kpIds, attempts, inherited, taskPractice(task)) : undefined;
   const kps = lesson?.kps ?? kpIds.map((kpId) => ({ kpId, attempts: 0, consecutiveCorrect: 0, completed: false }));
   const started = startedAt(task);
   const deadline = deadlineAt(task);
@@ -365,7 +373,7 @@ export function taskEvidence(task: TaskRecord, structure: StructureIndex, inheri
   } else if (task.deliveries.length > 0 && (task.endedAt !== undefined || task.timedOut)) {
     // 测验交卷或到了截止时间：有 topic 答错或没答，就失败（到截止时间结束的为超时）；否则还有作答没判出结果时，
     // 结论等它们判出来；其余都答对就通过，题目已从课程删除的 topic 不影响结论。
-    const results = task.topicIds.map((id) => quizResult(task, attempts, structure, id));
+    const results = task.topicIds.map((id) => quizResult(task, attempts, id));
     if (results.includes("fail")) {
       outcome = task.endedAt !== undefined ? "failed" : "timeout";
     } else if (results.includes("pending")) {
@@ -395,8 +403,9 @@ export function taskEvidence(task: TaskRecord, structure: StructureIndex, inheri
   return { task, attempts, kps, ...(outcome ? { outcome } : {}), at, startedAt: started, deadlineAt: deadline };
 }
 
-/** 在已有学习状态上叠加一项已结束的任务；不修改传入的状态。model 是学生模型的参数。 */
-export function foldTask(previous: Fold, entry: TaskEvidence, structure: StructureIndex, model: ModelConfig = STUDENT_MODEL): Fold {
+/** 在已有学习状态上叠加一项已结束的任务，按这项任务自己的课程结构；不修改传入的状态。model 是学生模型的参数。 */
+export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig = STUDENT_MODEL): Fold {
+  const { structure } = entry.task;
   const fold: Fold = {
     student: previous.student,
     lessons: new Map(previous.lessons),
@@ -453,7 +462,7 @@ export function foldTask(previous: Fold, entry: TaskEvidence, structure: Structu
       // 测验按 topic 更新：答对的记一次通过；答错或没答的记一次失败并强制复习。没判出结果的 topic 判出来以后重算时再更新；
       // 题目已从课程删除的 topic 不更新也不补救。
       for (const id of entry.task.topicIds) {
-        const result = quizResult(entry.task, entry.attempts, structure, id);
+        const result = quizResult(entry.task, entry.attempts, id);
         if (result !== "pass" && result !== "fail") {
           continue;
         }

@@ -36,7 +36,7 @@ function task(phase: LearningTask["phase"], extra: Partial<LearningTask> = {}): 
 }
 
 function state(revision: number, current: LearningTask | null): LearningState {
-  return { revision, serverNow: 1_000 + revision, course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" }, task: current, menu: null, restrictions: open, progress };
+  return { revision, serverNow: 1_000 + revision, started: true, course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" }, task: current, menu: null, restrictions: open, progress };
 }
 
 const explanation = task({

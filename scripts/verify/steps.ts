@@ -5,6 +5,7 @@
 import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
+import { parse, stringify } from "yaml";
 
 import { strings } from "../../apps/web/src/strings/zh-CN.js";
 import type { App } from "./app.js";
@@ -67,6 +68,7 @@ const REQUEST = "想学进程状态和进程控制块，下周考试。";
 const TUTOR_REQUEST = "刚做完的最后一道题，为什么这样答？";
 const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
+const RESTRUCTURE_REQUEST = "第一节问正在执行的进程是什么状态的那道填空不要了，换一道问只差处理机的题。";
 
 /** 学习页标题栏右边打开面板的按钮的文字，按出现的顺序用“、”连起来（窄屏时面板收在这里）。 */
 async function headerActions(page: Page): Promise<string> {
@@ -491,6 +493,54 @@ export const STEPS: Step[] = [
       const outcome = /复习结束\s*\n\s*([^\n]+)/u.exec(done)?.[1] ?? "";
       checks.expect("复习做完并通过", outcome.includes("通过") && !outcome.includes("没有通过"), `${answered.length} 题；${outcome}`);
       checks.expect("复习给了 XP", (learnView(done).xp ?? 0) > 0, String(learnView(done).xp));
+    },
+  },
+  {
+    id: "restructure",
+    title: "让做课的 Agent 删掉一道学过的题、换上一道新题后换用：学过的结论和今日 XP 不变",
+    async run({ app, page, model }, checks) {
+      const before = learnView(await page.text());
+      // 删掉学过并改判过的 os01.k1.q2，换上一道新题 os01.k1.q4：第一节的组成变了，题量照旧够。
+      const space = path.join(app.home, "Repa", COURSE_NAME, "course");
+      const topic = parse(await readFile(path.join(space, "topics", "os01.yaml"), "utf8")) as Record<string, unknown>;
+      delete topic.verified;
+      const first = (topic.kps as { practice: Record<string, unknown>[] }[])[0];
+      const q1 = first?.practice.find((question) => question.id === "os01.k1.q1");
+      if (!first || !q1) throw new Error("走查的课里没有 os01.k1.q1");
+      first.practice = [
+        ...first.practice.filter((question) => question.id !== "os01.k1.q2"),
+        { ...structuredClone(q1), id: "os01.k1.q4", body: "一个进程已经拿到除处理机以外的全部资源，它处于哪种状态？" },
+      ];
+      const content = stringify(topic, { aliasDuplicateObjects: false });
+      const root = path.join(app.dir, "course-restructured");
+      await mkdir(path.join(root, "topics"), { recursive: true });
+      await writeFile(path.join(root, "course.yaml"), await readFile(path.join(space, "course.yaml"), "utf8"));
+      for (const name of await readdir(path.join(space, "topics"))) {
+        await writeFile(path.join(root, "topics", name), name === "os01.yaml" ? content : await readFile(path.join(space, "topics", name), "utf8"));
+      }
+      model.setAnswers(await confirmationAnswers(root));
+      model.script(RESTRUCTURE_REQUEST, [
+        { tools: [{ name: "read", arguments: { path: "course/topics/os01.yaml" } }] },
+        { tools: [{ name: "write", arguments: { path: "course/topics/os01.yaml", content } }] },
+        { tools: [{ name: "course_check", arguments: {} }] },
+        { tools: [{ name: "course_confirm", arguments: { topicIds: ["os01"] } }] },
+        { tools: [{ name: "course_use", arguments: {} }] },
+        { text: "换好了，第一节少了一道、多了一道新题。" },
+      ]);
+      const seen = model.toolResults.length;
+      await page.click({ name: "新会话", selector: "a, button" });
+      await page.fill("消息", RESTRUCTURE_REQUEST);
+      await page.press("Enter");
+      await page.waitText("换好了，第一节少了一道、多了一道新题。", 30_000);
+      const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
+      checks.expect("删题以后的课换用成功", used.startsWith("已换用"), used.split("\n")[0]);
+      await page.waitFor("侧栏列出这段会话", (text) => occurrences(text, RESTRUCTURE_REQUEST) >= 2);
+      await page.click({ name: "学习", selector: "a, button" });
+      const text = await page.waitFor("学习页和整门课", (current) => current.includes("整门课") && learnView(current).parts !== undefined, 30_000);
+      const after = learnView(text);
+      checks.expect("今日 XP 不变", after.xp === before.xp, `${before.xp ?? "?"} → ${after.xp ?? "?"}`);
+      checks.expect("学过的部分不变", after.parts?.learned === before.parts?.learned, `${before.parts?.learned ?? "?"} → ${after.parts?.learned ?? "?"}`);
+      checks.expect("删掉的那道题过去的判分还在、没有重判", await latestVerdict(app, "os01.k1.q2") === "correct", await latestVerdict(app, "os01.k1.q2"));
     },
   },
   {

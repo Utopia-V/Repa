@@ -34,7 +34,7 @@ export const page: ContentPage = {
 };
 export function lesson(): LearningState {
   return {
-    revision: 1, serverNow: now,
+    revision: 1, serverNow: now, started: true,
     course: { id: "python", title: "Python", version: "0.1.0" }, menu: null,
     restrictions: { kind: "none", tutorAllowed: true, referenceContentAllowed: true },
     progress: {

@@ -28,7 +28,7 @@ const ROOT = "/home/learner/Repa/操作系统";
 const at = 1_792_454_400_000;
 const progress = { day: "2026-11-15", timeZone: "Asia/Shanghai", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 0, completionRate: 0, etaDate: null };
 const state: LearningState = {
-  revision: 3, serverNow: at, course: null, task: null, menu: null,
+  revision: 3, serverNow: at, started: true, course: null, task: null, menu: null,
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const regular = { id: "b2", createdAt: "2026-11-15T06:30:00.000Z", bytes: 2048, kind: "regular" as const };

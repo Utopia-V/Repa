@@ -107,23 +107,23 @@ function inheritedOf(replay: Replay, task: TaskRecord) {
   if (task !== replay.current) return task.inherited;
   return task.kind === "lesson" ? replay.before().lessons.get(task.topicIds[0] ?? "") : undefined;
 }
-const evidenceOf = (replay: Replay, task: TaskRecord, structure: StructureIndex): TaskEvidence =>
-  taskEvidence(task, structure, inheritedOf(replay, task));
+const evidenceOf = (replay: Replay, task: TaskRecord): TaskEvidence =>
+  taskEvidence(task, inheritedOf(replay, task));
 
 /** 从第一项任务重新叠加，不经增量更新；与 replay.before() 比较。 */
-function refold(replay: Replay, structure: StructureIndex): Fold {
+function refold(replay: Replay): Fold {
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    fold = foldTask(fold, taskEvidence(task, structure, fold.lessons.get(task.topicIds[0] ?? "")), structure);
+    fold = foldTask(fold, taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? "")));
   }
   return fold;
 }
 
 /** 重放出的全部学习状态。当前任务的证据取自重放本身，已结束的任务按它结束时记下的进度算。 */
-function snapshot(replay: Replay, structure: StructureIndex) {
+function snapshot(replay: Replay) {
   return {
     tasks: replay.tasks.map((task) => {
-      const evidence = task === replay.current ? replay.currentEvidence() : taskEvidence(task, structure, task.inherited);
+      const evidence = task === replay.current ? replay.currentEvidence() : taskEvidence(task, task.inherited);
       assert.ok(evidence);
       const { outcome, kps, at } = evidence;
       return { seq: task.seq, outcome, kps, at, inherited: task.inherited, timedOut: task.timedOut, nextAt: task.nextAt };
@@ -140,12 +140,12 @@ function snapshot(replay: Replay, structure: StructureIndex) {
 }
 
 /** 假定没判出结果的作答都判成 verdict 时，任务的结论。 */
-function outcomeIf(replay: Replay, task: TaskRecord, structure: StructureIndex, verdict: Verdict) {
+function outcomeIf(replay: Replay, task: TaskRecord, verdict: Verdict) {
   const answered = task.answered.map((delivery): DeliveryRecord => (delivery.grades.length ? delivery : {
     ...delivery,
     grades: [{ type: "graded", seq: 0, at: 0, delivery: delivery.seq, version: "", verdict, slots: {} }],
   }));
-  return taskEvidence({ ...task, answered }, structure, inheritedOf(replay, task)).outcome;
+  return taskEvidence({ ...task, answered }, inheritedOf(replay, task)).outcome;
 }
 
 /**
@@ -157,7 +157,7 @@ class XpAudit {
   private readonly best = new Map<number, number>();
   private fed = 0;
 
-  constructor(private readonly structure: StructureIndex, private readonly seen: Set<string>) {
+  constructor(structure: StructureIndex, private readonly seen: Set<string>) {
     this.replay = new Replay(structure);
   }
 
@@ -179,15 +179,15 @@ class XpAudit {
   }
 
   private audit(): void {
-    const { replay, structure } = this;
+    const { replay } = this;
     assert.equal(replay.total, replay.awards.reduce((sum, award) => sum + award.xp, 0), "累计 XP 与各笔之和不符");
     assert.equal(replay.trigger, replay.awards.filter((award) => !award.quiz).reduce((sum, award) => sum + award.xp, 0), "测验门槛的累计与课和复习的 XP 不符");
     for (const task of replay.tasks) {
-      const evidence = evidenceOf(replay, task, structure);
+      const evidence = evidenceOf(replay, task);
       this.seen.add(task.kind);
       if (evidence.outcome) this.seen.add(evidence.outcome);
       if (isQuiz(task.kind) || evidence.attempts.every((attempt) => attempt.verdict !== undefined)) {
-        this.best.set(task.seq, Math.max(this.best.get(task.seq) ?? 0, reward(evidence, structure)));
+        this.best.set(task.seq, Math.max(this.best.get(task.seq) ?? 0, reward(evidence)));
       }
       const awarded = replay.awards.filter((award) => award.task === task.seq).reduce((sum, award) => sum + award.xp, 0);
       assert.equal(awarded, this.best.get(task.seq) ?? 0, `任务 ${task.seq}（${task.kind}，${evidence.outcome}）的 XP 不等于它到此刻的最高奖励`);
@@ -372,31 +372,31 @@ async function check(run: Run): Promise<void> {
   const cold = new Replay(structure);
   for (const fact of session.records.facts) cold.apply(fact);
   cold.settle(state.serverNow);
-  assert.deepEqual(snapshot(live, structure), snapshot(cold, structure), "现场状态与从事实重放的结果不同");
-  const prefix = refold(live, structure);
+  assert.deepEqual(snapshot(live), snapshot(cold), "现场状态与从事实重放的结果不同");
+  const prefix = refold(live);
   assert.deepEqual(live.before(), prefix, "增量叠加的学习状态与从头叠加的结果不同");
   const current = live.current;
   if (current) {
     // 当前的课与学生模型用同一份继承进度：更早任务的重判改变了它，课的进度和结论随之改变。
-    const expected = taskEvidence(current, structure, current.kind === "lesson" ? prefix.lessons.get(current.topicIds[0] ?? "") : undefined);
+    const expected = taskEvidence(current, current.kind === "lesson" ? prefix.lessons.get(current.topicIds[0] ?? "") : undefined);
     const actual = live.currentEvidence();
     assert.deepEqual([actual?.outcome, actual?.kps], [expected.outcome, expected.kps], "当前任务的证据与重算后的学习状态不一致");
-    assert.deepEqual(live.fold(), expected.outcome ? foldTask(prefix, expected, structure) : prefix, "包括当前任务在内的学习状态与从头叠加的结果不同");
+    assert.deepEqual(live.fold(), expected.outcome ? foldTask(prefix, expected) : prefix, "包括当前任务在内的学习状态与从头叠加的结果不同");
   }
   run.audit.feed(session.records.facts, state.serverNow);
   for (const task of live.tasks) {
-    const { outcome, attempts } = evidenceOf(live, task, structure);
+    const { outcome, attempts } = evidenceOf(live, task);
     // 复习的通过只看有证据的作答，待判的不计入，判出来以后重算（见 learning-flow.md），所以是暂定的。
     const provisional = task.kind === "review" && outcome === "passed";
     if (attempts.some((attempt) => attempt.verdict === undefined) && !provisional && (outcome === "passed" || outcome === "failed" || outcome === "timeout")) {
       // 没有证据不下结论：已经得出的结论，待判的作答怎样判都不能推翻。
       seen.add("待判时下结论");
-      assert.equal(outcomeIf(live, task, structure, "correct"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判对就会改变`);
-      assert.equal(outcomeIf(live, task, structure, "incorrect"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判错就会改变`);
+      assert.equal(outcomeIf(live, task, "correct"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判对就会改变`);
+      assert.equal(outcomeIf(live, task, "incorrect"), outcome, `任务 ${task.seq}（${task.kind}）结论为 ${outcome}，待判的作答都判错就会改变`);
     }
     if (outcome === "unresolved") {
       // 结论待定要有理由：待判的作答判对和判错，结论确实不同。
-      assert.notEqual(outcomeIf(live, task, structure, "correct"), outcomeIf(live, task, structure, "incorrect"), `任务 ${task.seq}（${task.kind}）结论待定，但待判的作答怎样判结论都相同`);
+      assert.notEqual(outcomeIf(live, task, "correct"), outcomeIf(live, task, "incorrect"), `任务 ${task.seq}（${task.kind}）结论待定，但待判的作答怎样判结论都相同`);
     }
   }
   if (live.recomputations > 0) seen.add("整段重算");

@@ -18,10 +18,11 @@ import type { ClientCapabilities } from "@repa/base/protocol";
 import { connectLearning } from "../../src/flow.js";
 import { emptyFold, foldTask, taskEvidence, type TaskEvidence } from "../../src/flow-state.js";
 import { STUDENT_MODEL } from "../../src/parameters.js";
-import { createLearningPlugin } from "../../src/plugin.js";
+import { createLearningPlugin, legacyBaseline, test1Python } from "../../src/plugin.js";
+import { CourseStore } from "../../src/space-course.js";
 import type { CourseBuilding, LearningState, LearningSettings, Submission } from "../../src/protocol.js";
 import { LearningRecords } from "../../src/records.js";
-import { LearningSession } from "../../src/session.js";
+import { LearningSession, needsBaseline } from "../../src/session.js";
 import { DAY_MS, topicDue, topicMemory } from "../../src/student-model.js";
 import type { Fact } from "../../src/records-schema.js";
 
@@ -61,13 +62,13 @@ const seqOf = (id: string) => Number(id.slice(1));
 
 /** 每项任务的结论与得出结论的时刻：已结束的任务按重放时的叠加顺序重算证据（与 Replay.before 相同），最后一项取当前证据。 */
 function tasks(session: LearningSession) {
-  const { replay, structure } = session;
+  const { replay } = session;
   const evidences: TaskEvidence[] = [];
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    const evidence = taskEvidence(task, structure, fold.lessons.get(task.topicIds[0] ?? ""));
+    const evidence = taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? ""));
     evidences.push(evidence);
-    fold = foldTask(fold, evidence, structure, STUDENT_MODEL);
+    fold = foldTask(fold, evidence, STUDENT_MODEL);
   }
   const current = replay.currentEvidence();
   if (current) evidences.push(current);
@@ -188,7 +189,9 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
   const quizTask = state.task && (state.task.kind === "quiz" || state.task.kind === "retake") ? state.task : null;
   return {
     serverNow: state.serverNow,
-    factCount: state.revision,
+    // 学习事实的条数。首次打开测试版数据时插件追加一条旧日志基线，新任务之前还可能有课程结构事实：它们记的是怎样解释学习记录，
+    // 不是学习者做过的事，所以不计；其余各项读数照常包括基线之后的全部事实。
+    factCount: session.records.facts.filter((fact) => fact.type !== "baseline" && fact.type !== "structure").length,
     course: state.course,
     progress,
     restriction: state.restrictions,
@@ -225,7 +228,8 @@ export async function readSpace(root: string, now: number, model = true): Promis
   if (!model) models.setDefaultModel(undefined);
   const space = await openSpace(root, { watch: false });
   const errors: unknown[] = [];
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, emit: () => {}, onError: (error) => errors.push(error) });
+  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
+  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
   try {
     const disabled = host.disabled();
     if (disabled.length > 0) throw new Error(`插件被停用：${JSON.stringify(disabled)}`);
@@ -282,7 +286,7 @@ export interface PrefixReading {
  * 每个前缀单独写一份学习记录，末尾加一段不完整的行，学习记录就只读不写（与测试版读到半行时相同），打开时的补判不会写进去，
  * 读到的就是这个前缀本身。读数直接取自学习会话的 view，不经插件方法，所以也不触发按调用方能力的后台补判。
  */
-export async function readPrefixes(root: string, model = true): Promise<PrefixReading[]> {
+export async function readPrefixes(root: string, model = true, baseline = false): Promise<PrefixReading[]> {
   const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
   const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
   const facts = lines.map((line) => JSON.parse(line) as Fact);
@@ -298,7 +302,8 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
   if (!model) models.setDefaultModel(undefined);
   const space = await openSpace(root, { watch: false });
   const errors: unknown[] = [];
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, emit: () => {}, onError: (error) => errors.push(error) });
+  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
+  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
   const scratch = await mkdtemp(path.join(os.tmpdir(), "repa-test1-prefix-"));
   try {
     const disabled = host.disabled();
@@ -308,9 +313,26 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
     const results: PrefixReading[] = [];
     for (let count = 0; count <= lines.length; count++) {
       const prefix = path.join(scratch, `${count}.jsonl`);
-      await writeFile(prefix, `${lines.slice(0, count).map((line) => `${line}\n`).join("")}{`);
-      const records = await LearningRecords.open(prefix);
       const start = facts[Math.max(0, count - 1)]?.at ?? now;
+      let written = lines.slice(0, count);
+      if (baseline) {
+        // 真实的基线选择：与插件首次打开时调用同一个 legacyBaseline，把它选出的基线接在前缀后面，按插件写入的样子。
+        // 末尾仍加半行，学习记录只读不写，打开时的补判不会写进去。
+        await writeFile(prefix, written.map((line) => `${line}\n`).join(""));
+        const complete = await LearningRecords.open(prefix);
+        if (needsBaseline(complete)) {
+          const choice = await legacyBaseline({
+            records: complete, store: new CourseStore(path.join(root, ".repa", "plugins", "learning")), files: opened.host.files, now: start, bundled: test1Python,
+          });
+          if (choice !== "broken") {
+            written = [...written, JSON.stringify({ seq: count + 1, at: start, type: "baseline", rules: "test1", ...(choice.structure ? { structure: choice.structure } : {}) })];
+          }
+        }
+        await complete.close();
+      }
+      await writeFile(prefix, `${written.map((line) => `${line}\n`).join("")}{`);
+      const records = await LearningRecords.open(prefix);
+      if (baseline && records.revision !== count && records.baseline === undefined) throw new Error(`第 ${count} 个前缀的基线没有读出来`);
       now = start;
       const prefixSession = await LearningSession.open(records, opened.course.course, opened.host);
       // 换课以后用新课读旧前缀时，可能停在新课里没有的知识点上，测试版此时读不出状态；报错也是读数。
@@ -326,7 +348,7 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
       now = start + PREFIX_LATER_MS;
       const later = await read();
       await prefixSession.retire();
-      if (records.revision !== count) throw new Error(`取数期间写下了事实：${count} → ${records.revision}`);
+      if (records.revision !== written.length) throw new Error(`取数期间写下了事实：${written.length} → ${records.revision}`);
       results.push({ facts: count, at, later });
     }
     if (errors.length > 0) throw errors[0];
@@ -336,4 +358,18 @@ export async function readPrefixes(root: string, model = true): Promise<PrefixRe
     await host.close();
     await space.close();
   }
+}
+
+/**
+ * 升级以后再收到同一笔合法的补判：先在最后一条事实的时刻打开（插件写下旧日志基线）取一次读数，关闭后把补判 line 追加到学习记录末尾
+ * （序号接在基线之后，引用的作答不变），再在补判的时刻打开取一次。用来与测试版收到同一笔补判前后的读数比较。
+ */
+export async function readRegrade(root: string, line: string, model = true): Promise<[Reading, Reading]> {
+  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
+  const facts = (await readFile(file, "utf8")).split("\n").filter(Boolean).map((entry) => JSON.parse(entry) as Fact);
+  const before = await readSpace(root, facts.at(-1)?.at ?? 0, model);
+  const written = (await readFile(file, "utf8")).split("\n").filter(Boolean).length;
+  const fact = { ...(JSON.parse(line) as Fact), seq: written + 1 };
+  await writeFile(file, `${await readFile(file, "utf8")}${JSON.stringify(fact)}\n`);
+  return [before, await readSpace(root, fact.at, model)];
 }
