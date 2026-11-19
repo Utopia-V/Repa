@@ -88,7 +88,7 @@ npm run verify:drive -- <操作> [参数…]
 
 后端的时钟由 `scripts/verify/clock.mjs` 拨动：走查拉起后端时经 `NODE_OPTIONS` 先加载它，`Date.now()` 加上走查目录里 `clock-offset` 文件写的偏移，开始时拨到当天上午 10 点，隔天再加一天；测验要在后端运行中过截止时间，`app.shiftClock` 改写这个文件，后端不重启。页面的时钟由 `page.shiftClock` 用同样的办法拨。产品代码里没有对应的入口。
 
-测验那一步用 `scripts/verify/quiz-course/` 另一门课：一节课最多 60 分钟、60 XP，走查的课学不到出测验的 150 XP。测验题只能由程序判分，要造出判不出结果的一题，靠 `page.beforeScripts` 在页面脚本之前换掉 `Worker`，让代码题的 Python 运行环境起不来。
+第二门课与测验那两步用 `scripts/verify/quiz-course/` 另一门课，与走查的课在同一个空间里：三节各 45 分钟，测验的门槛按人累计（两门课合计 150 XP），学完第三节才到。测验题只能由程序判分，要造出判不出结果的一题，靠 `page.beforeScripts` 在页面脚本之前换掉 `Worker`，让代码题的 Python 运行环境起不来。
 
 ## 局限
 

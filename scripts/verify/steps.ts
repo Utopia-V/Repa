@@ -2,6 +2,7 @@
  * 走查的步骤。每一步像学习者那样操作界面，再用 expect 写下必须成立的事；已知而尚未修好的界面问题用 known 写，
  * 不成立记为预期失败，修好以后自动翻成“已修好”。步骤按顺序依赖前一步留下的状态，一步不通过，后面的不再运行。
  */
+import { existsSync } from "node:fs";
 import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inflateRawSync } from "node:zlib";
@@ -81,8 +82,13 @@ const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
 const RESTRUCTURE_REQUEST = "第一节问正在执行的进程是什么状态的那道填空不要了，换一道问只差处理机的题。";
 const QUIZ_COURSE_NAME = "常用单位 走查";
-/** 测验课所在的“Repa 文件夹”的上一级：这一步一个空间只学一门课，测验课在另一个空间里。 */
-const QUIZ_PLACE = "测验";
+/** 两门课清单里的标题：几门课时菜单的候选下面写着它。 */
+const COURSE_TITLE = "进程的基本概念";
+const QUIZ_COURSE_TITLE = "常用单位";
+/** 第二门课的要求：写进它的 AGENTS.md，核对它不会交给第一门课的运行。 */
+const QUIZ_REQUIREMENT = "只练换算，不讲历史。";
+/** 第一门课的要求。 */
+const COURSE_REQUIREMENT = "考前一周，讲解要短。";
 const QUIZ_REQUEST = "想学长度、质量和时间单位的换算，三节都学完以后想做一次测验。";
 const QUIZ_TOPICS = ["长度单位", "质量单位", "时间单位"];
 /** 测验课里那道代码题：第二次重考时让它判不出结果。 */
@@ -127,7 +133,8 @@ function learnView(text: string): LearnView {
     xp: xp ? Number(xp[1]) : undefined,
     parts: parts ? { total: Number(parts[1]), ready: Number(parts[2]), learned: Number(parts[3]) } : undefined,
     // 每一项是“类型 标题”，后面跟一个“开始”。
-    menu: [...menu.matchAll(/(新课|复习|测验|重考)\n([^\n]+)\n开始/gu)].map((match) => `${match[1]} ${match[2]}`),
+    // 几门课时标题下面还有一行课名。
+    menu: [...menu.matchAll(/(新课|复习|测验|重考)\n([^\n]+)\n(?:[^\n]+\n)?开始/gu)].map((match) => `${match[1]} ${match[2]}`),
   };
 }
 
@@ -208,9 +215,15 @@ interface Fact {
   verdict?: string;
 }
 
-/** 一门课所在的空间：走查的课在用户目录下的 Repa，测验课在 QUIZ_PLACE 下的 Repa。 */
-function spaceOf(app: App, course: string): string {
-  return course === QUIZ_COURSE_NAME ? path.join(app.home, QUIZ_PLACE, "Repa") : path.join(app.home, "Repa");
+/** 走查的空间：用户目录下的 Repa；move-space 一步以后在“移动后”下面。两门课都在这个空间里。 */
+function spaceRoot(app: App): string {
+  const moved = path.join(app.home, "移动后", "Repa");
+  return existsSync(moved) ? moved : path.join(app.home, "Repa");
+}
+
+/** 课所在的空间。 */
+function spaceOf(app: App, _course: string): string {
+  return spaceRoot(app);
 }
 
 /** 一门课的学习记录。只读文件，不经后端，不改变任何状态。 */
@@ -916,73 +929,22 @@ export const STEPS: Step[] = [
       checks.expect("列表里不再有“文件夹已不存在”的一组", !(await page.text()).includes("文件夹已不存在"));
     },
   },
+
   {
-    id: "course-location",
-    title: "新建课程时换位置：选另一个文件夹，它下面的 Repa 是空间，课建在其中；之后新建仍放在那里",
-    async run({ app, page }, checks) {
-      const change = strings["learningSpace.first.location.change.action"];
-      const choose = strings["folderPicker.location.action"];
-      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
-      const other = path.join(app.home, "资料 盘");
-      const folder = path.join(other, "Repa");
-      await mkdir(other, { recursive: true });
-      await page.click({ name: "新建课程", selector: "a" });
-      const first = await page.waitText("保存位置：", 15_000);
-      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
-      await page.click({ name: change, selector: "button" });
-      await page.waitText("上一级", 10_000);
-      await page.click({ name: "资料 盘", selector: "button" });
-      const picked = await page.waitText(other, 10_000);
-      await page.shot("course-location-picker");
-      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
-      await page.click({ name: choose, selector: "button", near: "上一级" });
-      await until("选择框关上", async () => (await openDialog(page)) === "");
-      await page.fill("课程名称", "线性代数");
-      const named = await page.waitText(path.join(folder, "courses", "线性代数"), 10_000);
-      await page.shot("course-location-named");
-      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "courses", "线性代数"), where(named));
+    id: "second-course",
+    title: "在同一个空间里建第二门课：做好并换用；侧栏列出两门课；菜单的候选标出课名；今日 XP 是两门之和；第一门课的后台展开只看到它自己的文件夹与要求",
+    async run({ app, page, model }, checks) {
+      await writeFile(path.join(spaceRoot(app), "courses", COURSE_NAME, "AGENTS.md"), `${COURSE_REQUIREMENT}\n`);
+      await page.click({ name: "学习", selector: "a, button" });
+      const before = learnView(await page.waitFor("学习页", (current) => current.includes("接下来"), 30_000)).xp ?? 0;
+      await page.click({ name: "新建课程", selector: "a, button" });
+      await page.fill("课程名称", QUIZ_COURSE_NAME);
+      const hint = await page.waitText("保存位置：");
+      checks.expect("新课建在同一个空间的 courses/<课名> 下", hint.includes(path.join(spaceRoot(app), "courses", QUIZ_COURSE_NAME)), /保存位置：[^\n]*/u.exec(hint)?.[0]);
       await page.click({ name: /^创建$/u, selector: "button" });
       await page.waitText("想学的内容与目标", 20_000);
-      checks.expect("选定位置下的 Repa 是空间，课建在其中", await access(path.join(folder, ".repa", "format.json")).then(() => true, () => false)
-        && await access(path.join(folder, "courses", "线性代数", "AGENTS.md")).then(() => true, () => false));
-
-      await app.reopen();
-      await page.waitText("想学的内容与目标", 30_000);
-      await page.click({ name: "新建课程", selector: "a" });
-      const again = await page.waitText("保存位置：", 15_000);
-      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
-    },
-  },
-  {
-    id: "quiz",
-    title: "测验：另建一门课从界面学满 150 XP，菜单出现测验；交卷、换题重考、过截止时间、判不出结果的一题",
-    async run({ app, page, model }, checks) {
-      const questions = await courseQuestions(QUIZ_COURSE);
-      const duration = await quizDurationMs();
-      // 另建一门课：走查的课只有两节、每节 15 分钟，学不到出测验的 150 XP。这一步一个空间只学一门课，测验课放在另一个 Repa 文件夹。
-      await mkdir(path.join(app.home, QUIZ_PLACE), { recursive: true });
-      await page.click({ name: "新建课程", selector: "a, button" });
-      await page.click({ name: strings["learningSpace.first.location.change.action"], selector: "button" });
-      // 选择框打开的位置不定：读出它列的是哪个文件夹（“上一级”下面那一行），往用户目录走，走到以后点“测验”。
-      const heading = (text: string) => {
-        const lines = text.split("\n").map((line) => line.trim());
-        return lines[lines.indexOf("上一级") + 1] ?? "";
-      };
-      for (let step = 0; step < 6; step++) {
-        const text = await page.waitFor("选择框列出文件夹", (current) => heading(current).startsWith("/"), 10_000);
-        const at = heading(text);
-        if (at === app.home && text.split("\n").some((line) => line.trim() === QUIZ_PLACE)) break;
-        const next = app.home.startsWith(`${at}/`) ? app.home.slice(at.length + 1).split("/")[0] ?? "" : "";
-        await page.click(next === "" ? { name: "上一级", selector: "button" } : { name: next, selector: "button" });
-        await page.waitFor("选择框换了文件夹", (current) => heading(current) !== at, 10_000);
-      }
-      await page.click({ name: QUIZ_PLACE, selector: "button" });
-      await page.waitText(path.join(app.home, QUIZ_PLACE), 10_000);
-      await page.click({ name: strings["folderPicker.location.action"], selector: "button", near: "上一级" });
-      await until("选择框关上", async () => (await openDialog(page)) === "");
-      await page.fill("课程名称", QUIZ_COURSE_NAME);
-      await page.click("创建");
-      await page.waitText("想学的内容与目标", 20_000);
+      checks.expect("没有另建空间：第二门课在 Repa/courses 下，带一份空的要求", await access(path.join(spaceRoot(app), "courses", QUIZ_COURSE_NAME, "AGENTS.md")).then(() => true, () => false));
+      await writeFile(path.join(spaceRoot(app), "courses", QUIZ_COURSE_NAME, "AGENTS.md"), `${QUIZ_REQUIREMENT}\n`);
       const files = await courseFiles(QUIZ_COURSE);
       model.setAnswers(await confirmationAnswers(QUIZ_COURSE));
       model.script(QUIZ_REQUEST, [
@@ -996,13 +958,60 @@ export const STEPS: Step[] = [
       await page.fill("想学的内容与目标", QUIZ_REQUEST);
       await page.click({ name: "开始", selector: "button" });
       await page.waitFor("整门课和菜单", (current) => current.includes("整门课") && current.includes("接下来"), 90_000);
-      const used = model.toolResults.slice(seen).find((result) => result.tool === "course_use")?.text ?? "";
-      checks.expect("测验课做好并换用", used.startsWith("已换用"), model.toolResults.slice(seen).map((result) => `${result.tool}：${result.text.split("\n")[0]}`).join("；"));
+      const results = model.toolResults.slice(seen);
+      const used = results.find((result) => result.tool === "course_use")?.text ?? "";
+      checks.expect("第二门课做好并换用", used.startsWith("已换用"), results.map((result) => `${result.tool}：${result.text.split("\n")[0]}`).join("；"));
+      const check = results.find((result) => result.tool === "course_check")?.text ?? "";
+      checks.expect("制作对话里不写 course 的工具就是这门课", check.startsWith(`courses/${QUIZ_COURSE_NAME}/course/`), check.split("\n")[0]);
+      const making = model.contexts.findLast((entry) => entry.learner.includes(QUIZ_REQUEST))?.views ?? "";
+      checks.expect("第二门课的制作对话带着它的要求，没有第一门课的", making.includes(QUIZ_REQUIREMENT) && !making.includes(COURSE_REQUIREMENT));
       if ((await openDialog(page)) !== "") await page.press("Escape");
       await until("抽屉关上", async () => (await openDialog(page)) === "");
 
-      // 三节 60 分钟的课，全对各得 60 XP；第三节学完累计 180 XP，过了 150 的门槛。
+      const sidebar = await page.text();
+      checks.expect("侧栏列出两门课", await page.has({ name: COURSE_TITLE, selector: "button" }) && await page.has({ name: QUIZ_COURSE_TITLE, selector: "button" }));
+      const card = await menuCard(page, { kind: "新课", title: QUIZ_TOPICS[0] });
+      checks.expect("菜单的候选标出课名", card.includes(QUIZ_COURSE_TITLE), card.replaceAll("\n", " / "));
+      void sidebar;
+      await page.shot("second-course-menu");
+
+      // 学第二门课的第一节：今日 XP 在第一门课今天挣的之上再加这一节的。
+      const questions = await courseQuestions(QUIZ_COURSE);
+      await startMenuItem(page, { kind: "新课", title: QUIZ_TOPICS[0] });
+      await page.waitText("看例题");
+      await work(page, questions);
+      await page.waitText("新课结束");
+      const after = learnView(await page.waitFor("今日 XP", (current) => (learnView(current).xp ?? 0) > before, 15_000)).xp ?? 0;
+      checks.expect("今日 XP 是两门课之和：第一门课今天的加上这一节的 45", after === before + 45, `${before} → ${after}`);
+
+      // 第一门课的后台展开：它的轮廓“进程调度”还没展开（上一次展开失败了），点“重试”。后台运行里不写 course 的工具就是第一门课，
+      // 每次运行的说明里有第一门课的文件夹与要求，没有第二门课的。
+      model.script("在后台展开", [
+        { tools: [{ name: "course_check", arguments: {} }] },
+        { text: "这次先不展开。" },
+      ]);
+      const checked = model.toolResults.length;
+      await page.click({ name: COURSE_TITLE, selector: "button" });
+      await page.waitText("进程调度", 15_000);
+      await page.click({ name: /^重试$/u, selector: "button" });
+      await until("后台展开跑完", async () => model.toolResults.slice(checked).some((result) => result.tool === "course_check"), 30_000);
+      const background = model.toolResults.slice(checked).find((result) => result.tool === "course_check")?.text ?? "";
+      checks.expect("后台展开里的工具落在第一门课的文件夹", background.startsWith(`courses/${COURSE_NAME}/course/`), background.split("\n")[0]);
+      const views = model.contexts.findLast((entry) => entry.learner.includes("在后台展开"))?.views ?? "";
+      checks.expect("后台展开的说明里有第一门课的文件夹和要求，没有第二门课的", views.includes(`courses/${COURSE_NAME}/`) && views.includes(COURSE_REQUIREMENT) && !views.includes(QUIZ_REQUIREMENT) && !views.includes(`courses/${QUIZ_COURSE_NAME}/`));
+      await page.click({ name: QUIZ_COURSE_TITLE, selector: "button" });
+      await page.waitText("整门课", 15_000);
+    },
+  },
+  {
+    id: "quiz",
+    title: "测验：在第二门课里从界面学到门槛，菜单出现测验，出自这门课；交卷、换题重考、过截止时间、判不出结果的一题",
+    async run({ app, page }, checks) {
+      const questions = await courseQuestions(QUIZ_COURSE);
+      const duration = await quizDurationMs();
+      // 三节 45 分钟的课，全对各得 45 XP；第一节在上一步学过。连同第一门课挣的 XP，学完第三节才过 150 的门槛（门槛按人累计，几门课合计）。
       for (const [index, title] of QUIZ_TOPICS.entries()) {
+        if (index === 0) continue;
         checks.expect(`学第 ${index + 1} 节之前菜单里没有测验`, (await menuCard(page, { kind: "测验" })) === "", learnView(await page.text()).menu.join("；"));
         await startMenuItem(page, { kind: "新课", title });
         await page.waitText("看例题");
@@ -1012,6 +1021,8 @@ export const STEPS: Step[] = [
       }
       const card = await menuCard(page, { kind: "测验" });
       checks.expect("三节学完，菜单里出现测验", card !== "", learnView(await page.text()).menu.join("；") || "菜单是空的");
+      // 一场只从一门课出题：本窗口里挣 XP 最多的是测验课，题单出自它，卡片上写着它的课名。
+      checks.expect("测验出自 XP 增量最多的测验课", card.includes(QUIZ_COURSE_TITLE), card.replaceAll("\n", " / "));
       // V1。限时要等契约给出测验时长（菜单项里没有 durationMs），前端不写死，这里先只查题数。
       checks.known(KNOWN.quizCard, "V1 测验卡片写明共几题（3 题）", /3/u.test(card.replace(/开始$/u, "")), card.replaceAll("\n", " / "));
 
@@ -1113,6 +1124,51 @@ export const STEPS: Step[] = [
       checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
       const final = await page.waitText(TIMEOUT, 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
+    },
+  },
+  {
+    id: "course-location",
+    title: "新建课程时换位置：选另一个文件夹，它下面的 Repa 是空间，课建在其中；之后新建仍放在那里",
+    async run({ app, page }, checks) {
+      const change = strings["learningSpace.first.location.change.action"];
+      const choose = strings["folderPicker.location.action"];
+      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
+      const other = path.join(app.home, "资料 盘");
+      const folder = path.join(other, "Repa");
+      await mkdir(other, { recursive: true });
+      // 打开着空间时新课建在这个空间里；换“我的 Repa 文件夹”的位置是在没有打开空间时新建：先关掉当前空间。
+      const closeSpace = async (name: string) => {
+        await page.click({ name, selector: "a" });
+        await page.click({ name: strings["learningSpace.close.action"], selector: "button" });
+        await page.waitFor("空间关上，侧栏回到“学习空间”", (text) => text.split("\n").some((line) => line.trim() === "学习空间") && !(text.includes(strings["learningSpace.close.action"] + "\n")), 15_000);
+      };
+      await closeSpace("Repa");
+      await page.click({ name: "新建课程", selector: "a" });
+      const first = await page.waitText("保存位置：", 15_000);
+      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
+      await page.click({ name: change, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "资料 盘", selector: "button" });
+      const picked = await page.waitText(other, 10_000);
+      await page.shot("course-location-picker");
+      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
+      await page.click({ name: choose, selector: "button", near: "上一级" });
+      await until("选择框关上", async () => (await openDialog(page)) === "");
+      await page.fill("课程名称", "线性代数");
+      const named = await page.waitText(path.join(folder, "courses", "线性代数"), 10_000);
+      await page.shot("course-location-named");
+      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "courses", "线性代数"), where(named));
+      await page.click({ name: /^创建$/u, selector: "button" });
+      await page.waitText("想学的内容与目标", 20_000);
+      checks.expect("选定位置下的 Repa 是空间，课建在其中", await access(path.join(folder, ".repa", "format.json")).then(() => true, () => false)
+        && await access(path.join(folder, "courses", "线性代数", "AGENTS.md")).then(() => true, () => false));
+
+      await app.reopen();
+      await page.waitText("想学的内容与目标", 30_000);
+      await closeSpace("Repa");
+      await page.click({ name: "新建课程", selector: "a" });
+      const again = await page.waitText("保存位置：", 15_000);
+      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
     },
   },
 ];

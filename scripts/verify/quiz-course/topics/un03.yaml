@@ -1,7 +1,7 @@
 id: un03
 title: 时间单位
 status: complete
-minutes: 60
+minutes: 45
 summary: 小时、分钟、秒之间怎样换算。
 prerequisites: []
 sources:

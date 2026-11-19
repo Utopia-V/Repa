@@ -82,6 +82,8 @@ export class ScriptedModel {
   readonly unexpected: string[] = [];
   /** 每次工具调用交回的结果，按到达顺序。 */
   readonly toolResults: { tool: string; text: string }[] = [];
+  /** 通用 Agent 每次请求里学习者的消息与底座放进上下文的视图（每次运行的说明），按到达顺序。 */
+  readonly contexts: { learner: string; views: string }[] = [];
   private scripts: Script[] = [];
   private answers = new Map<string, string>();
   private held: (() => void)[] = [];
@@ -223,6 +225,8 @@ export class ScriptedModel {
   private agentStep(messages: ChatMessage[]): Step {
     const lastUser = lastLearnerMessage(messages);
     const userText = learnerText(messages);
+    const views = messages.filter((message) => message.role === "user" && textOf(message.content).trimStart().startsWith("<repa-view")).map((message) => textOf(message.content));
+    this.contexts.push({ learner: userText, views: views.join("\n") });
     const script = this.scripts.find((entry) => userText.includes(entry.match));
     const after = messages.slice(lastUser + 1);
     const done = after.filter((message) => message.role === "assistant").length;
