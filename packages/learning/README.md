@@ -18,7 +18,7 @@
 
 ### 在应用里做课
 
-学习者把课件放进空间的 `materials/`，由通用 Agent 做成空间 `course/` 里的课。课按“轮廓 → 展开”长出来：先把整门课写成 `status: outline` 的 topic（只有名字、范围、出处和估计的知识点）并换用，学习者认可以后在对话里展开第一段；之后学习者学到已展开部分只剩一节没学时，插件在后台让通用 Agent 展开接下来的两部分（`EXPANSION_SIZE`，Repa 的假设）。插件给通用 Agent 的提示说明指向随包的[写课说明](guides/making-courses.md)，同一目录的 [`example-course/`](guides/example-course/course.yaml) 是一门不含代码题、一节展开一节轮廓、能通过检查并上完一节的完整例子；两者随 `npm pack` 进安装包。插件另给通用 Agent 四项工具，辅导 Agent 没有：
+每门课在空间里有自己的文件夹 `courses/<名>/`：学习者把课件放进其中的 `materials/`，由通用 Agent 做成其中 `course/` 里的课，学习者对这门课的要求在其中的 `AGENTS.md`。做课工具都有可选的 `course`（课的文件夹），在一门课的做课对话或后台展开里不写就是那门课；做课对话与后台展开开始运行时，插件经每次运行的说明（`view`）交给模型这门课的文件夹与 `AGENTS.md` 全文，辅导也带上它在讲的那门课的要求。课按“轮廓 → 展开”长出来：先把整门课写成 `status: outline` 的 topic（只有名字、范围、出处和估计的知识点）并换用，学习者认可以后在对话里展开第一段；之后学习者学到已展开部分只剩一节没学时，插件在后台让通用 Agent 展开接下来的两部分（`EXPANSION_SIZE`，Repa 的假设）。插件给通用 Agent 的提示说明指向随包的[写课说明](guides/making-courses.md)，同一目录的 [`example-course/`](guides/example-course/course.yaml) 是一门不含代码题、一节展开一节轮廓、能通过检查并上完一节的完整例子；两者随 `npm pack` 进安装包。插件另给通用 Agent 四项工具，辅导 Agent 没有：
 
 | 工具 | 作用 |
 | --- | --- |
@@ -256,7 +256,7 @@ npm run course:confirm -- --dry-run            # 看要发给模型的核对请�
 - 填空题的标准答案只列了几种写法时，意思相同的别的写法会被判错；模型核对会报出这样的不一致，写课说明要求 Agent 把这些写法加进 `key` 或改成选择题，判分时是否放宽匹配还没有定，见[设计记录](../../.agents/notes/implemented/feature/2026-11-16-model-confirm-in-app.md#未做与待定)。
 - 来源的 `file` 只检查写法（以 `materials/` 开头、不含 `..`），不检查文件在不在：检查在数据目录的副本上进行，读不到空间。
 - 数值作答位的规则（`numeric_manual`）只看 `text` 作答位；表格里的数值格不在其中。
-- 应用在后台展开中途崩溃时，没来得及写下结局，`building.json` 里这次展开没有结束时间，`lastFailure` 不显示它，也不因此重试；正常关闭时记为 `cancelled`。
+- 应用在后台展开中途崩溃时，没来得及写下结局，这门课的做课记录里这次展开没有结束时间，`lastFailure` 不显示它，也不因此重试；正常关闭时记为 `cancelled`。
 - 花费按做课的会话（连同它们起的子 Agent）整份汇总：同一会话里与做课无关的对话也算在内；压缩摘要这类不记模型的请求只计 token。
 - 课程核对整门课共用一个解释器。候选程序改动已导入的模块（例如给 pandas 打补丁）时，影响会延续到之后的候选和题目；随包课程没有这类代码，判分时每次提交用新的 Worker，也不受影响。课程要教这类写法时，再为相关的候选换新的解释器，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md)。
 - 一道题最多一个按测试判的作答位，有先后关系的多步代码题还不支持，`course:check` 以 `multiple_code_slots` 报出；等模型出题需要时再实现，见[学习插件重做](../../.agents/notes/implemented/architecture/2026-10-30-learning-plugin-refactor.md#检查工具)。

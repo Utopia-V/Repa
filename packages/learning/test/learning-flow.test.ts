@@ -14,7 +14,8 @@ import { Replay } from "../src/replay.js";
 import { connectTutor } from "../src/tutor.js";
 import type { Question } from "../src/format/schema.js";
 import { updateStudent } from "../src/student-model.js";
-import { clientCapabilities, deliverySeq, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
+import { bareFold, clientCapabilities, deliverySeq, learningFixture as fixture, start, topic } from "./fixtures/learning-session.js";
+import { scoped } from "../src/course-key.js";
 
 const stale = (error: unknown) => error instanceof Error && "code" in error && error.code === "stale_state";
 
@@ -217,7 +218,7 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const session = f.session();
   const bytes = await readFile(session.records.file);
   const replay = (facts: readonly Fact[]) => {
-    const result = new Replay(session.structure);
+    const result = new Replay(session.key, session.structure);
     for (const fact of facts) result.apply(fact);
     return result;
   };
@@ -225,13 +226,13 @@ test("从事实里去掉一份关键作答，同一时刻的新课资格随之�
   const removed = facts.find((fact) => fact.type === "answered");
   assert.ok(removed?.type === "answered");
   const copy = facts.filter((fact) => !((fact.type === "answered" || fact.type === "graded") && fact.delivery === removed.delivery));
-  const actual = learningMenu(session.structure, replay(facts).fold(), start, "menu", () => true, "UTC", (id) => id);
+  const actual = learningMenu(session.structure, session.key, replay(facts).fold(), start, "menu", () => true, "UTC", (id) => id);
   const counterfactual = replay(copy);
-  const alternative = learningMenu(session.structure, counterfactual.fold(), start, "menu", () => true, "UTC", (id) => id);
+  const alternative = learningMenu(session.structure, session.key, counterfactual.fold(), start, "menu", () => true, "UTC", (id) => id);
   assert.deepEqual(actual.candidates.map((entry) => entry.topicIds[0]), ["t02"]);
   assert.deepEqual(alternative.candidates.map((entry) => entry.topicIds[0]), ["t01"]);
-  assert.equal(counterfactual.fold().student.t01, undefined);
-  assert.deepEqual(replay(facts).fold().student, await f.student());
+  assert.equal(counterfactual.fold().student[scoped(session.key, "t01")], undefined);
+  assert.deepEqual(bareFold(replay(facts).fold(), session.key).student, await f.student());
   assert.deepEqual(await readFile(session.records.file), bytes);
   if (process.env.REPA_LEARNING_EVIDENCE) {
     const parent = process.env.REPA_LEARNING_EVIDENCE;
@@ -618,8 +619,8 @@ test("菜单相近项不同列，刷新和任务前后保留候选身份；连�
   }
   const siblings = menu.menu?.candidates.filter((entry) => ["t02", "t03"].includes(entry.topicIds[0] ?? ""));
   assert.equal(siblings?.length, 1);
-  const fold = await f.fold();
-  const decision = learningMenu(f.session().structure, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC", (id) => id);
+  const fold = await f.rawFold();
+  const decision = learningMenu(f.session().structure, f.session().key, { ...fold, consecutiveReviews: 3 }, start + 4 * 86_400_000, "menu", () => true, "UTC", (id) => id);
   assert.equal(decision.candidates[0]?.kind, "lesson");
 });
 

@@ -15,6 +15,7 @@ import { loadCourseSources } from "../src/course-sources.js";
 import { connectLearning } from "../src/flow.js";
 import { createLearningPlugin } from "../src/plugin.js";
 import type { LearningState, Submission } from "../src/protocol.js";
+import type { FactBody } from "../src/records-schema.js";
 import { LearningRecords } from "../src/records.js";
 import type { LearningSession } from "../src/session.js";
 import { chooseTasks, updateStudent } from "../src/student-model.js";
@@ -25,6 +26,8 @@ import { learningFixture, start, topic as testTopic } from "./fixtures/learning-
 const exec = promisify(execFile);
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const fault = (code: string) => (error: unknown) => error instanceof RepaFault && error.code === code;
+/** 任务引用的课程结构：学习记录里任务之前总有一份。 */
+const STRUCTURE: FactBody = { type: "structure", structure: { course: { id: "python", version: "1.0.0" }, topics: [] } };
 
 async function directory(t: TestContext): Promise<string> {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-records-")));
@@ -188,25 +191,25 @@ test("恢复命令保留残缺原文件并写出逐字节前缀，完整坏行�
   const space = await createSpace(path.join(root, "space"), { watch: false });
   const file = path.join(await space.pluginDataDir("learning"), "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
   await log.close();
   const destination = path.join(root, "recovered.jsonl");
   t.after(() => space.close());
   await assert.rejects(exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]));
   await space.close();
   const prefix = await readFile(file);
-  await appendFile(file, Buffer.from('{"seq":3,"残缺":"中文').subarray(0, -1));
+  await appendFile(file, Buffer.from('{"seq":4,"残缺":"中文').subarray(0, -1));
   const original = await readFile(file);
   const partial = await LearningRecords.open(file, clock);
   assert.equal(partial.incompleteTail, true);
-  assert.equal(partial.revision, 2);
+  assert.equal(partial.revision, 3);
   await assert.rejects(partial.write(() => [{ type: "goal", xp: 20 }]), fault("learning_log_blocked"));
   await partial.close();
   await exec(process.execPath, ["--import", "tsx", cli, "recover-log", space.root, destination]);
   assert.deepEqual(await readFile(file), original);
   assert.deepEqual(await readFile(destination), prefix);
   const recovered = await LearningRecords.open(destination, clock);
-  assert.equal((await recovered.write(() => [{ type: "goal", xp: 20 }]))[0]?.seq, 3);
+  assert.equal((await recovered.write(() => [{ type: "goal", xp: 20 }]))[0]?.seq, 4);
   await recovered.close();
   await writeFile(file, Buffer.concat([prefix, Buffer.from("{}\n")]));
   await assert.rejects(LearningRecords.open(file), fault("invalid_learning_log"));
@@ -219,18 +222,20 @@ test("引用错误和一题两答在写入前拒绝、不落盘；完整行引�
   const log = await LearningRecords.open(file, clock);
   t.after(() => log.close());
   const seen = `sha256:${"0".repeat(64)}`;
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "delivered", task: 1, question: "py01.k1.q1", seed: 1 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]);
   const bytes = await readFile(file);
-  await assert.rejects(log.write(() => [{ type: "graded", delivery: 2, version: seen, verdict: "correct", slots: {} }]), fault("invalid_learning_log"));
+  await assert.rejects(log.write(() => [{ type: "graded", delivery: 3, version: seen, verdict: "correct", slots: {} }]), fault("invalid_learning_log"));
   await assert.rejects(log.write(() => [
-    { type: "answered", delivery: 2, seen, answers: {} },
-    { type: "answered", delivery: 2, seen, answers: {} },
+    { type: "answered", delivery: 3, seen, answers: {} },
+    { type: "answered", delivery: 3, seen, answers: {} },
   ]), fault("invalid_learning_log"));
-  await assert.rejects(log.write(() => [{ type: "delivered", task: 2, question: "py01.k1.q1", seed: 1 }]), fault("invalid_learning_log"));
+  await assert.rejects(log.write(() => [{ type: "delivered", task: 3, question: "py01.k1.q1", seed: 1 }]), fault("invalid_learning_log"));
+  // 任务引用的必须是此前的一份课程结构。
+  await assert.rejects(log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 2 }]), fault("invalid_learning_log"));
   assert.deepEqual(await readFile(file), bytes);
-  assert.equal(log.revision, 2);
+  assert.equal(log.revision, 3);
   const damaged = path.join(root, "damaged.jsonl");
-  await writeFile(damaged, `${bytes.toString("utf8")}${JSON.stringify({ seq: 3, at: now, type: "answered", delivery: 1, seen, answers: {} })}\n`);
+  await writeFile(damaged, `${bytes.toString("utf8")}${JSON.stringify({ seq: 4, at: now, type: "answered", delivery: 2, seen, answers: {} })}\n`);
   await assert.rejects(LearningRecords.open(damaged), fault("invalid_learning_log"));
 });
 
@@ -238,7 +243,7 @@ test("读取忽略事实顶层新增的可选字段，保留盘上原字节，�
   const root = await directory(t);
   const file = path.join(root, "records.jsonl");
   const log = await LearningRecords.open(file, clock);
-  await log.write(() => [{ type: "task", kind: "lesson", topics: ["py01"], course: { id: "python", version: "1.0.0" } }, { type: "goal", xp: 25 }]);
+  await log.write(() => [STRUCTURE, { type: "task", kind: "lesson", topics: ["py01"], course: { key: "bundled-python", id: "python", version: "1.0.0" }, structure: 1 }, { type: "goal", xp: 25 }]);
   await log.close();
   const original = await readFile(file, "utf8");
   const extended = original.split("\n").filter(Boolean).map((line) => {
@@ -250,7 +255,7 @@ test("读取忽略事实顶层新增的可选字段，保留盘上原字节，�
   const reopened = await LearningRecords.open(file, clock);
   t.after(() => reopened.close());
   assert.equal(reopened.facts.some((fact) => "futureOptional" in fact), false);
-  assert.deepEqual(reopened.facts.map((fact) => fact.type), ["task", "goal"]);
+  assert.deepEqual(reopened.facts.map((fact) => fact.type), ["structure", "task", "goal"]);
   assert.equal(await readFile(file, "utf8"), extended);
   await assert.rejects(reopened.write(() => [{ type: "goal", xp: 30, futureOptional: true } as never]), fault("invalid_input"));
 });
@@ -286,6 +291,7 @@ test("插件经真实宿主重开：课程覆盖进历史，撤回文件不撤�
   });
   const call = (method: string, input: unknown) => host.call("learning", method, input, caller);
   const state = async () => (await call("state.get", {})) as LearningState;
+  await call("courses.useBundled", {});
   const menu = (await state()).menu;
   assert.ok(menu?.candidates[0]);
   assert.equal(menu.candidates[0].title, "空间覆盖标题");

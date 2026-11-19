@@ -9,8 +9,19 @@ import { RepaFault } from "@repa/base/plugin";
 import { convert, sniff } from "./convert.js";
 import type { Converted } from "./result.js";
 
-/** 学习者放课件的文件夹，相对空间根目录。 */
+/** 学习者放课件的文件夹，在每门课的文件夹里。 */
 export const MATERIALS_DIRECTORY = "materials";
+/** 空间里放各门课的文件夹；一门课的文件夹是 courses/<名>。 */
+export const COURSES_DIRECTORY = "courses";
+
+/** 一门课的文件夹（相对空间根，courses/<名>）；写法不对时拒绝。 */
+function courseFolder(folder: string): string {
+  const parts = folder.split("/");
+  if (parts.length !== 2 || parts[0] !== COURSES_DIRECTORY || !parts[1] || parts[1] === "." || parts[1] === ".." || parts[1].includes("\\")) {
+    throw new RepaFault("invalid_path", `${folder} 不是课的文件夹；课的文件夹相对空间根目录写，例如 ${COURSES_DIRECTORY}/操作系统。`, { path: folder });
+  }
+  return folder;
+}
 
 // 转换的写法改变时加一，旧的缓存随之作废、重新转换。
 const CONVERTER_VERSION = 1;
@@ -25,9 +36,27 @@ export type Outcome = Converted | { status: "plain" };
 export class Materials {
   constructor(private readonly root: string, private readonly dataDir: string) {}
 
-  /** materials/ 下的全部文件，按路径排序；文件夹不在时返回 undefined。 */
-  async list(signal: AbortSignal): Promise<Array<{ path: string; size: number; outcome: Outcome }> | undefined> {
-    const directory = path.join(this.root, MATERIALS_DIRECTORY);
+  /** 有 materials/ 的课的文件夹（相对空间根），按名称排序。 */
+  async folders(): Promise<string[]> {
+    let entries;
+    try {
+      entries = await readdir(path.join(this.root, COURSES_DIRECTORY), { withFileTypes: true });
+    } catch (error) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
+    const result = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const folder = `${COURSES_DIRECTORY}/${entry.name}`;
+      if (await stat(path.join(this.root, folder, MATERIALS_DIRECTORY)).then((info) => info.isDirectory(), () => false)) result.push(folder);
+    }
+    return result.sort();
+  }
+
+  /** 一门课的 materials/ 下的全部文件（路径相对空间根），按路径排序；文件夹不在时返回 undefined。 */
+  async list(folder: string, signal: AbortSignal): Promise<Array<{ path: string; size: number; outcome: Outcome }> | undefined> {
+    const directory = path.join(this.root, courseFolder(folder), MATERIALS_DIRECTORY);
     let entries;
     try {
       entries = await readdir(directory, { recursive: true, withFileTypes: true });
@@ -51,11 +80,11 @@ export class Materials {
   }
 
   /**
-   * 把本机的文件复制进 materials/，文件名不变。先逐个核对：要是绝对路径、是普通文件、materials/ 里还没有同名的文件，
+   * 把本机的文件复制进一门课的 materials/，文件名不变。先逐个核对：要是绝对路径、是普通文件、materials/ 里还没有同名的文件，
    * 有一个不合就一个也不复制。同名的不覆盖，学习者先删掉旧的或改个名字。复制不经空间的文件接口：那是文本接口，课件多是二进制。
    */
-  async add(sources: readonly string[]): Promise<void> {
-    const directory = path.join(this.root, MATERIALS_DIRECTORY);
+  async add(folder: string, sources: readonly string[]): Promise<void> {
+    const directory = path.join(this.root, courseFolder(folder), MATERIALS_DIRECTORY);
     const names = new Set<string>();
     for (const source of sources) {
       if (!path.isAbsolute(source)) throw new RepaFault("invalid_path", `${source} 不是绝对路径。`, { path: source });
@@ -76,13 +105,16 @@ export class Materials {
     for (const source of sources) await copyFile(source, path.join(directory, path.basename(source)), constants.COPYFILE_EXCL);
   }
 
-  /** 读 materials/ 里的一个文件；file 相对空间根目录，返回规范化后的路径。 */
+  /**
+   * 读一门课的 materials/ 里的一个文件；file 相对空间根目录，返回规范化后的路径。只读得到各门课的 materials/：
+   * 课程文件夹里的 course/ 有题目的答案，辅导经这里读不到它。
+   */
   async read(file: string, signal: AbortSignal): Promise<{ path: string; outcome: Outcome }> {
     const absolute = path.resolve(this.root, file);
     const relative = path.relative(this.root, absolute);
-    const inMaterials = path.relative(path.join(this.root, MATERIALS_DIRECTORY), absolute);
-    if (inMaterials === "" || inMaterials.startsWith("..") || path.isAbsolute(inMaterials)) {
-      throw new RepaFault("file_outside_materials", `${file} 不在 ${MATERIALS_DIRECTORY}/ 里；路径相对空间根目录写，例如 ${MATERIALS_DIRECTORY}/第一章.pdf。`);
+    const parts = relative.split(path.sep);
+    if (parts.length < 4 || parts[0] !== COURSES_DIRECTORY || parts[2] !== MATERIALS_DIRECTORY || parts.some((part) => part === "..")) {
+      throw new RepaFault("file_outside_materials", `${file} 不在哪门课的 ${MATERIALS_DIRECTORY}/ 里；路径相对空间根目录写，例如 ${COURSES_DIRECTORY}/操作系统/${MATERIALS_DIRECTORY}/第一章.pdf。`);
     }
     let real;
     try {

@@ -1,3 +1,4 @@
+import { scoped } from "./course-key.js";
 import { isDeepStrictEqual } from "node:util";
 import { RepaFault } from "@repa/base";
 import type { AgentDefinition, MessageDecision, PluginMethod, Tool } from "@repa/base/plugin";
@@ -251,8 +252,8 @@ export async function connectTutor(session: LearningSession): Promise<Tutor> {
         // 先修排序用最后一条事实的时间，状态不变时视图文本不变，不打乱提示缓存；时钟回拨时与学生模型一样不让时间倒退。
         const time = session.records.facts.at(-1)?.at ?? view.state.serverNow;
         const weak = (topic?.prerequisites ?? [])
-          .filter((id) => view.student[id] !== undefined)
-          .map((id) => ({ id, memory: topicMemory(view.student, id, time) }))
+          .filter((id) => view.student[scoped(session.key, id)] !== undefined)
+          .map((id) => ({ id, memory: topicMemory(view.student, scoped(session.key, id), time) }))
           .sort((left, right) => left.memory - right.memory || left.id.localeCompare(right.id))
           .slice(0, 3);
         return viewText(task ?? null, session.course, kp, weak.map((entry) => entry.id), view.state.restrictions.referenceContentAllowed);

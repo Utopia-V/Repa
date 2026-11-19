@@ -1,7 +1,9 @@
 /**
- * 空间里自制的课。做课的 Agent 在空间的 course/ 里写课（格式与随包课程相同：course.yaml 加 topics/），
- * 用 course_check 检查，用 course_use 换用。学习从不直接读 course/：换用时把检查过的那一份复制进插件数据目录的
- * courses/<摘要>/，学习只读这份副本，所以写到一半的 course/ 不会进入学习者的课、复习和测验。数据目录的 course.json 记下正在用的副本。
+ * 空间里自制的课。每门课在空间里有一个文件夹（位置）courses/<名>/。
+ * 做课的 Agent 在课的文件夹的 course/ 里写课（格式与随包课程相同：course.yaml 加 topics/），课件在同一文件夹的 materials/，
+ * 对这门课的要求在同一文件夹的 AGENTS.md。用 course_check 检查，用 course_use 换用。学习从不直接读 course/：换用时把检查过的那一份
+ * 复制进插件数据目录的 courses/<摘要>/，学习只读这份副本，所以写到一半的 course/ 不会进入学习者的课、复习和测验。
+ * 数据目录的 course.json 是课的登记：每门课的键、位置（随包的课记包内标识）与换用的副本，见 CourseRegistrySchema。
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -21,9 +23,12 @@ import { teachesPython } from "./check/rules.js";
 import type { ResolvedCourse } from "./course-sources.js";
 import { formatDiagnostic, Report, type Diagnostic } from "./format/diagnostics.js";
 import { COURSE_FILE, loadCourse, TOPICS_DIRECTORY } from "./format/load.js";
+import { CourseKeySchema } from "./course-key.js";
 
-/** 空间里放自制课的文件夹。 */
+/** 课的文件夹里放课程的子文件夹。 */
 export const SPACE_COURSE = "course";
+/** 空间里放各门课的文件夹。 */
+export const COURSES_FOLDER = "courses";
 /** 数据目录里记下换用状态的文件。 */
 export const COURSE_CHOICE_FILE = "course.json";
 /** 数据目录里存放换用过的副本的文件夹。 */
@@ -32,12 +37,33 @@ const COPIES = "courses";
 export const CHECKS = "checks";
 
 const CopyIdSchema = Type.String({ pattern: "^[0-9a-f]{32}$" });
-/** course.json：active 是学习正在用的副本的摘要。 */
-export const CourseChoiceSchema = object({
-  active: Type.Optional(CopyIdSchema),
+/** 课在空间里的位置：courses/<名>，用 / 分隔。 */
+const LocationSchema = Type.String({ pattern: "^courses/[^/\\\\]+$", maxLength: 300 });
+/**
+ * 登记里的一门课：key 是它的身份，创建时定下，此后不变；location 是自制课的文件夹，bundled 是随包课的包内标识（课程目录名），二者有且只有一个；
+ * copy 是换用过的副本的摘要，还没有换用过（草稿）时没有。
+ */
+export const CourseEntrySchema = object({
+  key: CourseKeySchema,
+  location: Type.Optional(LocationSchema),
+  bundled: Type.Optional(Type.String({ pattern: "^[a-z0-9][a-z0-9-]{0,63}$" })),
+  copy: Type.Optional(CopyIdSchema),
 });
-/** 换用状态。 */
+/** 登记里的一门课。 */
+export type CourseEntry = Static<typeof CourseEntrySchema>;
+/** course.json：空间里的课，按加入的先后。 */
+export const CourseChoiceSchema = object({ courses: Type.Array(CourseEntrySchema, { maxItems: 200 }) });
+/** course.json 读出的内容。 */
 export type CourseChoice = Static<typeof CourseChoiceSchema>;
+
+/** 一门课的位置下放课程的文件夹（相对空间根）。 */
+export function courseFolder(location: string): string {
+  return `${location}/${SPACE_COURSE}`;
+}
+/** 一门课的位置下的某个文件（相对空间根）。 */
+export function inLocation(location: string, name: string): string {
+  return `${location}/${name}`;
+}
 
 /** 从空间读出的一份课程文件：相对 course/ 的路径与全文。 */
 export type CourseFiles = Map<string, string>;
@@ -57,29 +83,20 @@ async function unlessMissing<T>(work: Promise<T>): Promise<T | undefined> {
   }
 }
 
-/** 空间里有没有 course/。读不了的（例如循环的符号链接）也算有：这门课用不了，由 course_check 报出原因。 */
-export async function hasSpaceCourse(files: Host["files"]): Promise<boolean> {
-  try {
-    await files.list(SPACE_COURSE);
-    return true;
-  } catch (error) {
-    return !missing(error);
-  }
-}
-
 /**
- * 经空间的文件接口读出 course/ 里课程格式会读的文件：course.yaml 与 topics/ 下的 .yaml。别的文件（笔记、核对用的草稿）不读。
+ * 经空间的文件接口读出一门课的 course/ 里课程格式会读的文件：course.yaml 与 topics/ 下的 .yaml。别的文件（笔记、核对用的草稿）不读。
  * 没有 course/ 时返回 undefined；缺 course.yaml 时照常返回，由检查报出。
  */
-export async function readSpaceCourse(files: Host["files"]): Promise<CourseFiles | undefined> {
-  if (await unlessMissing(files.list(SPACE_COURSE)) === undefined) return undefined;
+export async function readSpaceCourse(files: Host["files"], location: string): Promise<CourseFiles | undefined> {
+  const folder = courseFolder(location);
+  if (await unlessMissing(files.list(folder)) === undefined) return undefined;
   const result: CourseFiles = new Map();
-  const manifest = await unlessMissing(files.read(`${SPACE_COURSE}/${COURSE_FILE}`));
+  const manifest = await unlessMissing(files.read(`${folder}/${COURSE_FILE}`));
   if (manifest !== undefined) result.set(COURSE_FILE, manifest);
-  for (const entry of await unlessMissing(files.list(`${SPACE_COURSE}/${TOPICS_DIRECTORY}`)) ?? []) {
+  for (const entry of await unlessMissing(files.list(`${folder}/${TOPICS_DIRECTORY}`)) ?? []) {
     const name = path.posix.basename(entry);
     if (!name.endsWith(".yaml")) continue;
-    const text = await unlessMissing(files.read(`${SPACE_COURSE}/${TOPICS_DIRECTORY}/${name}`));
+    const text = await unlessMissing(files.read(`${folder}/${TOPICS_DIRECTORY}/${name}`));
     if (text !== undefined) result.set(`${TOPICS_DIRECTORY}/${name}`, text);
   }
   return result;
@@ -94,9 +111,11 @@ function copyId(files: CourseFiles): string {
   return hash.digest("hex").slice(0, 32);
 }
 
-/** 检查一份课程的结果，问题里的文件写成空间里的路径（course/topics/x.yaml），Agent 照着就能打开。 */
+/** 检查一份课程的结果，问题里的文件写成空间里的路径（如 courses/操作系统/course/topics/x.yaml），Agent 照着就能打开。 */
 export interface CourseCheck {
   id: string;
+  /** 检查的是哪个文件夹的 course/（相对空间根）。 */
+  folder: string;
   result: CheckResult;
   passed: boolean;
 }
@@ -107,10 +126,10 @@ export interface CourseCheck {
  */
 const SPACE_CHECK: CheckOptions = { scope: "question-lesson-v1", confirmations: "reported" };
 
-/** 把问题里的文件写成空间里的路径（course/topics/x.yaml），Agent 照着就能打开。 */
-function spacePaths(diagnostics: Diagnostic[]): void {
+/** 把问题里的文件写成空间里的路径（如 courses/操作系统/course/topics/x.yaml），Agent 照着就能打开。 */
+function spacePaths(diagnostics: Diagnostic[], location: string): void {
   for (const diagnostic of diagnostics) {
-    if (diagnostic.file !== undefined && !path.isAbsolute(diagnostic.file)) diagnostic.file = `${SPACE_COURSE}/${diagnostic.file}`;
+    if (diagnostic.file !== undefined && !path.isAbsolute(diagnostic.file)) diagnostic.file = `${courseFolder(location)}/${diagnostic.file}`;
   }
 }
 
@@ -118,10 +137,10 @@ function spacePaths(diagnostics: Diagnostic[]): void {
 export class CourseStore {
   constructor(private readonly dataDir: string, private readonly options: CheckOptions = {}) {}
 
-  /** 正在用的副本；没有换用过时为 undefined。 */
-  async active(): Promise<string | undefined> {
+  /** 登记里的课；还没有 course.json 时为空。 */
+  async read(): Promise<CourseEntry[]> {
     const text = await unlessMissing(readFile(path.join(this.dataDir, COURSE_CHOICE_FILE), "utf8"));
-    return text === undefined ? undefined : parse(CourseChoiceSchema, JSON.parse(text)).active;
+    return text === undefined ? [] : parse(CourseChoiceSchema, JSON.parse(text)).courses;
   }
 
   /**
@@ -130,12 +149,13 @@ export class CourseStore {
    */
   async check<T>(
     files: CourseFiles,
+    location: string,
     after: (checked: CourseCheck, keep: () => Promise<void>, read: () => Promise<ResolvedCourse>) => Promise<T>,
   ): Promise<T> {
     return this.withCopy(files, async (directory) => {
       const result = await checkCourse(directory, { ...SPACE_CHECK, ...this.options, base: directory });
-      spacePaths(result.diagnostics);
-      const checked = { id: copyId(files), result, passed: !result.diagnostics.some((diagnostic) => diagnostic.severity === "error") };
+      spacePaths(result.diagnostics, location);
+      const checked = { id: copyId(files), folder: courseFolder(location), result, passed: !result.diagnostics.some((diagnostic) => diagnostic.severity === "error") };
       return after(checked, () => this.keep(checked.id, directory), () => readCopy(directory));
     });
   }
@@ -144,10 +164,10 @@ export class CourseStore {
    * 在这份课程文件的固定副本上做模型核对（question-lesson-v1），不受核对期间对 course/ 的写入影响。
    * 一致的记录经 options.save 写回空间里的 topic 文件；副本随后删掉。
    */
-  confirm(files: CourseFiles, options: Omit<ConfirmOptions, "scope" | "base">): Promise<ConfirmResult> {
+  confirm(files: CourseFiles, location: string, options: Omit<ConfirmOptions, "scope" | "base">): Promise<ConfirmResult> {
     return this.withCopy(files, async (directory) => {
       const result = await confirmCourse(directory, { ...options, scope: "question-lesson-v1", base: directory });
-      spacePaths(result.diagnostics);
+      spacePaths(result.diagnostics, location);
       return result;
     });
   }
@@ -189,17 +209,21 @@ export class CourseStore {
   }
 
   /**
-   * 发布换用：把一个已经存好的副本记为正在用的。course.json 先写临时文件再改名，这一步是换用的提交点：中途断电时要么是旧状态，
-   * 要么是新状态，副本在此之前已经落盘。
+   * 写下课的登记。换用时写的这一次是换用的提交点：course.json 先写临时文件再改名，中途断电时要么是旧状态，要么是新状态，
+   * 副本在此之前已经落盘。
    */
-  async publish(id: string): Promise<void> {
-    await writeJson(path.join(this.dataDir, COURSE_CHOICE_FILE), { active: id } satisfies CourseChoice);
+  async publish(courses: CourseEntry[]): Promise<void> {
+    await writeJson(path.join(this.dataDir, COURSE_CHOICE_FILE), { courses } satisfies CourseChoice);
   }
 
-  /** 发布以后删掉别的副本（包括之前中断留下的、没有发布的）：进行中的任务只能在只增不改时换用，用的就是这一份。 */
-  async prune(active: string): Promise<void> {
+  /**
+   * 发布以后删掉登记里没有引用的副本（包括之前中断留下的、没有发布的）：每门课只留它换用的那一份，进行中的任务只能在只增不改时换用，
+   * 用的就是这一份。
+   */
+  async prune(courses: CourseEntry[]): Promise<void> {
+    const kept = new Set(courses.flatMap((entry) => (entry.copy === undefined ? [] : [entry.copy])));
     for (const entry of await unlessMissing(readdir(path.join(this.dataDir, COPIES))) ?? []) {
-      if (entry !== active) await rm(path.join(this.dataDir, COPIES, entry), { recursive: true, force: true });
+      if (!kept.has(entry)) await rm(path.join(this.dataDir, COPIES, entry), { recursive: true, force: true });
     }
   }
 

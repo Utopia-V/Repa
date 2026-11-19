@@ -8,7 +8,7 @@ import { ModelTestDriver } from "@repa/base/testing";
 import { connectLearning } from "../src/flow.js";
 import { createLearningPlugin } from "../src/plugin.js";
 
-test("学习插件为空的新空间写测试版也能读的版本 3，第一次写入学习记录时才升到 4；重开兼容可忽略字段，没有写入时保持原标记", async (t) => {
+test("学习插件为空的新空间直接写当前的版本 5；重开兼容可忽略字段，写入学习记录时不改标记", async (t) => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-format-")));
   const space = await createSpace(path.join(root, "space"), { watch: false });
   let host: Awaited<ReturnType<typeof openPluginHost>> | undefined;
@@ -22,26 +22,28 @@ test("学习插件为空的新空间写测试版也能读的版本 3，第一次
   host = await open();
   assert.deepEqual(host.disabled(), []);
   const format = path.join(space.dataDir, "plugins", "learning", "format.json");
-  assert.deepEqual(JSON.parse(await readFile(format, "utf8")), { version: 3 });
+  assert.deepEqual(JSON.parse(await readFile(format, "utf8")), { version: 5 });
   await host.close();
-  const marker = '{"version":3,"futureOptional":"可忽略"}\n';
+  const marker = '{"version":5,"futureOptional":"可忽略"}\n';
   await writeFile(format, marker);
   host = await open();
   assert.deepEqual(host.disabled(), []);
   assert.equal(await readFile(format, "utf8"), marker);
+  await host.call("learning", "courses.useBundled", {}, { capabilities: {} });
   await host.call("learning", "progress.setGoal", { dailyGoalXp: 30 }, { capabilities: {} });
-  assert.deepEqual(JSON.parse(await readFile(format, "utf8")), { version: 4 });
+  assert.equal(await readFile(format, "utf8"), marker);
 });
 
-test("学习插件坏版本、旧格式、更新版本或记录损坏时停用，已有数据逐字节保留", async (t) => {
+test("学习插件坏版本、旧格式（含测试版的 3 与此前开发版的 4）、更新版本或记录损坏时停用，已有数据逐字节保留", async (t) => {
   for (const [marker, code] of [
     [undefined, "unknown_data_format"],
     ["{损坏", "invalid_data_version"],
     ['{"version":1}\n', "unknown_data_format"],
     ['{"version":2}\n', "unknown_data_format"],
-    ['{"version":3}\n', "invalid_learning_log"],
-    ['{"version":4}\n', "invalid_learning_log"],
-    ['{"version":5}\n', "incompatible_data_version"],
+    ['{"version":3}\n', "unknown_data_format"],
+    ['{"version":4}\n', "unknown_data_format"],
+    ['{"version":5}\n', "invalid_learning_log"],
+    ['{"version":6}\n', "incompatible_data_version"],
   ] as const) {
     const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-learning-format-")));
     const space = await createSpace(path.join(root, "space"), { watch: false });
@@ -60,8 +62,8 @@ test("学习插件坏版本、旧格式、更新版本或记录损坏时停用�
     assert.deepEqual(host.list(), []);
     assert.deepEqual((await readdir(directory)).sort(), before.sort());
     assert.equal(await readFile(path.join(directory, "records.jsonl"), "utf8"), records);
-    if (marker?.includes('"version":1') || marker?.includes('"version":2')) {
-      assert.equal(host.disabled()[0]?.reason.message, "学习记录是旧格式的开发数据，不再读取；删除 .repa/plugins/learning/ 后重新打开空间");
+    if (marker?.includes('"version":1') || marker?.includes('"version":2') || marker?.includes('"version":3') || marker?.includes('"version":4')) {
+      assert.equal(host.disabled()[0]?.reason.message, "学习数据来自旧版本，不再读取。删除空间中的 .repa/plugins/learning 文件夹后重新打开，可重新开始。");
     }
     if (marker === undefined) {
       assert.equal(host.disabled()[0]?.reason.message, "学习插件的数据没有格式标记，可能是旧的开发数据；删除 .repa/plugins/learning/ 后重新打开空间");

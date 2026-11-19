@@ -1,28 +1,30 @@
 /**
- * 测试版固定数据（test/fixtures/test1/）的读数：在给定时刻打开一个空间，取学习插件给出的结果和学习状态，
- * 存成按含义命名、与协议形状无关的字段。标准答案是 v0.1.0-test.1 的代码运行这一份文件得出的；
- * test1-fixtures.test.ts 用现在的代码运行它，逐项比较。
+ * 测试版固定数据（test/fixtures/test1/）的对照读数。产品不读测试版的数据；这里只为检查重放的重构：把测试版写下的学习记录
+ * 在测试一侧直接重放，取学习会话给出的状态与重放出的学习状态，存成按含义命名、与协议形状无关的字段，与测试版自己算出的标准答案比较。
+ * 学生模型改成按知识点时，连同这份固定数据一起退役。
  *
- * 读数有两个来源：插件方法的返回值（state.get、progress.get、building.get、settings.get，调用方的能力与桌面端的 Web 前端相同），
- * 以及方法不直接给出、升级后也不能变的学习状态（每项任务的结论、每笔 XP、学生模型、补救、测验），后者取自学习会话的内部结构。
- * 以后协议或内部结构改了，这里的取法跟着改，标准答案不改。
+ * 课程取这个空间当时用的那一门：换用过的副本（course.json 的 active），没有换用过就是随包的课，用冻结的测试版那一份结构
+ * （test1/python-structure.json）与现在随包的课程内容。全部任务按这份结构解释（Replay 的 Legacy），与测试版一样。
+ * 学习记录只读：会话的写入一律拒绝，读数期间不会写下任何事实。
  *
  * 经 test1-read.ts 以子进程运行：时区要在进程启动时定下，学习插件按进程的时区算本地日期。
  */
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { cp, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { openPluginHost, openSpace, RepaFault } from "@repa/base";
+import { fileURLToPath } from "node:url";
+import { RepaFault } from "@repa/base";
+import type { Host } from "@repa/base/plugin";
 import { ModelTestDriver } from "@repa/base/testing";
 import type { ClientCapabilities } from "@repa/base/protocol";
-import { connectLearning } from "../../src/flow.js";
+import { scoped, unscoped } from "../../src/course-key.js";
+import { loadCourseSources, type ResolvedCourse } from "../../src/course-sources.js";
+import { courseStructure, StructureIndex, type CourseStructure } from "../../src/course-structure.js";
 import { emptyFold, foldTask, taskEvidence, type TaskEvidence } from "../../src/flow-state.js";
 import { STUDENT_MODEL } from "../../src/parameters.js";
-import { createLearningPlugin, legacyBaseline, test1Python } from "../../src/plugin.js";
 import { CourseStore } from "../../src/space-course.js";
-import type { CourseBuilding, LearningState, LearningSettings, Submission } from "../../src/protocol.js";
-import { LearningRecords } from "../../src/records.js";
-import { LearningSession, needsBaseline } from "../../src/session.js";
+import type { LearningState, Submission } from "../../src/protocol.js";
+import type { LearningRecords } from "../../src/records.js";
+import { LearningSession } from "../../src/session.js";
 import { DAY_MS, topicDue, topicMemory } from "../../src/student-model.js";
 import type { Fact } from "../../src/records-schema.js";
 
@@ -33,6 +35,10 @@ export const WEB_CAPABILITIES: ClientCapabilities = {
 };
 /** 取数时进程的时区：试用者在中国。 */
 export const TIME_ZONE = "Asia/Shanghai";
+
+/** 测试版 v0.1.0-test.1 随包的 Python 课的结构，冻结在固定数据里；摘要见 test1/README.md。 */
+export const TEST1_PYTHON = fileURLToPath(new URL("./test1/python-structure.json", import.meta.url));
+const BUNDLED = fileURLToPath(new URL("../../courses/python/", import.meta.url));
 
 /** 把固定数据里的一个空间复制到 target；facts 给出时只留学习记录的前这么多行，即当时盘上的样子（学习记录只追加）。 */
 export async function copySpace(source: string, target: string, facts?: number): Promise<void> {
@@ -66,7 +72,7 @@ function tasks(session: LearningSession) {
   const evidences: TaskEvidence[] = [];
   let fold = emptyFold();
   for (const task of replay.tasks.slice(0, -1)) {
-    const evidence = taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? ""));
+    const evidence = taskEvidence(task, fold.lessons.get(scoped(task.course, task.topicIds[0] ?? "")));
     evidences.push(evidence);
     fold = foldTask(fold, evidence, STUDENT_MODEL);
   }
@@ -101,7 +107,7 @@ function student(fold: ReturnType<LearningSession["replay"]["fold"]>, now: numbe
   return Object.fromEntries(Object.keys(model).sort().map((id) => {
     const state = model[id]!;
     const dueDay = state.lastRepetitionDay + state.interval * Math.log2(state.memory / STUDENT_MODEL.dueMemory);
-    return [id, {
+    return [unscoped(ORACLE_KEY, id) ?? `?${id}`, {
       repNum: state.repNum, memory: state.memory, speed: state.speed, lastRepetitionDay: state.lastRepetitionDay, interval: state.interval,
       memoryNow: topicMemory(model, id, now), dueNow: topicDue(model, id, now), dueAt: Math.round(dueDay * DAY_MS),
     }];
@@ -163,21 +169,6 @@ function menu(state: LearningState) {
   };
 }
 
-function building(entry: CourseBuilding) {
-  return {
-    course: entry.course,
-    parts: entry.parts.map((part) => ({ topic: part.topicId, title: part.title, status: part.status, sources: part.sources })),
-    expansion: entry.expansion,
-    lastFailure: entry.lastFailure === null ? null : { topics: entry.lastFailure.topicIds, at: entry.lastFailure.at, code: entry.lastFailure.code, message: entry.lastFailure.message ?? null },
-    conversation: entry.sessionId,
-  };
-}
-
-/** 一次取数：插件方法的原样返回值（只用来核对进程内与后端给出的一致，不进标准答案），以及按含义命名的读数。 */
-export interface Reading {
-  raw: { state: unknown; progress: unknown; building: unknown; settings: unknown };
-  meaning: unknown;
-}
 
 /**
  * 学习状态的读数：插件方法给出的状态与进度，以及取自学习会话内部结构的重放结果。调用前已按读数时刻 settle 过（view 会做）。
@@ -189,9 +180,8 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
   const quizTask = state.task && (state.task.kind === "quiz" || state.task.kind === "retake") ? state.task : null;
   return {
     serverNow: state.serverNow,
-    // 学习事实的条数。首次打开测试版数据时插件追加一条旧日志基线，新任务之前还可能有课程结构事实：它们记的是怎样解释学习记录，
-    // 不是学习者做过的事，所以不计；其余各项读数照常包括基线之后的全部事实。
-    factCount: session.records.facts.filter((fact) => fact.type !== "baseline" && fact.type !== "structure").length,
+    // 学习事实的条数；课程结构事实记的是怎样解释学习记录，不是学习者做过的事，不计（测试版的数据里没有）。
+    factCount: session.records.facts.filter((fact) => fact.type !== "structure").length,
     course: state.course,
     progress,
     restriction: state.restrictions,
@@ -202,10 +192,10 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
     awards: replay.awards.map((award) => ({ task: award.task, xp: award.xp, at: award.at, quiz: award.quiz })),
     xp: { total: replay.total, quizTrigger: replay.trigger },
     student: student(fold, state.serverNow),
-    lessonProgress: fold.lessons,
-    lessonFailures: fold.failures,
-    reviewFailures: fold.reviewFailures,
-    remediation: fold.forced,
+    lessonProgress: bare(fold.lessons),
+    lessonFailures: bare(fold.failures),
+    reviewFailures: bare(fold.reviewFailures),
+    remediation: bare(fold.forced),
     consecutiveReviews: fold.consecutiveReviews,
     quiz: {
       started: replay.consumed,
@@ -215,46 +205,112 @@ function learningMeaning(session: LearningSession, state: LearningState, progres
   };
 }
 
-/** model 为假时没有可用的模型，与试用者删掉了 key 时相同：开放题不出，也不补判。 */
-export async function readSpace(root: string, now: number, model = true): Promise<Reading> {
-  let session: LearningSession | undefined;
-  const plugin = createLearningPlugin({
-    connect: async (opened) => {
-      session = opened;
-      return connectLearning(opened);
-    },
-  });
+
+/**
+ * 只读的学习记录：测试版写下的事实原样交给会话（不经现在的格式校验，那些任务还没有结构引用），任何写入都拒绝。
+ * 尾部按残缺处理，会话打开时的补判也就不写。
+ */
+function frozenRecords(facts: Fact[]): LearningRecords {
+  const refuse = () => Promise.reject(new RepaFault("learning_log_blocked", "对照用的学习记录只读"));
+  return {
+    file: "",
+    facts,
+    revision: facts.length,
+    incompleteTail: true,
+    fact: (seq: number) => facts[seq - 1],
+    listen: () => () => {},
+    serial: <T>(action: () => Promise<T>) => action(),
+    write: refuse,
+    close: async () => {},
+  } as unknown as LearningRecords;
+}
+
+/** 空间当时学的课（每个空间读一次）：换用过的副本与它的结构，没有换用过就是现在随包的课程内容与冻结的测试版结构。 */
+const courses = new Map<string, Promise<{ resolved: ResolvedCourse; structure: CourseStructure }>>();
+function spaceCourse(root: string): Promise<{ resolved: ResolvedCourse; structure: CourseStructure }> {
+  let found = courses.get(root);
+  if (!found) {
+    found = loadSpaceCourse(root);
+    courses.set(root, found);
+  }
+  return found;
+}
+
+async function loadSpaceCourse(root: string): Promise<{ resolved: ResolvedCourse; structure: CourseStructure }> {
+  const dataDir = path.join(root, ".repa", "plugins", "learning");
+  let active: string | undefined;
+  try {
+    active = (JSON.parse(await readFile(path.join(dataDir, "course.json"), "utf8")) as { active?: string }).active;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  if (active !== undefined) {
+    const resolved = await new CourseStore(dataDir).load(active);
+    return { resolved, structure: courseStructure(resolved) };
+  }
+  const files = { read: () => Promise.reject(new Error("不读空间文件")), write: () => Promise.reject(new Error("不写")), list: async () => [] };
+  return {
+    resolved: await loadCourseSources([{ kind: "bundled", directory: BUNDLED }], files),
+    structure: JSON.parse(await readFile(TEST1_PYTHON, "utf8")) as CourseStructure,
+  };
+}
+
+/**
+ * 对照时这门课的键。测试版的任务没有记课的键，全部归它；学习状态的键因此带上“oracle:”，取数时去掉（见 bare），
+ * 学习者看不到这些键，标准答案里是测试版的裸编号。
+ */
+const ORACLE_KEY = "oracle";
+
+/** 学习状态的键去掉对照的课的键，得到测试版的裸编号。 */
+function bare<T>(map: Map<string, T> | Record<string, T>): Map<string, T> {
+  const entries = map instanceof Map ? [...map] : Object.entries(map);
+  return new Map(entries.map(([key, value]) => [unscoped(ORACLE_KEY, key) ?? `?${key}`, value]));
+}
+
+/** 一份对照用的学习会话：facts 是学习记录，时钟由 clock.now 给出，model 为假时没有可用的模型（与试用者删掉了 key 时相同）。 */
+async function oracle(root: string, facts: Fact[], clock: { now: number }, model: boolean) {
+  const { resolved, structure } = await spaceCourse(root);
   const models = new ModelTestDriver();
   if (!model) models.setDefaultModel(undefined);
-  const space = await openSpace(root, { watch: false });
-  const errors: unknown[] = [];
-  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
+  // 会话只用宿主的时钟、模型、通知与前端服务；前端服务（运行 Python）这里没有。
+  const host = {
+    now: () => clock.now,
+    emit: () => {},
+    models,
+    services: { call: () => Promise.reject(new RepaFault("service_unavailable", "没有前端")) },
+  } as unknown as Host;
+  return LearningSession.open(frozenRecords(facts), resolved, host, ORACLE_KEY, { upTo: facts.length, structure: new StructureIndex(structure), key: ORACLE_KEY });
+}
+
+/** 一个空间学习记录的全部事实。 */
+async function spaceFacts(root: string): Promise<Fact[]> {
+  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
+  return (await readFile(file, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
+}
+
+/** 一次取数：按含义命名的读数。 */
+export interface Reading {
+  meaning: unknown;
+}
+
+/**
+ * 在 now 读一个空间。取法与测试版经插件方法取数相同：每次方法调用先按调用方的能力在后台补判，再取状态；有可用模型时假模型判不了，
+ * 这份作答显示为判分失败。做课的状态与设置（building.get、settings.get）是插件一层的读数，产品不再为测试版的数据打开插件，不在其中。
+ */
+export async function readSpace(root: string, now: number, model = true): Promise<Reading> {
+  const clock = { now };
+  const session = await oracle(root, await spaceFacts(root), clock, model);
   try {
-    const disabled = host.disabled();
-    if (disabled.length > 0) throw new Error(`插件被停用：${JSON.stringify(disabled)}`);
-    const call = (method: string) => host.call("learning", method, {}, { capabilities: WEB_CAPABILITIES });
-    const state = await call("state.get") as LearningState;
-    const progress = await call("progress.get") as { serverNow: number; progress: LearningState["progress"] };
-    const built = await call("building.get") as CourseBuilding;
-    // 花费由宿主汇总会话的用量，换了宿主就不同，不是学习插件的读数。
-    const { cost: _cost, ...buildingRaw } = built;
-    const settings = await call("settings.get") as LearningSettings;
-    if (!session) throw new Error("学习会话没有打开");
+    session.autoGrade(WEB_CAPABILITIES);
+    const state = await session.state(WEB_CAPABILITIES);
+    session.autoGrade(WEB_CAPABILITIES);
+    const progress = (await session.state(WEB_CAPABILITIES)).progress;
     await session.view(WEB_CAPABILITIES);
-    const meaning = {
-      ...learningMeaning(session, state, progress.progress),
-      building: building(built),
-      autoExpand: settings.autoExpand,
-    };
+    const meaning = learningMeaning(session, state, progress);
     await session.idle();
-    // 读数不应写下任何事实：取数之前已没有待判的作答，或者待判的作答此刻判不了。
-    if (session.records.revision !== state.revision) throw new Error(`读数期间写下了事实：${state.revision} → ${session.records.revision}`);
-    if (errors.length > 0) throw errors[0];
-    return { raw: plain({ state, progress, building: buildingRaw, settings }) as Reading["raw"], meaning: plain(meaning) };
+    return { meaning: plain(meaning) };
   } finally {
-    await host.close();
-    await space.close();
+    await session.retire();
   }
 }
 
@@ -282,94 +338,30 @@ export interface PrefixReading {
 }
 
 /**
- * 对一个空间学习记录的每个前缀（0 行到全部）取读数，课程取这个空间打开时实际用的那一门。前缀之后的学习记录当作还没写下：
- * 每个前缀单独写一份学习记录，末尾加一段不完整的行，学习记录就只读不写（与测试版读到半行时相同），打开时的补判不会写进去，
- * 读到的就是这个前缀本身。读数直接取自学习会话的 view，不经插件方法，所以也不触发按调用方能力的后台补判。
+ * 对一个空间学习记录的每个前缀（0 行到全部）取读数，课程取这个空间当时用的那一门。读数直接取自学习会话的 view，
+ * 不经插件方法，所以也不触发按调用方能力的后台补判。
  */
-export async function readPrefixes(root: string, model = true, baseline = false): Promise<PrefixReading[]> {
-  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
-  const lines = (await readFile(file, "utf8")).split("\n").filter(Boolean);
-  const facts = lines.map((line) => JSON.parse(line) as Fact);
-  let session: LearningSession | undefined;
-  let now = facts.at(-1)?.at ?? 0;
-  const plugin = createLearningPlugin({
-    connect: async (opened) => {
-      session = opened;
-      return connectLearning(opened);
-    },
-  });
-  const models = new ModelTestDriver();
-  if (!model) models.setDefaultModel(undefined);
-  const space = await openSpace(root, { watch: false });
-  const errors: unknown[] = [];
-  // 升级测试版数据之前插件要等一次备份成功；这里是取数用的副本，备份什么也不做。
-  const host = await openPluginHost({ space, plugins: [plugin], now: () => now, models, backup: async () => {}, emit: () => {}, onError: (error) => errors.push(error) });
-  const scratch = await mkdtemp(path.join(os.tmpdir(), "repa-test1-prefix-"));
-  try {
-    const disabled = host.disabled();
-    if (disabled.length > 0) throw new Error(`插件被停用：${JSON.stringify(disabled)}`);
-    if (!session) throw new Error("学习会话没有打开");
-    const opened = session;
-    const results: PrefixReading[] = [];
-    for (let count = 0; count <= lines.length; count++) {
-      const prefix = path.join(scratch, `${count}.jsonl`);
-      const start = facts[Math.max(0, count - 1)]?.at ?? now;
-      let written = lines.slice(0, count);
-      if (baseline) {
-        // 真实的基线选择：与插件首次打开时调用同一个 legacyBaseline，把它选出的基线接在前缀后面，按插件写入的样子。
-        // 末尾仍加半行，学习记录只读不写，打开时的补判不会写进去。
-        await writeFile(prefix, written.map((line) => `${line}\n`).join(""));
-        const complete = await LearningRecords.open(prefix);
-        if (needsBaseline(complete)) {
-          const choice = await legacyBaseline({
-            records: complete, store: new CourseStore(path.join(root, ".repa", "plugins", "learning")), files: opened.host.files, now: start, bundled: test1Python,
-          });
-          if (choice !== "broken") {
-            written = [...written, JSON.stringify({ seq: count + 1, at: start, type: "baseline", rules: "test1", ...(choice.structure ? { structure: choice.structure } : {}) })];
-          }
-        }
-        await complete.close();
+export async function readPrefixes(root: string, model = true): Promise<PrefixReading[]> {
+  const facts = await spaceFacts(root);
+  const results: PrefixReading[] = [];
+  for (let count = 0; count <= facts.length; count++) {
+    const start = facts[Math.max(0, count - 1)]?.at ?? 0;
+    const clock = { now: start };
+    const session = await oracle(root, facts.slice(0, count), clock, model);
+    // 换课以后用新课读旧前缀时，可能停在新课里没有的知识点上，测试版此时读不出状态；报错也是读数。
+    const read = async (): Promise<Record<string, unknown>> => {
+      try {
+        const view = await session.view(WEB_CAPABILITIES);
+        return plain(learningMeaning(session, view.state, view.state.progress)) as Record<string, unknown>;
+      } catch (error) {
+        return { error: error instanceof RepaFault ? `${error.code}: ${error.message}` : String(error) };
       }
-      await writeFile(prefix, `${written.map((line) => `${line}\n`).join("")}{`);
-      const records = await LearningRecords.open(prefix);
-      if (baseline && records.revision !== count && records.baseline === undefined) throw new Error(`第 ${count} 个前缀的基线没有读出来`);
-      now = start;
-      const prefixSession = await LearningSession.open(records, opened.course.course, opened.host);
-      // 换课以后用新课读旧前缀时，可能停在新课里没有的知识点上，测试版此时读不出状态；报错也是读数。
-      const read = async (): Promise<Record<string, unknown>> => {
-        try {
-          const view = await prefixSession.view(WEB_CAPABILITIES);
-          return plain(learningMeaning(prefixSession, view.state, view.state.progress)) as Record<string, unknown>;
-        } catch (error) {
-          return { error: error instanceof RepaFault ? `${error.code}: ${error.message}` : String(error) };
-        }
-      };
-      const at = await read();
-      now = start + PREFIX_LATER_MS;
-      const later = await read();
-      await prefixSession.retire();
-      if (records.revision !== written.length) throw new Error(`取数期间写下了事实：${written.length} → ${records.revision}`);
-      results.push({ facts: count, at, later });
-    }
-    if (errors.length > 0) throw errors[0];
-    return results;
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
-    await host.close();
-    await space.close();
+    };
+    const at = await read();
+    clock.now = start + PREFIX_LATER_MS;
+    const later = await read();
+    await session.retire();
+    results.push({ facts: count, at, later });
   }
-}
-
-/**
- * 升级以后再收到同一笔合法的补判：先在最后一条事实的时刻打开（插件写下旧日志基线）取一次读数，关闭后把补判 line 追加到学习记录末尾
- * （序号接在基线之后，引用的作答不变），再在补判的时刻打开取一次。用来与测试版收到同一笔补判前后的读数比较。
- */
-export async function readRegrade(root: string, line: string, model = true): Promise<[Reading, Reading]> {
-  const file = path.join(root, ".repa", "plugins", "learning", "records.jsonl");
-  const facts = (await readFile(file, "utf8")).split("\n").filter(Boolean).map((entry) => JSON.parse(entry) as Fact);
-  const before = await readSpace(root, facts.at(-1)?.at ?? 0, model);
-  const written = (await readFile(file, "utf8")).split("\n").filter(Boolean).length;
-  const fact = { ...(JSON.parse(line) as Fact), seq: written + 1 };
-  await writeFile(file, `${await readFile(file, "utf8")}${JSON.stringify(fact)}\n`);
-  return [before, await readSpace(root, fact.at, model)];
+  return results;
 }

@@ -49,8 +49,8 @@ function Learn({ space }: { space: string }) {
   const abortTask = useAppStore((state) => state.abortTask);
   const [concept, setConcept] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(false);
-  // 在做课的起点选了改学随包的课；开始一节课以后学习记录里有了任务，起点本来就不再出现。
-  const [bundledChosen, setBundledChosen] = useState(false);
+  const useBundledCourse = useAppStore((state) => state.useBundledCourse);
+  const [bundledError, setBundledError] = useState<unknown>();
   const asking = useAppStore((state) => state.asks.some((ask) => ask.closed === undefined));
   const conversation = useAppStore((state) => state.conversation);
   const [confirmAbort, setConfirmAbort] = useState(false);
@@ -121,9 +121,8 @@ function Learn({ space }: { space: string }) {
   const goal = Math.min(100, Math.round(progress.todayXp / progress.dailyGoalXp * 100));
   // 做课：有了自制课或做课的对话以后显示整门课的全貌。
   const making = building !== undefined && (building.course !== null || makingSession !== undefined);
-  // 一个空间学一门课。还没有选定课的空间（没有自制课、没有做课的对话，也没有开始过任何任务，或者根本没有可学的课）
-  // 整页是做课的起点；已经在学随包课的空间照旧。revision 只是学习记录的位置，不用它判断开始过没有。
-  const startable = building !== undefined && !making && !active && !bundledChosen && (!state.started || state.course === null);
+  // 这一步一个空间学一门课。还没有可学的课、也没有做课的对话时，整页是做课的起点；随包的课要学习者选了才是空间里的课。
+  const startable = building !== undefined && !making && !active && state.course === null;
   // 只有轮廓、还没有能学的部分时，Agent 正在和学习者商量轮廓，菜单那句“现在没有可以开始的内容”放在这里不对，不显示。
   const outlineOnly = making && !building.parts.some((part) => part.status !== "outline");
   // 还没有换用过自制课时，学的不是随包的那门：标题栏与起点一样，不显示随包课的课名和今日 XP。
@@ -177,8 +176,9 @@ function Learn({ space }: { space: string }) {
           </div>}
           {startable && <MakingStart
             onStarted={() => setPanelOpen(true)}
-            onUseBundled={state.course === null ? undefined : () => setBundledChosen(true)}
+            onUseBundled={() => { setBundledError(undefined); useBundledCourse().catch(setBundledError); }}
           />}
+          {bundledError !== undefined && <ErrorNotice title={t("learn.useBundled.error")} error={bundledError} />}
           {!startable && !outlineOnly && menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} />}
           {/* 上课、做题时整门课不出现，学习者专心在任务上；任务结束回到菜单时再出现。 */}
           {making && !active && (building.parts.length > 0 || building.course !== null

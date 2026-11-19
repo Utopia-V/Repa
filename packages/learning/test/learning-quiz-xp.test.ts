@@ -22,7 +22,7 @@ import type { Replay } from "../src/replay.js";
 import type { LearningSession } from "../src/session.js";
 import { topicDue, updateStudent } from "../src/student-model.js";
 import type { Topic } from "../src/format/schema.js";
-import { course as baseCourse } from "./fixtures/learning-session.js";
+import { bareFold, course as baseCourse } from "./fixtures/learning-session.js";
 
 const start = Date.UTC(2026, 9, 12, 12);
 
@@ -128,6 +128,8 @@ async function fixture(
     return parse(learningMethods[method].result, result) as LearningResult<M>;
   }
   const state = () => call("state.get", {});
+  // 新空间里没有课：学习者选了随包的课（这里是测试的课）。
+  await call("courses.useBundled", {});
   /** 像前端那样选菜单里的候选：四种类型都用 menu.select，不按类型分发。 */
   async function select(kind: "lesson" | "review" | "quiz" | "retake", id?: string) {
     const current = await state();
@@ -194,7 +196,12 @@ async function fixture(
     },
     session: learningSession,
     replay: () => learningSession().replay,
+    /** 学习状态，去掉这门课的键（见 bareFold）；交给产品函数时用 rawFold。 */
     fold: async () => {
+      await learningSession().view();
+      return bareFold(learningSession().replay.fold(), learningSession().key);
+    },
+    rawFold: async () => {
       await learningSession().view();
       return learningSession().replay.fold();
     },
@@ -255,7 +262,7 @@ test("149／150 XP 触发一次测验，保留早期 topic；延后窗口允许�
   assert.equal((await f.state()).menu?.candidates.some((entry) => entry.kind === "retake"), false);
   await f.select("lesson", "t5");
   await f.finishTask();
-  const topics = sampleTopics(f.replay().tasks, await f.fold(), f.session().structure, 2);
+  const topics = sampleTopics(f.replay().tasks, await f.rawFold(), f.session().structure, f.session().key, 2);
   assert.equal(topics.length, 5);
   assert.ok(topics.slice(0, 2).every((id) => ["t4", "t5"].includes(id)));
 });
@@ -467,10 +474,10 @@ test("重判使课失去已学状态时 XP 不收回、已出现的测验门槛�
   // 剩余时长按 XP 计的学习量算，复习不另加。只有两天学过时不给估算。
   const awards = [1, 2, 3].map((days) => ({ task: 1, xp: 7, at: start - days * 86_400_000, quiz: false }));
   const replay = { awards, total: 21, goal: undefined } as unknown as Replay;
-  const progress = progressView(replay, await f.fold(), f.session().structure, start, "UTC");
+  const progress = progressView(replay, await f.rawFold(), f.session().structure, f.session().key, start, "UTC");
   assert.equal(progress.day, "2026-10-12");
   assert.equal(progress.etaDate, "2026-11-13");
-  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.fold(), f.session().structure, start, "UTC").etaDate, null);
+  assert.equal(progressView({ awards: awards.slice(0, 2), total: 14, goal: undefined } as unknown as Replay, await f.rawFold(), f.session().structure, f.session().key, start, "UTC").etaDate, null);
   assert.equal((await f.state()).progress.etaDate, null);
 });
 
@@ -942,11 +949,11 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   }));
   const index = new StructureIndex(courseStructure({ course: { ...baseCourse, topics: ids }, topics, origins: {} }));
   const fold = emptyFold();
-  fold.student = Object.fromEntries(ids.map((id) => [id, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
+  fold.student = Object.fromEntries(ids.map((id) => [`k:${id}`, { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 }]));
   let seq = 0;
   /** 一场测验：answered 里的题作答了，unanswered 里的题只出了、没有作答。 */
   const quiz = (kind: "quiz" | "retake", answered: string[], unanswered: string[]): TaskRecord => {
-    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], structure: index, deliveries: [], answered: [], timedOut: false };
+    const task: TaskRecord = { seq: ++seq, at: 0, kind, topicIds: [], course: "k", structure: index, deliveries: [], answered: [], timedOut: false };
     for (const questionId of [...answered, ...unanswered]) {
       const delivery: DeliveryRecord = { seq: ++seq, at: 0, task, questionId, seed: 0, grades: [] };
       task.deliveries.push(delivery);
@@ -962,12 +969,12 @@ test("测验先选以往测验（含换题重考）测过次数最少的 topic�
   const once = ["a", "b", "c", "d", "e"];
   const orders = new Set<string>();
   for (let n = 1; n <= 10; n++) {
-    const selected = sampleTopics(tasks, fold, index, n);
+    const selected = sampleTopics(tasks, fold, index, "k", n);
     assert.equal(selected.length, 5);
     assert.equal(selected[0], "g");
     assert.equal(selected.includes("f"), false);
     assert.ok(selected.slice(1).every((id) => once.includes(id)));
-    assert.deepEqual(sampleTopics(tasks, fold, index, n), selected);
+    assert.deepEqual(sampleTopics(tasks, fold, index, "k", n), selected);
     orders.add(selected.join(","));
   }
   // 测过次数相同的 a 到 e 由各场的 seed 决定次序：不同的场次排出不同的结果。

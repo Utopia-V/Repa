@@ -2,6 +2,7 @@
  * 换用课程是一次先验证、后发布的操作：副本落盘、按副本建好新会话，再原子写 course.json；发布以后才按新内容补判，最后清理别的副本。
  * 换用一版删了题、改了 topic 组成的课，过去的结论与 XP 不变；只改答案时，符合条件的旧作答确实重判。
  */
+import { scoped } from "../src/course-key.js";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -32,7 +33,7 @@ async function fixture(t: TestContext) {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-course-switch-")));
   const root = path.join(directory, "space");
   let space = await createSpace(root, { watch: false });
-  await cp(EXAMPLE, path.join(root, "course"), { recursive: true });
+  await cp(EXAMPLE, path.join(root, "courses", "space", "course"), { recursive: true });
   let session: LearningSession | undefined;
   const control = { fail: false };
   const plugin = createLearningPlugin({
@@ -61,15 +62,15 @@ async function fixture(t: TestContext) {
   };
   /** 改写空间 course/ 里的一个 topic 并补上核对记录。 */
   const editTopic = async (id: string, change: (topic: Record<string, unknown>) => void) => {
-    const file = path.join(root, "course", "topics", `${id}.yaml`);
+    const file = path.join(root, "courses", "space", "course", "topics", `${id}.yaml`);
     const value = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
     delete value.verified;
     change(value);
     await writeFile(file, await withRecords(stringify(value, { aliasDuplicateObjects: false })));
   };
   // os02 在示例课里是轮廓；照 os01 写成完整的一节，课程里就有两节可学。
-  const os01 = await readFile(path.join(root, "course", "topics", "os01.yaml"), "utf8");
-  await writeFile(path.join(root, "course", "topics", "os02.yaml"), os01.replaceAll("os01", "os02").replace("title: 进程的三种基本状态", "title: 进程状态再练"));
+  const os01 = await readFile(path.join(root, "courses", "space", "course", "topics", "os01.yaml"), "utf8");
+  await writeFile(path.join(root, "courses", "space", "course", "topics", "os02.yaml"), os01.replaceAll("os01", "os02").replace("title: 进程的三种基本状态", "title: 进程状态再练"));
   for (const id of ["os01", "os02"]) await editTopic(id, () => {});
   /** 上一节课：answer 给出某道题的作答，缺省按参考答案。 */
   const lesson = async (topic: string, answer?: (question: string) => LearnerResponse | undefined) => {
@@ -101,16 +102,23 @@ async function fixture(t: TestContext) {
     host = await open();
   };
   const facts = async () => (await readFile(path.join(root, DATA, "records.jsonl"), "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
-  const active = async () => (JSON.parse(await readFile(path.join(root, DATA, "course.json"), "utf8")) as { active: string }).active;
+  /** 登记里那门课换用的副本。 */
+  const active = async () => (JSON.parse(await readFile(path.join(root, DATA, "course.json"), "utf8")) as { courses: { copy?: string }[] }).courses[0]?.copy ?? "";
+  /** 把登记里那门课换用的副本改成 copy，其余不变。 */
+  const point = async (copy: string) => {
+    const file = path.join(root, DATA, "course.json");
+    const choice = JSON.parse(await readFile(file, "utf8")) as { courses: { copy?: string }[] };
+    await writeFile(file, `${JSON.stringify({ courses: choice.courses.map((entry, index) => (index === 0 ? { ...entry, copy } : entry)) })}\n`);
+  };
   const copies = async () => (await readdir(path.join(root, DATA, "courses"))).sort();
-  return { root, control, call, tool, editTopic, lesson, reopen, facts, active, copies, session: () => session };
+  return { root, control, call, tool, editTopic, lesson, reopen, facts, active, point, copies, session: () => session };
 }
 
 /** 每项任务的结论、每笔 XP 与学生模型。 */
 function history(replay: Replay) {
   let fold = emptyFold();
   const outcomes = replay.tasks.map((task, index) => {
-    const evidence = index === replay.tasks.length - 1 ? replay.currentEvidence() : taskEvidence(task, fold.lessons.get(task.topicIds[0] ?? ""));
+    const evidence = index === replay.tasks.length - 1 ? replay.currentEvidence() : taskEvidence(task, fold.lessons.get(scoped(task.course, task.topicIds[0] ?? "")));
     if (index < replay.tasks.length - 1 && evidence) fold = foldTask(fold, evidence);
     return [task.seq, evidence?.outcome ?? null];
   });
@@ -222,14 +230,14 @@ test("发布前、发布后中断：发布前重开仍是旧的课，不按新�
   // 盘上做成“发布之前断电”的样子：新的副本已落盘，course.json 仍指向旧的，学习记录里没有按新内容的判分。
   await f.reopen(async () => {
     await cp(saved, path.join(data, "courses", old), { recursive: true });
-    await writeFile(path.join(data, "course.json"), `${JSON.stringify({ active: old })}\n`);
+    await f.point(old);
     await writeFile(path.join(data, "records.jsonl"), log);
   });
   assert.equal(await f.active(), old);
   assert.deepEqual(await readFile(path.join(data, "records.jsonl")), log);
   // 再做成“发布之后、补判之前断电”：course.json 指向新的，学习记录同上。
   await f.reopen(async () => {
-    await writeFile(path.join(data, "course.json"), `${JSON.stringify({ active: fresh })}\n`);
+    await f.point(fresh);
   });
   const added = (await f.facts()).slice(log.toString("utf8").split("\n").filter(Boolean).length);
   assert.deepEqual(added.map((fact) => fact.type === "graded" && fact.verdict), ["correct"]);

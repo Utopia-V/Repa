@@ -11,6 +11,7 @@
  */
 import { Type, type Static, type TSchema } from "typebox";
 import { Value } from "typebox/value";
+import { CourseKeySchema } from "./course-key.js";
 
 import {
   AnswerSchema,
@@ -295,7 +296,8 @@ const phase = Type.Union([
  * 标题取自当前课程：复习、测验期间不能搜索内容，菜单也只在没有进行中的任务时出现，界面只能从任务本身取得这些名称。
  */
 export const LearningTaskSchema = object({
-  taskId: identifier, kind,
+  // course 是任务所属的课在空间里的键。
+  taskId: identifier, kind, course: CourseKeySchema,
   topics: Type.Array(object({ id: identifier, title: Type.String({ maxLength: 200 }) })),
   phase,
   startedAt: nullableTime, deadlineAt: nullableTime,
@@ -310,7 +312,8 @@ export type LearningTask = Static<typeof LearningTaskSchema>;
 export const LearningMenuSchema = object({
   menuId: identifier,
   candidates: Type.Array(object({
-    id: identifier, kind, title: Type.String({ maxLength: 200 }), topicIds: Type.Array(identifier),
+    // course 是候选所属的课在空间里的键，topicIds 是那门课里的编号。
+    id: identifier, kind, title: Type.String({ maxLength: 200 }), topicIds: Type.Array(identifier), course: CourseKeySchema,
     originalTaskId: Type.Optional(identifier),
   }), { maxItems: 3 }),
   // 没有候选时最早什么时候会有（没通过的课或复习休息结束）；说明的文字由界面持有。
@@ -396,6 +399,9 @@ export const ExpansionFailureSchema = object({
  * cost 是做这门课的会话（调用过 course_check、course_use 的会话与后台展开的会话）到现在累计的模型用量。
  */
 export const CourseBuildingSchema = object({
+  // key 与 folder 是这份做课状态属于哪门课：它在空间里的键与文件夹（相对空间根）；空间里还没有自己的课时都为 null。
+  key: Type.Union([CourseKeySchema, Type.Null()]),
+  folder: Type.Union([Type.String(), Type.Null()]),
   course: Type.Union([object({ id: identifier, title: Type.String(), version: identifier }), Type.Null()]),
   parts: Type.Array(object({
     topicId: identifier,
@@ -411,6 +417,20 @@ export const CourseBuildingSchema = object({
 });
 /** 做课的状态。 */
 export type CourseBuilding = Static<typeof CourseBuildingSchema>;
+/**
+ * 空间里的课，按加入的先后：key 是课在空间里的键；folder 是自制课的文件夹（相对空间根），随包的课为 null，bundled 为真；
+ * title 是正在学的那门课清单里的标题，其余为 null；learnable 是换用过或是随包的课；missing 是登记的文件夹已不在（课照常能学）。
+ * canCreate 是能不能在这里新建一门课。
+ */
+export const LearningCoursesSchema = object({
+  courses: Type.Array(object({
+    key: CourseKeySchema, folder: Type.Union([Type.String(), Type.Null()]), bundled: Type.Boolean(),
+    title: Type.Union([Type.String({ maxLength: 200 }), Type.Null()]), learnable: Type.Boolean(), missing: Type.Boolean(),
+  })),
+  canCreate: Type.Boolean(),
+});
+/** 空间里的课。 */
+export type LearningCourses = Static<typeof LearningCoursesSchema>;
 /** 学习插件的设置：autoExpand 为真时，学到已展开部分的尽头之前在后台展开下一段。 */
 export const LearningSettingsSchema = object({ autoExpand: Type.Boolean() });
 /** 学习插件的设置。 */
@@ -459,15 +479,26 @@ export const learningMethods = {
   "progress.setGoal": { input: object({ dailyGoalXp: Type.Integer({ minimum: 1 }) }), result: LearningStateSchema },
   // 做课：整门课的轮廓与各部分的状态、后台展开和花费。expand 立即在后台展开指定的轮廓部分，省略时为课程顺序里最前面的两个；
   // 同一时刻只有一次展开。cancel 取消正在进行的展开。这几个方法不等学习任务，学习者上课时照常可用。
-  "building.get": { input: object({}), result: CourseBuildingSchema },
+  // 做课的几个方法都可以写 course（课的键）；不写时是正在学的那门自己的课，或空间里唯一的一门自己的课。
+  "building.get": { input: object({ course: Type.Optional(CourseKeySchema) }), result: CourseBuildingSchema },
   // 前端新建一个通用 Agent 的会话以后调用：插件记下它是做课的对话（花费算在里面，building.get 给出它），返回发给它的第一条消息。
   // materials 是学习者开始时 materials/ 里有没有课件；request 是学习者写的要求或想学什么，有课件时可以省略。消息里给模型的固定部分由插件写。
   "building.begin": {
-    input: object({ sessionId: identifier, materials: Type.Boolean(), request: Type.Optional(Type.String({ maxLength: 4_000 })) }),
+    input: object({
+      sessionId: identifier, materials: Type.Boolean(), request: Type.Optional(Type.String({ maxLength: 4_000 })), course: Type.Optional(CourseKeySchema),
+    }),
     result: object({ text: Type.String() }),
   },
-  "building.expand": { input: object({ topicIds: Type.Optional(Type.Array(identifier, { minItems: 1, maxItems: 8 })) }), result: CourseBuildingSchema },
-  "building.cancel": { input: object({}), result: CourseBuildingSchema },
+  "building.expand": {
+    input: object({ topicIds: Type.Optional(Type.Array(identifier, { minItems: 1, maxItems: 8 })), course: Type.Optional(CourseKeySchema) }),
+    result: CourseBuildingSchema,
+  },
+  "building.cancel": { input: object({ course: Type.Optional(CourseKeySchema) }), result: CourseBuildingSchema },
+  // 空间里的课。create 在 courses/<name>/ 新建一门课（name 是文件夹名），这一步只在还没有课的空间里建第一门；
+  // useBundled 让随包的课成为空间里的一门课。两者都返回之后的课的列表。
+  "courses.list": { input: object({}), result: LearningCoursesSchema },
+  "courses.create": { input: object({ name: Type.String({ minLength: 1, maxLength: 100 }) }), result: LearningCoursesSchema },
+  "courses.useBundled": { input: object({}), result: LearningCoursesSchema },
   "settings.get": { input: object({}), result: LearningSettingsSchema },
   "settings.set": { input: LearningSettingsSchema, result: LearningSettingsSchema },
   // 导出学习数据：prepare 冻结一份已脱敏的内容并返回清单，create 把同一份内容写成 zip；directory 是绝对路径。

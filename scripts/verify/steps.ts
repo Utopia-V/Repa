@@ -81,6 +81,8 @@ const TUTOR_REPLY = "这一节已经结束，最后一道题是这样想的。";
 const FIX_REQUEST = "第一节问正在执行的进程是什么状态，我写“执行”被判错了，这个说法也该算对。";
 const RESTRUCTURE_REQUEST = "第一节问正在执行的进程是什么状态的那道填空不要了，换一道问只差处理机的题。";
 const QUIZ_COURSE_NAME = "常用单位 走查";
+/** 测验课所在的“Repa 文件夹”的上一级：这一步一个空间只学一门课，测验课在另一个空间里。 */
+const QUIZ_PLACE = "测验";
 const QUIZ_REQUEST = "想学长度、质量和时间单位的换算，三节都学完以后想做一次测验。";
 const QUIZ_TOPICS = ["长度单位", "质量单位", "时间单位"];
 /** 测验课里那道代码题：第二次重考时让它判不出结果。 */
@@ -206,9 +208,14 @@ interface Fact {
   verdict?: string;
 }
 
+/** 一门课所在的空间：走查的课在用户目录下的 Repa，测验课在 QUIZ_PLACE 下的 Repa。 */
+function spaceOf(app: App, course: string): string {
+  return course === QUIZ_COURSE_NAME ? path.join(app.home, QUIZ_PLACE, "Repa") : path.join(app.home, "Repa");
+}
+
 /** 一门课的学习记录。只读文件，不经后端，不改变任何状态。 */
 async function readFacts(app: App, course = COURSE_NAME): Promise<Fact[]> {
-  return (await readFile(path.join(app.home, "Repa", course, ".repa", "plugins", "learning", "records.jsonl"), "utf8"))
+  return (await readFile(path.join(spaceOf(app, course), ".repa", "plugins", "learning", "records.jsonl"), "utf8"))
     .split("\n").filter(Boolean).map((line) => JSON.parse(line) as Fact);
 }
 
@@ -375,10 +382,12 @@ export const STEPS: Step[] = [
       await page.fill("课程名称", COURSE_NAME);
       const hint = await page.waitText("保存位置：");
       const location = /保存位置：(.*)/u.exec(hint)?.[1]?.trim() ?? "";
-      checks.expect("课存在临时 HOME 下的 Repa/<课名>", location === `${app.home}/Repa/${COURSE_NAME}`, location);
+      checks.expect("课存在临时 HOME 下的 Repa/courses/<课名>", location === `${app.home}/Repa/courses/${COURSE_NAME}`, location);
       await page.click("创建");
       const text = await page.waitText("想学的内容与目标", 20_000);
       checks.expect("建好后进入学习页上制作课程的起点", true);
+      checks.expect("Repa 文件夹本身是空间，课在其中的 courses/<课名>/", await access(path.join(app.home, "Repa", ".repa", "format.json")).then(() => true, () => false)
+        && await access(path.join(app.home, "Repa", "courses", COURSE_NAME, "AGENTS.md")).then(() => true, () => false));
       checks.expect("没有模型时提示“还没有可用的模型”", text.includes("还没有可用的模型") && text.includes(strings["making.noModel.description"]));
       const start = await page.find({ name: "开始", selector: "button" });
       checks.expect("没有模型时“开始”不能点", start.found && start.disabled);
@@ -397,7 +406,7 @@ export const STEPS: Step[] = [
       const files = await courseFiles();
       model.setAnswers(await confirmationAnswers());
       model.script(REQUEST, [
-        { tools: files.map((file) => ({ name: "write", arguments: { path: `course/${file.path}`, content: file.content } })) },
+        { tools: files.map((file) => ({ name: "write", arguments: { path: `courses/${COURSE_NAME}/course/${file.path}`, content: file.content } })) },
         { tools: [{ name: "course_check", arguments: {} }] },
         { tools: [{ name: "course_confirm", arguments: { topicIds: ["os01", "os02"] } }] },
         { tools: [{ name: "course_use", arguments: {} }] },
@@ -501,8 +510,8 @@ export const STEPS: Step[] = [
       model.setAnswers(await confirmationAnswers(root));
       model.script(FIX_REQUEST, [
         // 改已有文件之前要先读过它，底座拒绝没读过就改；只改这一行，文件末尾核对时记下的 verified 段原样留着。
-        { tools: [{ name: "read", arguments: { path: "course/topics/os01.yaml" } }] },
-        { tools: [{ name: "edit", arguments: { path: "course/topics/os01.yaml", edits: [{ oldText: "key: [运行, 运行态]", newText: "key: [运行, 运行态, 执行]" }] } }] },
+        { tools: [{ name: "read", arguments: { path: `courses/${COURSE_NAME}/course/topics/os01.yaml` } }] },
+        { tools: [{ name: "edit", arguments: { path: `courses/${COURSE_NAME}/course/topics/os01.yaml`, edits: [{ oldText: "key: [运行, 运行态]", newText: "key: [运行, 运行态, 执行]" }] } }] },
         { tools: [{ name: "course_check", arguments: {} }] },
         { tools: [{ name: "course_confirm", arguments: { topicIds: ["os01"] } }] },
         { tools: [{ name: "course_use", arguments: {} }] },
@@ -642,7 +651,7 @@ export const STEPS: Step[] = [
     async run({ app, page, model }, checks) {
       const before = learnView(await page.text());
       // 删掉学过并改判过的 os01.k1.q2，换上一道新题 os01.k1.q4：第一节的组成变了，题量照旧够。
-      const space = path.join(app.home, "Repa", COURSE_NAME, "course");
+      const space = path.join(app.home, "Repa", "courses", COURSE_NAME, "course");
       const topic = parse(await readFile(path.join(space, "topics", "os01.yaml"), "utf8")) as Record<string, unknown>;
       delete topic.verified;
       const first = (topic.kps as { practice: Record<string, unknown>[] }[])[0];
@@ -661,8 +670,8 @@ export const STEPS: Step[] = [
       }
       model.setAnswers(await confirmationAnswers(root));
       model.script(RESTRUCTURE_REQUEST, [
-        { tools: [{ name: "read", arguments: { path: "course/topics/os01.yaml" } }] },
-        { tools: [{ name: "write", arguments: { path: "course/topics/os01.yaml", content } }] },
+        { tools: [{ name: "read", arguments: { path: `courses/${COURSE_NAME}/course/topics/os01.yaml` } }] },
+        { tools: [{ name: "write", arguments: { path: `courses/${COURSE_NAME}/course/topics/os01.yaml`, content } }] },
         { tools: [{ name: "course_check", arguments: {} }] },
         { tools: [{ name: "course_confirm", arguments: { topicIds: ["os01"] } }] },
         { tools: [{ name: "course_use", arguments: {} }] },
@@ -734,10 +743,10 @@ export const STEPS: Step[] = [
       // 只让后台展开的任务失败；学习者与通用 Agent 的对话照常。
       model.failAgent(402, "在后台展开");
       model.script(OUTLINE_REQUEST, [
-        { tools: [{ name: "read", arguments: { path: "course/course.yaml" } }] },
+        { tools: [{ name: "read", arguments: { path: `courses/${COURSE_NAME}/course/course.yaml` } }] },
         { tools: [
-          { name: "edit", arguments: { path: "course/course.yaml", edits: [{ oldText: "topics: [os01, os02]", newText: "topics: [os01, os02, os03]" }] } },
-          { name: "write", arguments: { path: "course/topics/os03.yaml", content: OUTLINE_TOPIC } },
+          { name: "edit", arguments: { path: `courses/${COURSE_NAME}/course/course.yaml`, edits: [{ oldText: "topics: [os01, os02]", newText: "topics: [os01, os02, os03]" }] } },
+          { name: "write", arguments: { path: `courses/${COURSE_NAME}/course/topics/os03.yaml`, content: OUTLINE_TOPIC } },
         ] },
         { tools: [{ name: "course_check", arguments: {} }] },
         { tools: [{ name: "course_use", arguments: {} }] },
@@ -848,8 +857,9 @@ export const STEPS: Step[] = [
       await page.click({ name: "学习", selector: "a, button" });
       const before = learnView(await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000));
       const sessionsBefore = (await (await app.rpc()).call("session.list", {})).length;
-      const from = path.join(app.home, "Repa", COURSE_NAME);
-      const to = path.join(app.home, "移动后", COURSE_NAME);
+      // 空间就是 Repa 文件夹，课在其中；移走的是整个文件夹。
+      const from = path.join(app.home, "Repa");
+      const to = path.join(app.home, "移动后", "Repa");
       // 学习者关掉应用，在文件管理器里把课程文件夹移走，再打开应用。关闭时的那份备份还在原位置的一组。
       await app.stopBackend();
       const old = await backups(app);
@@ -859,14 +869,15 @@ export const STEPS: Step[] = [
       await app.open();
       const missing = await page.waitText("无法打开上次的空间", 30_000);
       await page.shot("move-space-missing");
-      checks.expect("说明上次的课打不开和原因", missing.includes(`无法打开上次的空间 ${COURSE_NAME}`) && missing.includes("文件夹不存在，可能已被删除或移走。"),
+      checks.expect("说明上次的课打不开和原因", missing.includes("无法打开上次的空间 Repa") && missing.includes("文件夹不存在，可能已被删除或移走。"),
         /无法打开上次的空间[\s\S]{0,60}/u.exec(missing)?.[0]);
-      checks.expect("旧位置不再列在最近打开里", !missing.includes(from));
+      // 空间就是 Repa 文件夹：最近打开里没有别的空间时，第一屏的“保存位置”也写着这个路径，所以按列表里单独的一行判断。
+      checks.expect("旧位置不再列在最近打开里", !missing.split("\n").some((line) => line.trim() === from));
       await page.click({ name: /^选择(其他)?文件夹$/u, selector: "button" });
       await page.waitText("上一级", 10_000);
       await page.click({ name: "移动后", selector: "button" });
       await page.waitText(path.dirname(to), 10_000);
-      await page.click({ name: COURSE_NAME, selector: "button" });
+      await page.click({ name: "Repa", selector: "button" });
       await page.waitText("这是已有的学习空间。", 10_000);
       await page.click({ name: /^打开$/u, selector: "button" });
       const text = await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000);
@@ -876,8 +887,8 @@ export const STEPS: Step[] = [
       const sessionsAfter = (await (await app.rpc()).call("session.list", {})).length;
       checks.expect("会话都还在", sessionsAfter === sessionsBefore, `${sessionsBefore} → ${sessionsAfter}`);
 
-      // 打开了空间时，侧栏里进选空间页的那一项写的是课名。
-      await page.click({ name: COURSE_NAME, selector: "a" });
+      // 打开了空间时，侧栏里进选空间页的那一项写的是空间的文件夹名。
+      await page.click({ name: "Repa", selector: "a" });
       const list = await page.waitText("最近打开", 15_000);
       checks.expect("最近打开里是新位置，没有旧位置", list.includes(to) && !list.includes(from));
 
@@ -891,8 +902,8 @@ export const STEPS: Step[] = [
       // 原位置那一组不会再轮换：在“备份”里整组删掉，新位置的一组不动。
       const oldGroup = path.dirname(old[0] ?? "");
       await page.click({ name: "备份", selector: "button" });
-      await page.click({ name: `删除 ${COURSE_NAME} 的全部备份`, selector: "button" });
-      await until("确认框", async () => (await openDialog(page)) === `删除 ${COURSE_NAME} 的全部备份？`, 10_000);
+      await page.click({ name: "删除 Repa 的全部备份", selector: "button" });
+      await until("确认框", async () => (await openDialog(page)) === "删除 Repa 的全部备份？", 10_000);
       await page.shot("move-space-delete-old-backups");
       const confirm = await page.text();
       checks.expect("确认框写明文件夹已不存在和原来的路径", confirm.includes("该文件夹已不存在。删除后，这些备份无法再用于恢复。") && confirm.includes(from));
@@ -906,20 +917,76 @@ export const STEPS: Step[] = [
     },
   },
   {
+    id: "course-location",
+    title: "新建课程时换位置：选另一个文件夹，它下面的 Repa 是空间，课建在其中；之后新建仍放在那里",
+    async run({ app, page }, checks) {
+      const change = strings["learningSpace.first.location.change.action"];
+      const choose = strings["folderPicker.location.action"];
+      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
+      const other = path.join(app.home, "资料 盘");
+      const folder = path.join(other, "Repa");
+      await mkdir(other, { recursive: true });
+      await page.click({ name: "新建课程", selector: "a" });
+      const first = await page.waitText("保存位置：", 15_000);
+      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
+      await page.click({ name: change, selector: "button" });
+      await page.waitText("上一级", 10_000);
+      await page.click({ name: "资料 盘", selector: "button" });
+      const picked = await page.waitText(other, 10_000);
+      await page.shot("course-location-picker");
+      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
+      await page.click({ name: choose, selector: "button", near: "上一级" });
+      await until("选择框关上", async () => (await openDialog(page)) === "");
+      await page.fill("课程名称", "线性代数");
+      const named = await page.waitText(path.join(folder, "courses", "线性代数"), 10_000);
+      await page.shot("course-location-named");
+      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "courses", "线性代数"), where(named));
+      await page.click({ name: /^创建$/u, selector: "button" });
+      await page.waitText("想学的内容与目标", 20_000);
+      checks.expect("选定位置下的 Repa 是空间，课建在其中", await access(path.join(folder, ".repa", "format.json")).then(() => true, () => false)
+        && await access(path.join(folder, "courses", "线性代数", "AGENTS.md")).then(() => true, () => false));
+
+      await app.reopen();
+      await page.waitText("想学的内容与目标", 30_000);
+      await page.click({ name: "新建课程", selector: "a" });
+      const again = await page.waitText("保存位置：", 15_000);
+      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
+    },
+  },
+  {
     id: "quiz",
     title: "测验：另建一门课从界面学满 150 XP，菜单出现测验；交卷、换题重考、过截止时间、判不出结果的一题",
     async run({ app, page, model }, checks) {
       const questions = await courseQuestions(QUIZ_COURSE);
       const duration = await quizDurationMs();
-      // 另建一门课：走查的课只有两节、每节 15 分钟，学不到出测验的 150 XP。
+      // 另建一门课：走查的课只有两节、每节 15 分钟，学不到出测验的 150 XP。这一步一个空间只学一门课，测验课放在另一个 Repa 文件夹。
+      await mkdir(path.join(app.home, QUIZ_PLACE), { recursive: true });
       await page.click({ name: "新建课程", selector: "a, button" });
+      await page.click({ name: strings["learningSpace.first.location.change.action"], selector: "button" });
+      // 选择框打开的位置不定：读出它列的是哪个文件夹（“上一级”下面那一行），往用户目录走，走到以后点“测验”。
+      const heading = (text: string) => {
+        const lines = text.split("\n").map((line) => line.trim());
+        return lines[lines.indexOf("上一级") + 1] ?? "";
+      };
+      for (let step = 0; step < 6; step++) {
+        const text = await page.waitFor("选择框列出文件夹", (current) => heading(current).startsWith("/"), 10_000);
+        const at = heading(text);
+        if (at === app.home && text.split("\n").some((line) => line.trim() === QUIZ_PLACE)) break;
+        const next = app.home.startsWith(`${at}/`) ? app.home.slice(at.length + 1).split("/")[0] ?? "" : "";
+        await page.click(next === "" ? { name: "上一级", selector: "button" } : { name: next, selector: "button" });
+        await page.waitFor("选择框换了文件夹", (current) => heading(current) !== at, 10_000);
+      }
+      await page.click({ name: QUIZ_PLACE, selector: "button" });
+      await page.waitText(path.join(app.home, QUIZ_PLACE), 10_000);
+      await page.click({ name: strings["folderPicker.location.action"], selector: "button", near: "上一级" });
+      await until("选择框关上", async () => (await openDialog(page)) === "");
       await page.fill("课程名称", QUIZ_COURSE_NAME);
       await page.click("创建");
       await page.waitText("想学的内容与目标", 20_000);
       const files = await courseFiles(QUIZ_COURSE);
       model.setAnswers(await confirmationAnswers(QUIZ_COURSE));
       model.script(QUIZ_REQUEST, [
-        { tools: files.map((file) => ({ name: "write", arguments: { path: `course/${file.path}`, content: file.content } })) },
+        { tools: files.map((file) => ({ name: "write", arguments: { path: `courses/${QUIZ_COURSE_NAME}/course/${file.path}`, content: file.content } })) },
         { tools: [{ name: "course_check", arguments: {} }] },
         { tools: [{ name: "course_confirm", arguments: { topicIds: ["un01", "un02", "un03"] } }] },
         { tools: [{ name: "course_use", arguments: {} }] },
@@ -1046,42 +1113,6 @@ export const STEPS: Step[] = [
       checks.expect("V4 过了截止时间、页面不刷新，画面自己换成时间到", expired);
       const final = await page.waitText(TIMEOUT, 30_000);
       checks.expect("第二次重考按截止时间结束（有一题答错，所以是时间到）", final.includes("重考结束"), wrong);
-    },
-  },
-  {
-    id: "course-location",
-    title: "新建课程时换位置：选另一个文件夹，课建在它下面的 Repa 里；之后新建仍放在那里",
-    async run({ app, page }, checks) {
-      const change = strings["learningSpace.first.location.change.action"];
-      const choose = strings["folderPicker.location.action"];
-      const where = (text: string) => /保存位置：([^\n]*)/u.exec(text)?.[1]?.trim() ?? "";
-      const other = path.join(app.home, "资料 盘");
-      const folder = path.join(other, "Repa");
-      await mkdir(other, { recursive: true });
-      await page.click({ name: "新建课程", selector: "a" });
-      const first = await page.waitText("保存位置：", 15_000);
-      checks.expect("起名之前就写出位置：用户目录下的 Repa", where(first) === path.join(app.home, "Repa"), where(first));
-      await page.click({ name: change, selector: "button" });
-      await page.waitText("上一级", 10_000);
-      await page.click({ name: "资料 盘", selector: "button" });
-      const picked = await page.waitText(other, 10_000);
-      await page.shot("course-location-picker");
-      checks.expect("选择框写出课程将放在选定位置下的 Repa", picked.includes(strings["folderPicker.location.hint"].replace("{path}", folder)));
-      await page.click({ name: choose, selector: "button", near: "上一级" });
-      await until("选择框关上", async () => (await openDialog(page)) === "");
-      await page.fill("课程名称", "线性代数");
-      const named = await page.waitText(path.join(folder, "线性代数"), 10_000);
-      await page.shot("course-location-named");
-      checks.expect("位置换成选定的文件夹", where(named) === path.join(folder, "线性代数"), where(named));
-      await page.click({ name: /^创建$/u, selector: "button" });
-      await page.waitText("想学的内容与目标", 20_000);
-      checks.expect("课建在选定位置下", await access(path.join(folder, "线性代数", ".repa", "format.json")).then(() => true, () => false));
-
-      await app.reopen();
-      await page.waitText("想学的内容与目标", 30_000);
-      await page.click({ name: "新建课程", selector: "a" });
-      const again = await page.waitText("保存位置：", 15_000);
-      checks.expect("重开以后新建仍放在选过的位置", where(again) === folder, where(again));
     },
   },
 ];

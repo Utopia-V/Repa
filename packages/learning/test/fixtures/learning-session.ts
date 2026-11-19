@@ -23,8 +23,29 @@ import {
   type LearningResult,
 } from "../../src/protocol.js";
 import type { LearningSession } from "../../src/session.js";
+import { unscoped } from "../../src/course-key.js";
+import { emptyFold, type Fold } from "../../src/flow-state.js";
 
 export const start = 1_792_454_400_000;
+
+/** 学习状态去掉这门课的键：只留这门课的，键是课里的编号。 */
+export function bareFold(fold: Fold, key: string): Fold {
+  const strip = <T>(map: Map<string, T>) => new Map([...map].flatMap(([id, value]) => {
+    const bare = unscoped(key, id);
+    return bare === undefined ? [] : [[bare, value] as const];
+  }));
+  return {
+    ...fold,
+    student: Object.fromEntries(Object.entries(fold.student).flatMap(([id, value]) => {
+      const bare = unscoped(key, id);
+      return bare === undefined ? [] : [[bare, value]];
+    })),
+    lessons: strip(fold.lessons),
+    failures: strip(fold.failures),
+    reviewFailures: strip(fold.reviewFailures),
+    forced: strip(fold.forced),
+  };
+}
 export const clientCapabilities: ClientCapabilities = {
   interaction: { supports: [...INTERACTION_CAPABILITIES] },
   services: ["python.run"],
@@ -143,6 +164,8 @@ export async function learningFixture(t: { after(cleanup: () => Promise<void>): 
   });
   let space = await createSpace(path.join(root, "space"), { watch: false });
   let host = await open(space);
+  // 新空间里没有课：学习者选了随包的课（这里是测试的课），它才成为空间里的一门课。
+  await host.call("learning", "courses.useBundled", {}, { capabilities: {} });
   t.after(async () => {
     await host.close();
     await space.close();
@@ -220,12 +243,19 @@ export async function learningFixture(t: { after(cleanup: () => Promise<void>): 
     input,
     finishLesson,
     session: learning,
-    /** 包括已结束的当前任务在内的学习状态，先按当前时间结算截止。 */
+    /**
+     * 包括已结束的当前任务在内的学习状态，先按当前时间结算截止。学习状态按“课的键加编号”存；夹具里只有一门课，
+     * 这里去掉课的键，测试照课里的编号核对。交给产品函数时用 rawFold。
+     */
     async fold() {
+      await learning().view();
+      return bareFold(learning().replay.fold(), learning().key);
+    },
+    async rawFold() {
       await learning().view();
       return learning().replay.fold();
     },
-    student: async () => (await learning().view()).student,
+    student: async () => bareFold({ ...emptyFold(), student: (await learning().view()).student }, learning().key).student,
     time: (value: number) => {
       now = value;
     },
@@ -257,6 +287,8 @@ export async function learningFixture(t: { after(cleanup: () => Promise<void>): 
         await copyFile(path.join(source, file), path.join(target, file));
       }
       host = await open(space);
+      // 课的登记不在搬过去的文件里：学习者在新空间里重新选了同一门随包的课，键由包内标识定，与原来的相同。
+      await host.call("learning", "courses.useBundled", {}, { capabilities: {} });
       return files;
     },
     /** 等后台补判结束。 */

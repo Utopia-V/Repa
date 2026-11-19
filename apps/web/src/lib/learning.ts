@@ -319,10 +319,26 @@ export function createLearningActions({ call, get, set }: Deps) {
       const settings = await learningCall("settings.set", { autoExpand });
       set((learning) => ({ ...learning, settings }));
     },
-    /** 记下做课的对话，取回发给它的第一条消息；由 store 的 startMaking 在建好会话以后调用。 */
+    /**
+     * 记下做课的对话，取回发给它的第一条消息；由 store 的 startMaking 在建好会话以后调用。做的是学习页上这门课（building.key）；
+     * 空间里还没有课时由插件以空间的文件夹名新建一门。
+     */
     async beginMaking(sessionId: string, request: string, materials: boolean): Promise<string> {
-      const { text } = await learningCall("building.begin", request.trim() === "" ? { sessionId, materials } : { sessionId, materials, request });
+      const course = get().learning.building?.key ?? undefined;
+      const { text } = await learningCall("building.begin", {
+        sessionId, materials, ...(request.trim() === "" ? {} : { request }), ...(course === undefined ? {} : { course }),
+      });
       return text;
+    },
+    /** 在当前空间的 courses/<name>/ 新建一门课，读回做课的状态。失败抛给调用方。 */
+    async createCourse(name: string): Promise<void> {
+      await learningCall("courses.create", { name });
+      await readBuilding();
+    },
+    /** 学习者选了随包的课：它成为空间里的一门课，读回学习状态。失败抛给调用方。 */
+    async useBundled(): Promise<void> {
+      await learningCall("courses.useBundled", {});
+      await Promise.all([refresh(), readBuilding()]);
     },
     /** 学习者选菜单里的一项；测验和重考也走 menu.select，后端按候选的类型开始。 */
     selectCandidate(candidateId: string): Promise<void> {
