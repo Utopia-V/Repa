@@ -702,7 +702,7 @@ export const STEPS: Step[] = [
   },
   {
     id: "move-space",
-    title: "把课程文件夹移到别处：重开后说明上次的课打不开，旧位置不再列出；从新位置选中打开，学习进度、会话和备份照旧",
+    title: "把课程文件夹移到别处：重开后说明上次的课打不开，旧位置不再列出；从新位置选中打开，学习进度、会话和备份照旧；原位置那一组备份可以整组删掉",
     async run({ app, page }, checks) {
       await page.click({ name: "学习", selector: "a, button" });
       const before = learnView(await page.waitFor("学习页和菜单", (current) => current.includes("接下来") && current.includes("整门课"), 30_000));
@@ -746,6 +746,22 @@ export const STEPS: Step[] = [
       const manifest = JSON.parse(await readFile(path.join(newest, "manifest.json"), "utf8")) as { root?: string };
       const copied = await readFile(path.join(newest, "data", "plugins", "learning", "records.jsonl"), "utf8").catch(() => "");
       checks.expect("移动后的备份记的是新位置，带着学习记录", manifest.root === to && copied.includes("\"type\":\"answered\""), manifest.root);
+
+      // 原位置那一组不会再轮换：在“备份”里整组删掉，新位置的一组不动。
+      const oldGroup = path.dirname(old[0] ?? "");
+      await page.click({ name: "备份", selector: "button" });
+      await page.click({ name: `删除 ${COURSE_NAME} 的全部备份`, selector: "button" });
+      await until("确认框", async () => (await openDialog(page)) === `删除 ${COURSE_NAME} 的全部备份？`, 10_000);
+      await page.shot("move-space-delete-old-backups");
+      const confirm = await page.text();
+      checks.expect("确认框写明文件夹已不存在和原来的路径", confirm.includes("该文件夹已不存在。删除后，这些备份无法再用于恢复。") && confirm.includes(from));
+      await page.click({ name: /^删除$/u, selector: "[role=dialog] button" });
+      await until("确认框关上", async () => (await openDialog(page)) === "", 15_000);
+      const remaining = await backups(app);
+      const groups = await readdir(path.dirname(oldGroup));
+      checks.expect("原位置的一组整组删掉，组目录也不在", old.length > 0 && !remaining.some((entry) => path.dirname(entry) === oldGroup) && !groups.includes(path.basename(oldGroup)), groups.join("、"));
+      checks.expect("新位置的备份还在", remaining.includes(newest));
+      checks.expect("列表里不再有“文件夹已不存在”的一组", !(await page.text()).includes("文件夹已不存在"));
     },
   },
   {

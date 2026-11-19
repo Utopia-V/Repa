@@ -309,6 +309,30 @@ it("空间文件夹已经不在时只能恢复到新文件夹，位置预填原�
   expect(store.getState().space).toBe("/home/learner/Repa/操作系统（恢复）");
 });
 
+it("文件夹已不存在的那一组可以整组删除：确认以后逐份删除", async () => {
+  const { call, client } = backend({
+    "backup.list": () => Promise.resolve([{ root: ROOT, exists: false, backups: [before, regular, older] }]),
+  });
+  start(client, "/learning-space", false);
+
+  const group = await openBackups();
+  fireEvent.click(group.getByRole("button", { name: "learningSpace.backup.deleteAll.label操作系统" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.getByRole("heading", { name: "learningSpace.backup.deleteAll.title操作系统" })).toBeTruthy();
+  expect(dialog.getByText(ROOT)).toBeTruthy();
+  expect(calls(call, "backup.delete")).toEqual([]);
+  fireEvent.click(dialog.getByRole("button", { name: "learningSpace.backup.delete.confirm.action" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(calls(call, "backup.delete")).toEqual([{ root: ROOT, id: "b3" }, { root: ROOT, id: "b2" }, { root: ROOT, id: "b1" }]);
+});
+
+it("文件夹还在的组不能整组删除", async () => {
+  const { client } = backend();
+  start(client, "/learning-space", false);
+  const group = await openBackups();
+  expect(group.queryByRole("button", { name: "learningSpace.backup.deleteAll.label操作系统" })).toBeNull();
+});
+
 it("恢复失败时留在确认框里显示原因，可以改了位置再试", async () => {
   const { client } = backend({
     "backup.restoreTo": () => Promise.reject(new RpcError(-32000, "选定的位置已有同名的文件或文件夹", { code: "restore_target_exists" })),
