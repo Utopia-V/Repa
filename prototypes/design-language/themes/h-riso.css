@@ -1,0 +1,46 @@
+/* H 套印：两色专色叠印，粉和蓝。标题错版，代码块压在网点上，像一张孔版招贴。 */
+@import "_base.css";
+:root { color-scheme: light; --paper: #fbfaf7; --ink: #004a8f; --soft: #1a5f9e; --faint: #5a7ea3; --hair: #bcd2e6; --blue: #004a8f; --pink: #ff48b0; --sting: #e0007a; --focus: #ff48b0;
+  --sans: 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --mono: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --gap: 1em; }
+body { background: var(--paper); color: var(--ink); font: 500 17px/1.85 var(--sans); }
+.app { display: grid; grid-template-columns: 380px minmax(0, 620px) 280px; column-gap: 48px; justify-content: center; grid-template-rows: 72px 1fr; padding: 0 32px; min-height: 100dvh; }
+.bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 24px; font-size: 14px; }
+.course { flex: 1; }
+.xp-text b { color: var(--sting); font-weight: 900; }
+.abort { color: var(--faint); }
+.map { grid-column: 1; grid-row: 2; position: sticky; top: 0; align-self: start; }
+.topic { position: relative; font: 900 56px/1.1 var(--sans); color: var(--ink); mix-blend-mode: multiply; text-wrap: balance; text-shadow: 5px 4px 0 #ff48b0b3; }
+.steps { display: flex; gap: 16px; margin-top: 28px; font-size: 14px; font-weight: 700; color: var(--faint); }
+.steps li[aria-current] { color: var(--paper); background: var(--pink); padding: 0 8px; }
+.kps { display: grid; gap: 8px; margin-top: 24px; font-size: 14px; line-height: 1.6; }
+.kp-marks { color: var(--pink); margin-top: 2px; }
+.figure { height: 300px; margin-top: 24px; }
+.work { grid-column: 2; grid-row: 2; padding-bottom: 96px; }
+.prose code { font: 500 15px var(--mono); background: #ff48b033; padding: 1px 4px; }
+.prose strong { font-weight: 900; color: var(--sting); }
+.code { position: relative; color: #fff; font: 500 15px/1.9 var(--mono); padding: 20px 8px; background: var(--ink); box-shadow: 8px 8px 0 0 #ff48b0cc; }
+.prose .code code { background: none; }
+.answer { margin-top: 36px; }
+.answer label { font-weight: 900; font-size: 19px; }
+.answer input { height: 54px; padding: 0 14px; border: 3px solid var(--ink); background: transparent; font: 500 24px var(--mono); color: var(--ink); border-radius: 0; }
+body[data-stage="right"] .answer input { background: #004a8f1a; }
+body[data-stage="wrong"] .answer input { border-color: var(--sting); color: var(--sting); text-decoration: line-through; box-shadow: 6px 6px 0 #ff48b066; }
+.verdict { margin-top: 32px; font-weight: 900; font-size: 26px; }
+.verdict[data-v="wrong"] { color: var(--sting); }
+.reference, .analysis, .slot-feedback { margin-top: 20px; }
+.reference h3, .analysis h3 { font-size: 14px; font-weight: 900; color: var(--soft); }
+.reference-value { font: 500 22px var(--mono); }
+.actions { margin-top: 32px; }
+.actions button { height: 52px; min-width: 112px; padding: 0 24px; font-weight: 900; }
+.actions .primary { background: var(--pink); color: #fff; box-shadow: 5px 5px 0 var(--ink); }
+.actions .primary:hover { transform: translate(2px, 2px); box-shadow: 3px 3px 0 var(--ink); }
+.actions .secondary { color: var(--soft); min-width: 0; padding: 0 8px; }
+.tutor { grid-column: 3; grid-row: 2; position: sticky; top: 16px; height: calc(100dvh - 88px); align-self: start; font-size: 15px; line-height: 1.7; }
+.tutor-title { font: 900 18px var(--sans); }
+.tutor-input textarea { border: 3px solid var(--ink); border-right: 0; background: transparent; }
+.tutor-input button { background: var(--ink); color: #fff; }
+.tutor[data-closed="1"] .tutor-log { margin-top: 12px; background: radial-gradient(#ff48b066 1.6px, transparent 1.7px) 0 0 / 7px 7px; }
+body[data-kind="quiz"] .app, body[data-kind="review"] .app { grid-template-columns: minmax(0, 620px); }
+body[data-kind="quiz"] .work, body[data-kind="review"] .work { grid-column: 1; }
+body[data-kind="quiz"] .clock { font: 900 30px var(--mono); color: var(--sting); }
+@media (max-width: 1100px) { .app { display: block; padding: 16px; } .map { position: static; } .topic { font-size: 36px; } .figure { display: none; } .tutor { position: static; height: 220px; margin-top: 32px; } }

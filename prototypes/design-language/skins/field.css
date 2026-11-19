@@ -1,0 +1,3 @@
+/* 色场：阿尔伯斯。靠相邻色的关系分层，不用线。 */
+:root { color-scheme: light; --paper: #e6e2c3; --ink: #23280f; --soft: #434a22; --faint: #5a6030; --hair: #b4b56a; --tint: #d3cf9a; --plane: #515a2c; --on-plane: #e6e2c3; --on-plane-soft: #d6d8a4; --accent: #515a2c; --blue: #515a2c; --sky: #e8d36a; --sting: #a6330f;
+  --font-body: 'Repa Latin', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --font-name: 'Noto Serif CJK SC', serif; --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --name-weight: 700; }

@@ -1,0 +1,4 @@
+/* 夜：深色为主，冷，淡蓝发光。 */
+:root { color-scheme: dark; --paper: #12151a; --ink: #e8eef4; --soft: #b3bfcb; --faint: #8d99a6; --hair: #38424d; --tint: #1b2027; --plane: #0a0c10; --on-plane: #e8eef4; --on-plane-soft: #8d99a6; --accent: #a8d2ef; --blue: #a8d2ef; --sky: #a8d2ef; --sting: #ff7a63;
+  --font-body: 'Repa Latin', 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --font-name: 'Noto Serif CJK SC', serif; --font-code: 'Repa Mono', 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; }
+.tile-ribbon { filter: drop-shadow(0 0 4px #a8d2ef55); }

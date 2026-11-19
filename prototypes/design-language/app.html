@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta id="theme-color" name="theme-color" content="#f7f8f9">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<title>Repa</title>
+<link rel="stylesheet" href="reset.css">
+<link rel="stylesheet" href="ui.css">
+<link id="skin" rel="stylesheet" href="skins/fu.css">
+<link rel="stylesheet" href="frames/frames.css">
+<link rel="stylesheet" href="review.css">
+</head>
+<body>
+<a class="skip" href="#root">跳到正文</a>
+<div class="frame-root" id="root"></div>
+<nav class="review" id="review" aria-label="试稿切换"></nav>
+<script src="course.js"></script>
+<script src="core/items.js"></script>
+<script src="core/md.js"></script>
+<script src="paint/tile.js"></script>
+<script src="paint/tower.js"></script>
+<script src="figures/core.js"></script>
+<script src="figures/fractal.js"></script>
+<script src="figures/solid.js"></script>
+<script src="figures/time.js"></script>
+<script src="figures/tiles.js"></script>
+<script>
+  window.SAMPLE_CHAT = [
+    { me: "为什么 usable 不用写等于 4？" },
+    { html: '<p>写 <code>usable = samples - reserve</code> 时，你说的是“先算右边”，算出 4 这一步由 Python 完成。这就是前面讲过的 <span class="recall" tabindex="0">赋值<span class="recall-card" role="tooltip"><b>赋值</b>Python 先算出等号右边的值，再让左边的名字指向这个值。</span></span>。</p>' },
+  ];
+</script>
+<script src="core/app.js"></script>
+<script src="core/parts.js"></script>
+<script src="frames/frames.js"></script>
+<script>
+  const params = new URLSearchParams(location.search);
+  const SKINS = { fu: "复", indigo: "蓝印", bit: "1-bit", riso: "套印", term: "终端", swiss: "版式", field: "色场", ink: "水墨", night: "夜" };
+  const STAGES = { idle: "首页", explanation: "讲解", example: "例题", answering: "作答", feedback: "反馈", recovery: "没判出", completed: "结束" };
+  const pick = {
+    frame: Frames[params.get("frame")] ? params.get("frame") : "columns",
+    skin: SKINS[params.get("skin")] ? params.get("skin") : "fu",
+    kind: ["review", "quiz"].includes(params.get("kind")) ? params.get("kind") : "lesson",
+    stage: STAGES[params.get("stage")] ? params.get("stage") : "explanation",
+    later: params.get("later") === "1",
+    dark: params.get("dark") === "1",
+    chat: params.get("chat") === "1",
+    verdict: params.get("verdict") ?? "wrong",
+    outcome: params.get("outcome") ?? "passed",
+    offline: params.get("offline") === "1",
+  };
+  const root = document.querySelector("#root");
+  document.documentElement.classList.toggle("dark", pick.dark);
+  document.querySelector("#skin").href = `skins/${pick.skin}.css`;
+
+  const response = ["feedback", "recovery", "judging"].includes(pick.stage) ? { output: pick.verdict === "right" ? "5" : "13", line: "fixed" } : undefined;
+  const q = Number(params.get("q") ?? 0);
+  const seeded = pick.stage === "completed" ? [{ question: ITEMS.lessonQuestions[0], response: { output: "13" }, correct: false }, { question: ITEMS.lessonQuestions[1], response: { line: "minus" }, correct: true }] : [];
+  const app = createApp({ kind: pick.kind, stage: pick.stage, q, later: pick.later, chat: pick.chat, verdict: pick.stage === "feedback" ? pick.verdict : null, outcome: pick.outcome, reward: pick.outcome === "passed" ? 8 : pick.outcome === "failed" ? 0 : null, offline: pick.offline, response, submissions: seeded });
+  const parts = Parts(app);
+  window.__view = app.view; window.__actions = app.actions;
+  let instance;
+  const mount = () => {
+    instance?.stop?.();
+    root.replaceChildren();
+    instance = Frames[pick.frame].mount(root, app, parts);
+    const first = app.view();
+    instance.render(first);
+    settle(first);
+    document.body.dataset.frame = pick.frame;
+  };
+  /** Focus follows the task: the answer field on a desktop, otherwise the new content, so keyboard and screen reader arrive where the eye does. Touch keeps its keyboard closed. */
+  let lastStage;
+  const settle = (v) => {
+    const key = `${v.stage}:${v.q}`;
+    document.title = v.stage === "idle" ? "Repa" : `${v.topic} - ${v.kindName}`;
+    document.querySelector("#theme-color").content = getComputedStyle(document.body).backgroundColor;
+    if (key === lastStage) return;
+    const first = lastStage === undefined;
+    lastStage = key;
+    if (first) return;
+    const field = root.querySelector(".field:not([readonly]), .option input:not([disabled]), .editor-text:not([readonly])");
+    const screen = root.querySelector(".screen");
+    if (v.stage === "answering" && field && matchMedia("(pointer: fine)").matches) { field.focus(); return; }
+    if (screen) { screen.tabIndex = -1; screen.focus({ preventScroll: v.stage === "explanation" }); }
+  };
+  app.subscribe((v) => { instance.render(v); settle(v); });
+  document.querySelector("#skin").addEventListener("load", mount, { once: true });
+  setTimeout(() => { if (!instance) mount(); }, 300);
+
+  const bar = document.querySelector("#review");
+  if (params.get("chrome") === "0") bar.hidden = true;
+  else {
+    const url = (patch) => { const next = new URLSearchParams(location.search); for (const [k, v] of Object.entries(patch)) next.set(k, v); return `app.html?${next}`; };
+    const group = (entries, on, key) => { const span = document.createElement("span"); for (const [k, label] of entries) { const a = Object.assign(document.createElement("a"), { href: url({ [key]: k }), textContent: label, className: "review-link" }); if (k === on) { a.style.color = "#fff"; a.style.fontWeight = "700"; a.style.textDecoration = "none"; } span.append(a); } return span; };
+    bar.append(
+      group(Object.entries(Frames).map(([k, f]) => [k, f.name]), pick.frame, "frame"),
+      group(Object.entries(SKINS), pick.skin, "skin"),
+      group(Object.entries(STAGES), pick.stage, "stage"),
+      group([["lesson", "新课"], ["review", "复习"], ["quiz", "测验"]], pick.kind, "kind"),
+      group([["0", "第一天"], ["1", "后期"]], pick.later ? "1" : "0", "later"),
+      group([["matrix", "矩阵"], ["explore", "探索墙"]], "", "x"),
+    );
+    bar.querySelectorAll('a[href*="x=matrix"]').forEach((a) => { a.href = "matrix.html"; });
+    bar.querySelectorAll('a[href*="x=explore"]').forEach((a) => { a.href = "explore.html"; });
+  }
+</script>
+</body>
+</html>
