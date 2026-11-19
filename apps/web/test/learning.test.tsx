@@ -283,7 +283,7 @@ it("辅导接着这个空间最近的一段辅导会话；开始新对话后，�
     "session.send": () => Promise.resolve(null),
   });
   start(fake.client, true);
-  const tutor = await screen.findByRole("region", { name: "辅导" });
+  const tutor = await screen.findByRole("region", { name: "提问" });
 
   expect(await within(tutor).findByText("把右边算出的值交给左边的名字。")).toBeTruthy();
   expect(fake.call.mock.calls.filter(([method]) => method === "session.history").map(([, params]) => params)).toEqual([{ sessionId: "tutor2" }]);
