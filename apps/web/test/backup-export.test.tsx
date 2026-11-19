@@ -28,7 +28,7 @@ const ROOT = "/home/learner/Repa/操作系统";
 const at = 1_792_454_400_000;
 const progress = { day: "2026-11-15", timeZone: "Asia/Shanghai", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 0, completionRate: 0, etaDate: null };
 const state: LearningState = {
-  revision: 3, serverNow: at, started: true, course: null, task: null, menu: null,
+  revision: 3, serverNow: at, started: true, course: null, courses: [], task: null, menu: null,
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const regular = { id: "b2", createdAt: "2026-11-15T06:30:00.000Z", bytes: 2048, kind: "regular" as const };
@@ -78,6 +78,8 @@ function backend(handlers: Record<string, Handler> = {}) {
         return Promise.resolve({ course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: {}, cost: 0, unpriced: {} }, sessionId: null });
       case "learning.settings.get":
         return Promise.resolve({ autoExpand: true });
+      case "learning.courses.list":
+        return Promise.resolve({ courses: [], canCreate: true });
       case "learning.export.prepare":
         return Promise.resolve({ exportId: (params.input as { sessions: boolean }).sessions ? "e2" : "e1", files: (params.input as { sessions: boolean }).sessions ? withSessions : files });
       case "learning.export.create":

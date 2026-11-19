@@ -17,7 +17,7 @@ import { mockMatchMedia } from "./match-media";
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 const version = `sha256:${"1".repeat(64)}`;
-const ref = (id: string, kind: "lesson" | "example" | "card" | "kp", kpId = "py01.k1") => ({ courseId: "python", topicId: "py01", kpId, id, version, kind });
+const ref = (id: string, kind: "lesson" | "example" | "card" | "kp", kpId = "py01.k1") => ({ course: "c1", courseId: "python", topicId: "py01", kpId, id, version, kind });
 const progress = { day: "2026-10-31", timeZone: "Pacific/Auckland", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 48, completionRate: 0, etaDate: null };
 const open = { kind: "none" as const, tutorAllowed: true, referenceContentAllowed: true };
 
@@ -37,7 +37,7 @@ function task(phase: LearningTask["phase"], extra: Partial<LearningTask> = {}): 
 }
 
 function state(revision: number, current: LearningTask | null): LearningState {
-  return { revision, serverNow: 1_000 + revision, started: true, course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" }, task: current, menu: null, restrictions: open, progress };
+  return { revision, serverNow: 1_000 + revision, started: true, course: { id: "python", title: "Python：读懂代码，说清需求", version: "0.2.0" }, courses: [], task: current, menu: null, restrictions: open, progress };
 }
 
 const explanation = task({
@@ -331,7 +331,7 @@ it("代码题点“运行”：后端拼好不带答案的一批，交给试运�
   expect(learningCalls(fake.call).find((call) => call.method === "run.prepare")?.input).toEqual({ deliveryId: "d4", slotId: "code", code: "print(len(df))\nprint(x)\n" });
   expect(runner.run).toHaveBeenCalledWith(batch, expect.any(AbortSignal));
   // 做课的状态与设置随学习状态一起读，与试运行无关。
-  expect(learningCalls(fake.call).map((call) => call.method).filter((method) => !["building.get", "settings.get"].includes(method))).toEqual(["state.get", "run.prepare"]);
+  expect(learningCalls(fake.call).map((call) => call.method).filter((method) => !["building.get", "settings.get", "courses.list"].includes(method))).toEqual(["state.get", "run.prepare"]);
 });
 
 it("插件列表变了，学习插件不再运行时学习页标为不可用；它回来以后重新读取学习状态", async () => {

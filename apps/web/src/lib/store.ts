@@ -190,6 +190,10 @@ export type AppState = LearningActions & {
   createFirstCourse(folder: string, name: string): Promise<void>;
   /** 学习者选了随包的课。失败抛给调用方。 */
   useBundledCourse(): Promise<void>;
+  /** 在当前空间的 courses/<name>/ 新建一门课，并让学习页看这门课。失败抛给调用方。 */
+  createCourse(name: string): Promise<void>;
+  /** 学习页换看另一门课（课程制作面板与课程全貌）。 */
+  selectCourse(key: string): Promise<void>;
   /**
    * 开始做课：新建一个通用 Agent 的会话，告诉学习插件这是做课的对话，把插件给的第一条消息（带上学习者写的要求）发出去。
    * 与 sendMessage 一样等整次运行结束才返回；返回 false 表示没有发出去，错误在 conversation.sendError。
@@ -736,6 +740,12 @@ export function createAppStore() {
       },
       useBundledCourse() {
         return learning.useBundled();
+      },
+      createCourse(name) {
+        return learning.createCourse(name);
+      },
+      selectCourse(key) {
+        return learning.selectCourse(key);
       },
       async startMaking(request, materials) {
         if (get().conversation.run !== "idle") return false;

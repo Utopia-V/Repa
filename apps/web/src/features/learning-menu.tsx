@@ -16,7 +16,12 @@ function clockTime(serverTime: number, serverNow: number, readAt: number): strin
  * 下一步的选项：程序按学习状态给出最多三项，学习者挑一项开始。没有选项时说明原因和最早什么时候可以继续，
  * 到了那个时间重新读取状态（到期的变化不写事实，后端不会发事件）。
  */
-export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMenu; serverNow: number; readAt: number }) {
+export function LearningMenuView({ menu, serverNow, readAt, courses = [] }: {
+  menu: LearningMenu; serverNow: number; readAt: number;
+  /** 空间里可学的课；不止一门时每个候选标出是哪门课的。 */
+  courses?: readonly { key: string; title: string }[];
+}) {
+  const courseTitle = (key: string) => (courses.length > 1 ? courses.find((course) => course.key === key)?.title : undefined);
   const busy = useAppStore((state) => state.learning.busy !== undefined);
   const selectCandidate = useAppStore((state) => state.selectCandidate);
   const refreshLearning = useAppStore((state) => state.refreshLearning);
@@ -43,6 +48,7 @@ export function LearningMenuView({ menu, serverNow, readAt }: { menu: LearningMe
         <div className="grid min-w-0 gap-1">
           <span className="text-body text-muted-foreground">{kindText[candidate.kind]}</span>
           <span className="weight-semibold">{candidate.title}</span>
+          {courseTitle(candidate.course) !== undefined && <span className="text-caption text-muted-foreground">{courseTitle(candidate.course)}</span>}
         </div>
         <Button disabled={busy} onClick={() => { void selectCandidate(candidate.id); }}>{t("learn.menu.start.action")}</Button>
       </li>)}

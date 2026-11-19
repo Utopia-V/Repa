@@ -96,13 +96,70 @@ export function LearningSpacePage() {
 /** 侧栏里“新建一门课”进的页面：与第一屏是同一个组件，选已有的文件夹仍是次要动作。 */
 export function NewSpacePage() {
   const [picking, setPicking] = useState(false);
+  const space = useAppStore((state) => state.space);
   const navigate = useNavigate();
   const store = useAppStoreApi();
   const goHome = () => { void navigate(homePath(store.getState().learning)); };
+  // 打开了空间时，新课建在这个空间里；还没有空间时与第一屏相同。
+  if (space !== undefined) return <NewCourse space={space} onCreated={() => { void navigate("/learn"); }} />;
   return <>
     <FirstSpace title={t("learningSpace.new.title")} onPick={() => setPicking(true)} onCreated={goHome} />
     <FolderPickerDialog open={picking} onOpenChange={setPicking} onOpened={goHome} />
   </>;
+}
+
+/**
+ * 在当前空间里新建一门课：问课叫什么，建在空间的 courses/<名称>/，落到这门课的制作起点。
+ * 名称不能作文件夹名时如实报错，不替他改名。
+ */
+function NewCourse({ space, onCreated }: { space: string; onCreated(): void }) {
+  const createCourse = useAppStore((state) => state.createCourse);
+  const running = useAppStore((state) => state.conversation.run !== "idle");
+  const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [failure, setFailure] = useState<unknown>();
+  const nameId = useId();
+  const hintId = useId();
+  const errorId = useId();
+  const trimmed = name.trim();
+  const invalid = trimmed !== "" && !validFolderName(trimmed);
+  const location = trimmed !== "" && !invalid ? joinPath(space, "courses", trimmed) : undefined;
+
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    if (location === undefined) return;
+    setCreating(true);
+    setFailure(undefined);
+    try {
+      await createCourse(trimmed);
+      onCreated();
+    } catch (error) {
+      setFailure(error);
+      setCreating(false);
+    }
+  }
+
+  return <div className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 pt-16 pb-24 md:px-8">
+    <h2 className="text-display weight-semibold">{t("learningSpace.new.title")}</h2>
+    <form className="grid gap-3" onSubmit={(event) => { void create(event); }}>
+      <label htmlFor={nameId} className="text-body weight-semibold">{t("learningSpace.first.name.label")}</label>
+      <Input
+        id={nameId}
+        value={name}
+        disabled={creating}
+        aria-invalid={invalid || undefined}
+        aria-describedby={invalid ? errorId : location !== undefined ? hintId : undefined}
+        onChange={(event) => setName(event.target.value)}
+      />
+      {invalid && <p id={errorId} className="m-0 text-body text-destructive">{t("learningSpace.first.name.invalid.error")}</p>}
+      {location !== undefined && <p id={hintId} className="m-0 text-caption break-all text-muted-foreground">{t("learningSpace.first.location.hint", { path: location })}</p>}
+      {failure !== undefined && <ErrorNotice title={t("learningSpace.first.create.error")} error={failure} />}
+      {running && <p className="m-0 text-body text-muted-foreground">{t("learningSpace.recent.running.hint")}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button type="submit" disabled={location === undefined || creating || running}>{creating ? t("common.opening.status") : t("learningSpace.first.create.action")}</Button>
+      </div>
+    </form>
+  </div>;
 }
 
 /**

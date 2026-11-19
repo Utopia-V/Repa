@@ -289,7 +289,7 @@ it("拖动改宽、拖窄收起、向外展开，并清理拖动状态", () => {
   expect(wrapper.style.getPropertyValue("--sidebar-width")).toContain("280px");
 });
 
-it("侧栏列出最近的几门课：点别的一门就换过去，运行中不能换；新建一门课进与第一屏相同的那一屏；会话只列学习者自己开的通用对话", async () => {
+it("侧栏先列当前空间里的课，再列最近的空间：点别的空间就换过去，运行中不能换；打开了空间时新建课程建在这个空间里；会话只列学习者自己开的通用对话", async () => {
   const at = "2026-10-12T00:00:00.000Z";
   let finish: (() => void) | undefined;
   const recent = ["/home/me/Repa/操作系统", "/home/me/Repa/线性代数", "/notes/a", "/notes/b", "/notes/c", "/notes/d", "/notes/e"];
@@ -324,11 +324,18 @@ it("侧栏列出最近的几门课：点别的一门就换过去，运行中不�
   await act(() => store.getState().openSpace("/home/me/Repa/操作系统"));
   // 学习插件记下的做课对话（building.get 的 sessionId）。
   const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  store.setState((state) => ({ learning: { ...state.learning, building: { key: null, folder: null, course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: "making" } } }));
+  store.setState((state) => ({ learning: { ...state.learning, building: { key: null, folder: null, course: null, parts: [], expansion: null, lastFailure: null, cost: { requests: 0, usage: zero, cost: 0, unpriced: zero }, sessionId: "making" },
+    courses: { canCreate: true, courses: [
+      { key: "c1", folder: "courses/操作系统原理", bundled: false, title: "操作系统原理", learnable: true, missing: false },
+      { key: "c2", folder: "courses/编译", bundled: false, title: null, learnable: false, missing: false },
+    ] } } }));
   const router = renderWorkspace("/learning-space", store);
   const navigation = screen.getByRole("navigation", { name: "主导航" });
 
-  // 最近的五门；当前这门进选空间页（在那里看全部），下面只有自己开的通用对话。
+  // 当前空间里的课：有标题的写标题，还没做好的写文件夹名。
+  expect(within(navigation).getByRole("button", { name: "操作系统原理" })).toBeTruthy();
+  expect(within(navigation).getByRole("button", { name: "编译" })).toBeTruthy();
+  // 最近的空间；当前空间进选空间页（在那里看全部），下面只有自己开的通用对话。
   await within(navigation).findByRole("button", { name: "线性代数" });
   expect(within(navigation).getByRole("link", { name: "操作系统" }).getAttribute("href")).toBe("/learning-space");
   expect(within(navigation).queryByRole("button", { name: "e" })).toBeNull();
@@ -340,7 +347,8 @@ it("侧栏列出最近的几门课：点别的一门就换过去，运行中不�
   await waitFor(() => expect(router.state.location.pathname).toBe("/new-space"));
   expect(screen.getByRole("heading", { name: t("learningSpace.new.title") })).toBeTruthy();
   expect(screen.getByLabelText(t("learningSpace.first.name.label"))).toBeTruthy();
-  expect(screen.getByRole("button", { name: "选择文件夹" })).toBeTruthy();
+  // 课建在当前空间里，不再选文件夹。
+  expect(screen.queryByRole("button", { name: "选择文件夹" })).toBeNull();
 
   // 运行中不能换空间，原因在提示里。
   act(() => { void store.getState().sendMessage("你好"); });

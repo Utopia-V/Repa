@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Folder, FolderOpen, GraduationCap, History, Plus, Settings } from "lucide-react";
+import { BookOpen, Folder, FolderOpen, GraduationCap, History, Plus, Settings } from "lucide-react";
 import { NavLink, useMatch, useNavigate } from "react-router";
 import type { SessionInfo } from "@repa/base/protocol";
 import {
@@ -14,7 +14,12 @@ import { t } from "@/lib/strings";
 
 const collapseLabel = "group-data-[collapsible=icon]:sr-only";
 
-/** 侧栏里列出的最近的空间（一个空间一门课）；更早的经当前空间进选空间页。 */
+/** 课在侧栏上的名字：清单里的标题；还没做好的课用它的文件夹名。 */
+function courseName(course: { title: string | null; folder: string | null; key: string }): string {
+  return course.title ?? course.folder?.split("/").at(-1) ?? course.key;
+}
+
+/** 侧栏里列出的最近的空间；更早的经当前空间进选空间页。 */
 const RECENT_SPACES = 5;
 /** 侧栏只列学习者自己开的通用对话；辅导和做课的对话在学习页右侧，后台任务不是对话。 */
 const GENERAL_AGENT = "general";
@@ -31,6 +36,10 @@ export function AppSidebar() {
   const newConversation = useAppStore((store) => store.newConversation);
   const learnable = useAppStore((store) => store.learning.available === true);
   const makingSession = useAppStore((store) => store.learning.building?.sessionId ?? undefined);
+  const courses = useAppStore((store) => store.learning.courses?.courses);
+  const shownCourse = useAppStore((store) => store.learning.building?.key ?? undefined);
+  const selectCourse = useAppStore((store) => store.selectCourse);
+  const onLearn = useMatch("/learn") !== null;
   const spaces = useAppStore((store) => store.resources.spaces);
   const loadSpaces = useAppStore((store) => store.loadSpaces);
   const openSpace = useAppStore((store) => store.openSpace);
@@ -72,6 +81,13 @@ export function AppSidebar() {
     void navigate("/conversation");
   }
 
+  /** 学习页换看这门课。 */
+  function showCourse(key: string) {
+    closeMobileSidebar();
+    void selectCourse(key);
+    void navigate("/learn");
+  }
+
   function startNew() {
     closeMobileSidebar();
     newConversation();
@@ -91,9 +107,9 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {/* 一个空间就是一门课。没有打开的空间时只有“学习空间”，进选空间页。
-                打开以后列出最近的几门：当前这门进选空间页（在那里关闭或看全部），下面是它的会话；点别的一门就换过去。
-                当前项在对话页时标在下面的会话上，在选空间页时标在当前这门上。 */}
+            {/* 没有打开的空间时只有“学习空间”，进选空间页。打开以后先列这个空间里的课，再列最近的空间：
+                当前空间进选空间页（在那里关闭或看全部），下面是它的会话；点别的空间就换过去。
+                当前项在对话页时标在下面的会话上，在选空间页时标在当前空间上。 */}
             {space === undefined && <SidebarMenuItem>
               <SidebarMenuButton asChild>
                 <NavLink to="/learning-space" onClick={closeMobileSidebar} title={collapsedTitle(t("sidebar.learningSpace.label"))}>
@@ -101,6 +117,16 @@ export function AppSidebar() {
                 </NavLink>
               </SidebarMenuButton>
             </SidebarMenuItem>}
+            {/* 当前空间里的课：点一门，学习页的课程制作与课程全貌换成这门课；今天的安排仍是几门课合起来的一份。 */}
+            {space !== undefined && (courses ?? []).map((course) => <SidebarMenuItem key={course.key}>
+              <SidebarMenuButton
+                isActive={onLearn && course.key === shownCourse}
+                title={collapsedTitle(courseName(course))}
+                onClick={() => showCourse(course.key)}
+              >
+                <BookOpen aria-hidden="true" /><span className={collapseLabel}>{courseName(course)}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>)}
             {listed.map((root) => root === space
               ? <SidebarMenuItem key={root}>
                 <SidebarMenuButton asChild>
@@ -119,7 +145,7 @@ export function AppSidebar() {
                 />
               </SidebarMenuItem>
               : <SidebarMenuItem key={root}>
-                {/* 运行中换空间会中止运行，所以不能换；原因放在提示里。 */}
+                {/* 最近的其他空间：还没并到一个空间里的几门课各在自己的空间，一步就能切过去。运行中换空间会中止运行，所以不能换；原因放在提示里。 */}
                 <SidebarMenuButton disabled={running} title={running ? t("learningSpace.recent.running.hint") : root} onClick={() => { void switchTo(root); }}>
                   <Folder aria-hidden="true" /><span className={collapseLabel}>{folderName(root)}</span>
                 </SidebarMenuButton>

@@ -27,7 +27,7 @@ const at = 1_792_454_400_000;
 const iso = new Date(at).toISOString();
 const progress = { day: "2026-11-15", timeZone: "Asia/Shanghai", dailyGoalXp: 20, todayXp: 0, totalXp: 0, completedTopics: 0, totalTopics: 0, completionRate: 0, etaDate: null };
 const noCourse: LearningState = {
-  revision: 0, serverNow: at, started: false, course: null, task: null, menu: null,
+  revision: 0, serverNow: at, started: false, course: null, courses: [], task: null, menu: null,
   restrictions: { kind: "none", tutorAllowed: false, referenceContentAllowed: false }, progress,
 };
 const zero = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -80,6 +80,8 @@ function backend(handlers: Record<string, Handler> = {}, sessions: SessionInfo[]
         return Promise.resolve(nothing);
       case "learning.settings.get":
         return Promise.resolve({ autoExpand: true });
+      case "learning.courses.list":
+        return Promise.resolve({ courses: [], canCreate: true });
       case "materials.list":
         return Promise.resolve({ files });
       default:
@@ -246,14 +248,14 @@ it("有了课：轮廓按顺序列出，状态有文字不只靠颜色；先做�
   expect(outline.getByText("outline.failure.failed.title进程调度")).toBeTruthy();
 
   fireEvent.click(outline.getByRole("button", { name: "outline.failure.retry.action" }));
-  await vi.waitFor(() => expect(calls(fake.call, "learning.building.expand")).toEqual([{ topicIds: ["os03"] }]));
+  await vi.waitFor(() => expect(calls(fake.call, "learning.building.expand")).toEqual([{ topicIds: ["os03"], course: "c1" }]));
 
   await act(async () => { fake.emit("plugin.event", { pluginId: "learning", event: { type: "building.changed" } }); });
   building = { ...outlined };
   await act(async () => { fake.emit("plugin.event", { pluginId: "learning", event: { type: "building.changed" } }); });
   const fresh = within(await screen.findByRole("region", { name: "outline.title" }));
   fireEvent.click(await fresh.findByRole("button", { name: "outline.expand.label死锁" }));
-  await vi.waitFor(() => expect(calls(fake.call, "learning.building.expand")).toContainEqual({ topicIds: ["os04"] }));
+  await vi.waitFor(() => expect(calls(fake.call, "learning.building.expand")).toContainEqual({ topicIds: ["os04"], course: "c1" }));
 
   const autoExpand = fresh.getByRole("switch", { name: "outline.autoExpand.label" });
   await vi.waitFor(() => expect(autoExpand.hasAttribute("data-disabled")).toBe(false));
@@ -330,6 +332,7 @@ it("还没有可学的课时整页是起点；学习者选了自带的 Python �
   let chosen = false;
   const fake = backend({
     "learning.state.get": () => Promise.resolve(chosen ? python : noCourse),
+    "learning.building.get": () => Promise.resolve({ ...nothing, key: null, folder: null }),
     "learning.courses.useBundled": () => {
       chosen = true;
       return Promise.resolve({ courses: [{ key: "bundled-python", folder: null, bundled: true, title: null, learnable: true, missing: false }], canCreate: false });
@@ -350,7 +353,11 @@ it("还没有可学的课时整页是起点；学习者选了自带的 Python �
 });
 
 it("已经在学随包课的空间（有学习记录）不显示起点，与以前一样", async () => {
-  const fake = backend({ "learning.state.get": () => Promise.resolve({ ...python, revision: 5, started: true }) });
+  const fake = backend({
+    "learning.state.get": () => Promise.resolve({ ...python, revision: 5, started: true }),
+    // 空间里没有自己的课，只有随包的课。
+    "learning.building.get": () => Promise.resolve({ ...nothing, key: null, folder: null }),
+  });
   start(fake.client);
 
   expect(await screen.findByText("给数据起名，再按顺序读")).toBeTruthy();
@@ -512,8 +519,8 @@ it("做课进行中、还没有换用过自制课：标题栏不显示随包课�
   expect(screen.queryByText("outline.pending.status")).toBeNull();
   act(() => { first.setState((state) => ({ conversation: { ...state.conversation, run: "running" } })); });
   expect(screen.getByText("outline.pending.status")).toBeTruthy();
-  expect(screen.queryByText("Python：读懂代码，说清需求")).toBeNull();
-  expect(screen.queryByLabelText("今天的目标完成度")).toBeNull();
+  // 标题栏写的是在做的这门课（还没有标题），不是随包课的课名；XP 属于人，照常显示。
+  expect(screen.queryByRole("heading", { name: "Python：读懂代码，说清需求" })).toBeNull();
   cleanup();
 
   const running = backend({
@@ -590,7 +597,7 @@ it("复习期间不能问辅导也不能看参考内容：辅导栏不显示以�
 
 /** 新课讲解的第一页。 */
 function explanation(topicId: string, text: string) {
-  const ref = { courseId: "os", topicId, kpId: `${topicId}.k1`, id: `${topicId}.k1.explanation`, version: `sha256:${"1".repeat(64)}`, kind: "lesson" as const };
+  const ref = { course: "c1", courseId: "os", topicId, kpId: `${topicId}.k1`, id: `${topicId}.k1.explanation`, version: `sha256:${"1".repeat(64)}`, kind: "lesson" as const };
   return { stage: "explanation" as const, page: { ref, origin: { taskId: "t", content: ref }, offset: 0, total: 1, blocks: [{ type: "markdown" as const, text }] } };
 }
 

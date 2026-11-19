@@ -7,6 +7,7 @@ import {
   readLearningResult,
   type ContentPage,
   type ContentRef,
+  type LearningCourses,
   type CourseBuilding,
   type Delivery,
   type LearnerResponse,
@@ -67,6 +68,13 @@ export type LearningView = {
   buildingError?: unknown;
   /** 学习插件的设置（自动展开）；还没读到时为 undefined。 */
   settings?: LearningSettings | undefined;
+  /** 空间里的课；还没读到时为 undefined。 */
+  courses?: LearningCourses | undefined;
+  /**
+   * 学习者此刻在看哪门课（课的键）：课程制作面板与课程全貌按它。这是页面自己的状态，不是学习者必须先选的一层：
+   * 没选时插件取空间里唯一的一门自己的课，菜单照旧是几门课合起来的一份。
+   */
+  selectedCourse?: string | undefined;
 };
 
 /** 打开空间后的首页：后端装了学习插件就进学习页，否则进对话页。 */
@@ -237,11 +245,13 @@ export function createLearningActions({ call, get, set }: Deps) {
     if (!get().learning.available) return;
     const id = ++buildingRequest;
     try {
-      const [building, settings] = await Promise.all([
-        learningCall("building.get", {}),
+      const selected = get().learning.selectedCourse;
+      const [building, settings, courses] = await Promise.all([
+        learningCall("building.get", selected === undefined ? {} : { course: selected }),
         get().learning.settings ?? learningCall("settings.get", {}),
+        learningCall("courses.list", {}),
       ]);
-      if (id === buildingRequest) set((learning) => ({ ...learning, building, settings, buildingError: undefined }));
+      if (id === buildingRequest) set((learning) => ({ ...learning, building, settings, courses, buildingError: undefined }));
     } catch (error) {
       if (id === buildingRequest) set((learning) => ({ ...learning, buildingError: error }));
     }
@@ -308,11 +318,13 @@ export function createLearningActions({ call, get, set }: Deps) {
     loadBuilding: readBuilding,
     /** 立即在后台展开这几部分；省略时由插件取最前面的轮廓部分。 */
     expandParts(topicIds?: string[]): Promise<void> {
-      return changeBuilding(() => learningCall("building.expand", topicIds === undefined ? {} : { topicIds }));
+      const course = get().learning.building?.key ?? undefined;
+      return changeBuilding(() => learningCall("building.expand", { ...(topicIds === undefined ? {} : { topicIds }), ...(course === undefined ? {} : { course }) }));
     },
     /** 取消正在进行的展开，等它停下。 */
     cancelExpansion(): Promise<void> {
-      return changeBuilding(() => learningCall("building.cancel", {}));
+      const course = get().learning.building?.key ?? undefined;
+      return changeBuilding(() => learningCall("building.cancel", course === undefined ? {} : { course }));
     },
     /** 失败抛给调用的画面，开关回到原来的样子。 */
     async setAutoExpand(autoExpand: boolean): Promise<void> {
@@ -332,7 +344,15 @@ export function createLearningActions({ call, get, set }: Deps) {
     },
     /** 在当前空间的 courses/<name>/ 新建一门课，读回做课的状态。失败抛给调用方。 */
     async createCourse(name: string): Promise<void> {
-      await learningCall("courses.create", { name });
+      const { courses } = await learningCall("courses.create", { name });
+      // 新建的课成为页面上在看的那门。
+      const created = courses.find((course) => course.folder === `courses/${name}`);
+      set((learning) => ({ ...learning, selectedCourse: created?.key }));
+      await readBuilding();
+    },
+    /** 学习页换看另一门课：课程制作面板与课程全貌跟着换。 */
+    async selectCourse(key: string): Promise<void> {
+      set((learning) => ({ ...learning, selectedCourse: key }));
       await readBuilding();
     },
     /** 学习者选了随包的课：它成为空间里的一门课，读回学习状态。失败抛给调用方。 */
