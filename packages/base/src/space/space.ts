@@ -13,6 +13,7 @@ import { move, syncDirectory } from "../storage.js";
 import { checkFormat } from "./format.js";
 import { WriteGate, type LockWait } from "./gate.js";
 import { lockSpace } from "./lock.js";
+import { refuseNesting } from "./nesting.js";
 import { directory, existingPath, ignoreDataDir, RESTORE_NAMES, within } from "./paths.js";
 
 // 历史变化的通知在模块加载时的空上下文里分发：插件的变化处理不属于触发这次提交的运行，
@@ -38,8 +39,21 @@ const unqueued = <T>(_file: string, action: () => Promise<T>): Promise<T> => act
 
 /** 创建空间目录并按打开空间的同一路径初始化持久数据，供新建空间时使用。 */
 export async function createSpace(root: string, options: SpaceOptions = {}): Promise<Space> {
+  // 建文件夹之前先查一次，被拒绝时不留下空文件夹；打开时按真实路径再查。
+  await refuseNesting(await plannedPath(path.resolve(root)));
   await mkdir(root, { recursive: true });
   return openSpace(root, options);
+}
+
+/** 还不存在的路径的真实位置：最近一个已有的祖先取真实路径，再接上其余部分。 */
+async function plannedPath(target: string): Promise<string> {
+  try {
+    return await realpath(target);
+  } catch (error) {
+    const parent = path.dirname(target);
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT" || parent === target) throw error;
+    return path.join(await plannedPath(parent), path.basename(target));
+  }
 }
 
 /** 打开并锁定空间，核对持久格式后接入文件、历史和插件数据目录。 */
@@ -62,6 +76,8 @@ export async function openSpace(input: string, options: SpaceOptions = {}): Prom
     interrupted = false;
   }
   if (interrupted) throw new RepaFault("restore_incomplete", "上次从备份恢复没有完成，请重新恢复", { root });
+  // 在创建 .repa、初始化历史之前：本阶段不允许空间套空间。
+  await refuseNesting(root);
   // 先识别已有数据，再创建锁或任何辅助文件；未知和更新格式连锁目录也不写。
   try {
     await mkdir(dataDir);
