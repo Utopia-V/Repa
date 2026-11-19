@@ -92,7 +92,7 @@ export function createLearningPlugin(options: LearningPluginOptions = {}): Plugi
       // 更新的版本由 checkFormat 拒绝；更早的版本（含测试版）不读。
       const version = await checkFormat(format, LEARNING_FORMAT_VERSION);
       if (version < LEARNING_FORMAT_VERSION) {
-        throw new RepaFault("unknown_data_format", "学习记录是旧格式的开发数据，不再读取；删除 .repa/plugins/learning/ 后重新打开空间");
+        throw new RepaFault("unknown_data_format", "学习数据来自旧版本，不再读取。删除空间中的 .repa/plugins/learning 文件夹后重新打开，可重新开始。");
       }
       // 上次检查中途退出留下的临时副本；打开时还没有检查在进行。
       await rm(path.join(host.space.dataDir, CHECKS), { recursive: true, force: true });
@@ -706,9 +706,9 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
 
   /** 新建一门课：courses/<名>/，带一份空的要求（AGENTS.md），登记成草稿。这一步只在还没有课的空间里建第一门。 */
   async function createCourse(name: string): Promise<CourseEntry & { location: string }> {
-    if (!validFolderName(name)) throw new RepaFault("invalid_name", "〔待写〕", { name });
+    if (!validFolderName(name)) throw new RepaFault("invalid_name", "课程名称不能含 \\ / : * ? \" < > |，也不能以点或空格结尾。", { name });
     if (entries.length > 0 || (await courseFolders()).length > 0) {
-      throw new RepaFault("course_exists", "〔待写〕");
+      throw new RepaFault("course_exists", "此学习空间已有课程，目前一个学习空间只能建一门课程。");
     }
     const location = `${COURSES_FOLDER}/${name}`;
     await host.files.write(inLocation(location, "AGENTS.md"), "");
@@ -724,7 +724,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
    */
   async function begin(input: LearningInput<"building.begin">): Promise<LearningResult<"building.begin">> {
     const entry = making(input.course) ?? (entries.length === 0 ? await createCourse(path.basename(host.space.root)) : undefined);
-    if (!entry) throw new RepaFault("course_required", "〔待写〕");
+    if (!entry) throw new RepaFault("course_required", "请先选择要制作的课程。");
     const record = await recordOf(entry.key);
     record.conversation = input.sessionId;
     if (!record.sessions.includes(input.sessionId)) record.sessions.push(input.sessionId);
@@ -790,7 +790,7 @@ async function openLearning(host: Host, records: LearningRecords, options: Learn
     return exclusive(async () => {
       if (stopped !== undefined) throw new RepaFault("course_switch_failed", stopped);
       if (current.kind === "ready" && current.key === BUNDLED) return;
-      if (current.kind === "ready") throw new RepaFault("course_exists", "〔待写〕");
+      if (current.kind === "ready") throw new RepaFault("course_exists", "此学习空间已有正在学习的课程，目前不能同时学习自带的课程。");
       const entry: CourseEntry = { key: BUNDLED, bundled: bundledName };
       await adopt([...entries, entry], entry, () => loadCourseSources(sources, host.files));
     });

@@ -63,7 +63,7 @@ test("学习插件坏版本、旧格式（含测试版的 3 与此前开发版�
     assert.deepEqual((await readdir(directory)).sort(), before.sort());
     assert.equal(await readFile(path.join(directory, "records.jsonl"), "utf8"), records);
     if (marker?.includes('"version":1') || marker?.includes('"version":2') || marker?.includes('"version":3') || marker?.includes('"version":4')) {
-      assert.equal(host.disabled()[0]?.reason.message, "学习记录是旧格式的开发数据，不再读取；删除 .repa/plugins/learning/ 后重新打开空间");
+      assert.equal(host.disabled()[0]?.reason.message, "学习数据来自旧版本，不再读取。删除空间中的 .repa/plugins/learning 文件夹后重新打开，可重新开始。");
     }
     if (marker === undefined) {
       assert.equal(host.disabled()[0]?.reason.message, "学习插件的数据没有格式标记，可能是旧的开发数据；删除 .repa/plugins/learning/ 后重新打开空间");
