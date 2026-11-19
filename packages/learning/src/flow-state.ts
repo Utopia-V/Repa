@@ -41,10 +41,7 @@ export interface TaskRecord {
   at: number;
   kind: TaskKind;
   topicIds: string[];
-  /**
-   * 这项任务开始时的课程结构：结论、奖励、学生模型的更新与补救都按它计算。旧日志基线之前的任务是基线的结构，
-   * 之后的任务是它引用的结构事实。
-   */
+  /** 这项任务开始时的课程结构（它引用的结构事实）：结论、奖励、学生模型的更新与补救都按它计算。 */
   structure: StructureIndex;
   retakes?: number;
   /** 课开始时记下的各知识点练习，按知识点顺序；这项记录之前的课没有，按任务的结构计算。 */

@@ -24,16 +24,13 @@ export interface Award {
 }
 
 /**
- * 旧日志基线：序号不大于 upTo 的任务按 structure 计算（测试版当时用来解释整段日志的那一份）。
- * 测试版当时不显示任何一门课的进度时，structure 是没有 topic 的空结构，见 records-schema.ts 的 baseline。
+ * 序号不大于 upTo 的任务一律按 structure 计算，不看它们引用的结构事实。产品不用它：只为测试里用冻结的测试版数据对照重放
+ * （test/fixtures/test1/），那些任务还没有结构引用。学生模型改成按知识点时，连同那份固定数据一起退役。
  */
 export interface Legacy {
   upTo: number;
   structure: StructureIndex;
 }
-
-/** 没有 topic 的结构：基线不带结构时，旧日志里的任务不对任何一门课计数。 */
-export const EMPTY_STRUCTURE = new StructureIndex({ course: { id: "-", version: "-" }, topics: [] });
 
 /** 累计 XP 到了门槛、尚未开始的测验。n 是第几场，atXp 是出现时的累计值，用来算延后窗口。 */
 export interface PendingQuiz {
@@ -51,7 +48,7 @@ export interface PendingQuiz {
  * XP 按任务的实际结论、在事实发生时结算：奖励变高时补发差额，变低时不收回。是否通过看实际结论，奖励的多少只看
  * 这项任务自己的作答。结算的时刻都是事实的边界，用到的状态也只取决于此前的事实，所以重放与现场得到同样的 XP。
  *
- * 每项任务按它开始时的课程结构计算（TaskRecord.structure）：旧日志基线之前的任务用基线的结构，之后的任务用它引用的结构事实。
+ * 每项任务按它开始时的课程结构计算（TaskRecord.structure），即它引用的结构事实。
  * structure 是当前的课程结构，只用于为新的测验选 topic；菜单与进度由调用方按当前结构另算。
  *
  * model 是学生模型的参数，缺省为插件实际使用的一组。换一组参数重放同一份事实，可以比较两组参数的预测。
@@ -159,9 +156,9 @@ export class Replay {
   apply(fact: Fact): void {
     this.applied++;
     this.position = fact.seq;
-    // 基线与课程结构只登记解释的依据，不是学习者做的事：写下它们的时刻不推进学习时钟，进行中测验的截止仍由学习事实和读数时间决定。
-    if (fact.type === "structure" || fact.type === "baseline") {
-      this.register(fact);
+    // 课程结构只登记解释的依据，不是学习者做的事：写下它的时刻不推进学习时钟，进行中测验的截止仍由学习事实和读数时间决定。
+    if (fact.type === "structure") {
+      this.structures.set(fact.seq, new StructureIndex(fact.structure));
       return;
     }
     this.settle(fact.at);
@@ -274,18 +271,11 @@ export class Replay {
     }
   }
 
-  /** 登记一份课程结构，供之后的任务引用。基线的结构由调用方在重放之前读出（legacy），用同一份。 */
-  private register(fact: Extract<Fact, { type: "structure" | "baseline" }>): void {
-    if (fact.type === "structure") this.structures.set(fact.seq, new StructureIndex(fact.structure));
-    else if (fact.structure) this.structures.set(fact.seq, this.legacy?.structure ?? new StructureIndex(fact.structure));
-  }
-
-  /** 任务开始时的课程结构：基线之前的任务用基线的结构，之后的任务用它引用的那一份。 */
+  /** 任务开始时的课程结构：它引用的那一份（对照用的 legacy 见 Legacy）。 */
   private taskStructure(fact: Extract<Fact, { type: "task" }>): StructureIndex {
     if (this.legacy && fact.seq <= this.legacy.upTo) return this.legacy.structure;
-    const structure = fact.structure === undefined ? undefined : this.structures.get(fact.structure);
+    const structure = this.structures.get(fact.structure);
     if (!structure) throw new Error(`第 ${fact.seq} 条任务没有课程结构`);
-    if (fact.rules !== undefined && fact.rules !== "test1") throw new Error(`第 ${fact.seq} 条任务的规则 ${fact.rules} 不认识`);
     return structure;
   }
 
@@ -340,10 +330,7 @@ export class Replay {
     }
   }
 
-  /**
-   * 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。新的测验从当前结构选 topic；在旧日志里（基线之前）就已到门槛的测验，
-   * 按基线的结构选，即测试版当时选出的那一组。
-   */
+  /** 选题要扫描一遍历史；还没有学过、带测验题的 topic 时不扫描。新的测验从当前结构选 topic（对照用的 legacy 之内按它的结构）。 */
   private pick(n: number): string[] {
     const fold = this.fold();
     const structure = this.legacy && this.position <= this.legacy.upTo ? this.legacy.structure : this.structure;

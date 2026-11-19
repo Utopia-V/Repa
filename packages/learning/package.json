@@ -8,7 +8,6 @@
     "dist",
     "courses",
     "guides",
-    "legacy",
     "repa-plugin.json"
   ],
   "exports": {

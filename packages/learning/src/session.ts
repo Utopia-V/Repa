@@ -28,7 +28,7 @@ import type { ContentPage, Delivery, LearningMenu, LearningState, LearningTask, 
 import { isDeepStrictEqual } from "node:util";
 import type { Fact, FactBody, FactOf } from "./records-schema.js";
 import type { LearningRecords } from "./records.js";
-import { EMPTY_STRUCTURE, Replay, type Legacy } from "./replay.js";
+import { Replay, type Legacy } from "./replay.js";
 
 const POOLS = { lesson: "practice", review: "review", quiz: "quiz", retake: "quiz" } as const;
 const MODES = { lesson: "practice", review: "review", quiz: "quiz", retake: "quiz" } as const;
@@ -74,9 +74,6 @@ type Failure = { reason: "service_failure" | "uncertain_grade"; failure?: ModelF
  * 课程有两种读法：重放、菜单、进度和选题的决定只读课程结构（structure），题面、讲解、判分和能力检查读完整的课程内容（course）。
  * 两者取自同一门当前课程。已有的任务按各自开始时的结构计算（见 Replay）；新任务引用当前结构，见 taskFacts。
  *
- * 旧日志基线（legacy）：学习记录里有基线时按它；还没有基线而有测试版写下的任务时，按测试版的做法用当前结构解释整段日志，
- * 这时不能开始新任务（见 taskFacts），由插件先写下基线。
- *
  * 判分没有结果（服务失败、模型没有把握、中途关闭）时什么也不写，这份作答尚无证据，不阻塞任务，也不算错。
  * 条件具备时自动补判：打开空间时，规则题当场补判或按改正后的答案重判；代码题等到声明 python.run 的前端来调用，
  * 开放题等到有可用模型的第一次调用。每份作答每次会话最多自动尝试一次，学习者也可以显式恢复。
@@ -98,30 +95,26 @@ export class LearningSession {
   private readonly rendered = new Map<number, Promise<Rendered>>();
   private readonly explanations = new Map<string, Promise<string>>();
   private unlisten = () => {};
-  /** 学习记录里与当前结构相同的一份（结构事实或带结构的基线）的序号；还没有时为 undefined。 */
+  /** 学习记录里与当前结构相同的一份结构事实的序号；还没有时为 undefined。 */
   private recorded: number | undefined;
-  /** 基线是否已写进学习记录；没有时不能开始新任务。 */
-  private readonly baselineRecorded: boolean;
 
   private constructor(
     readonly records: LearningRecords,
     resolved: ResolvedCourse,
     readonly host: Host,
+    legacy?: Legacy,
   ) {
     this.course = new CourseIndex(resolved);
     this.structure = new StructureIndex(courseStructure(resolved));
-    const legacy = recordedLegacy(records);
-    this.baselineRecorded = legacy !== undefined || !needsBaseline(records);
-    // 还没有基线：测试版用当前的课解释整段日志，这里照样。
-    this.replay = new Replay(this.structure, undefined, legacy ?? (this.baselineRecorded ? undefined : { upTo: records.revision, structure: this.structure }));
+    this.replay = new Replay(this.structure, undefined, legacy);
   }
 
   /**
    * 从头重放全部事实一次，再找出要补判和重判的作答。只读，不写学习记录：换用课程时先这样建好候选会话，
-   * 发布以后再调用 catchUp 补判，所以没有发布的课不会写下判分。
+   * 发布以后再调用 catchUp 补判，所以没有发布的课不会写下判分。legacy 只给测试里的对照重放用，见 Replay 的 Legacy。
    */
-  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host): Promise<LearningSession> {
-    const session = new LearningSession(records, resolved, host);
+  static async open(records: LearningRecords, resolved: ResolvedCourse, host: Host, legacy?: Legacy): Promise<LearningSession> {
+    const session = new LearningSession(records, resolved, host, legacy);
     for (const fact of records.facts) {
       session.observe(fact);
     }
@@ -156,24 +149,23 @@ export class LearningSession {
   }
 
   /**
-   * 开始一项新任务要写的事实，在 write 的回调里调用：任务引用当前的课程结构与规则；学习记录里还没有与之相同的一份结构时，
+   * 开始一项新任务要写的事实，在 write 的回调里调用：任务引用当前的课程结构；学习记录里还没有与之相同的一份结构时，
    * 先写下它，与任务在同一次追加里，结构总在引用它的任务之前。
    */
-  taskFacts(task: Omit<FactOf<"task">, "seq" | "at" | "structure" | "rules" | "course">): FactBody[] {
-    if (!this.baselineRecorded) throw new RepaFault("learning_log_blocked", "旧的学习记录还没有基线，不能开始新任务");
+  taskFacts(task: Omit<FactOf<"task">, "seq" | "at" | "structure" | "course">): FactBody[] {
     const facts: FactBody[] = [];
     let structure = this.recorded;
     if (structure === undefined) {
       structure = this.records.revision + 1;
       facts.push({ type: "structure", structure: this.structure.data });
     }
-    facts.push({ ...task, course: { ...this.structure.data.course }, structure, rules: "test1" });
+    facts.push({ ...task, course: { ...this.structure.data.course }, structure });
     return facts;
   }
 
   private observe(fact: Fact): void {
     this.replay.apply(fact);
-    if ((fact.type === "structure" || fact.type === "baseline") && fact.structure && isDeepStrictEqual(fact.structure, this.structure.data)) {
+    if (fact.type === "structure" && isDeepStrictEqual(fact.structure, this.structure.data)) {
       this.recorded = fact.seq;
     }
     if (fact.type === "answered" || fact.type === "appealed") {
@@ -701,15 +693,3 @@ export class LearningSession {
   }
 }
 
-/** 学习记录里有测试版写下的任务（不带结构引用）而还没有基线：需要先写下基线。 */
-export function needsBaseline(records: LearningRecords): boolean {
-  return records.baseline === undefined && records.facts.some((fact) => fact.type === "task" && fact.structure === undefined);
-}
-
-/** 学习记录里的旧日志基线；没有时为 undefined。 */
-export function recordedLegacy(records: LearningRecords): Legacy | undefined {
-  const seq = records.baseline;
-  const fact = seq === undefined ? undefined : records.fact(seq);
-  if (fact?.type !== "baseline") return undefined;
-  return { upTo: fact.seq - 1, structure: fact.structure ? new StructureIndex(fact.structure) : EMPTY_STRUCTURE };
-}
