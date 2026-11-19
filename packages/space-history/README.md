@@ -59,6 +59,7 @@ agent 来源可以带 `ancestorRunIds`，由近到远列出发起这个运行的
 | `maintain(options?)` | 检查实际对象布局，到达门槛时前台打包；返回 `true` 表示已完成，`false` 表示未达门槛或宿主暂不允许维护。`{ force: true }` 跳过门槛，但仍遵守 Git 的维护锁。 |
 | `onRevision(listener)` | 提交完成后把这次修订的记录（与 `list()` 返回的相同）交给订阅者，返回取消订阅函数；订阅者异常作为进程 warning 报告，不改变已成功的提交。 |
 | `withRepository(action)` | 在队列中执行 `action(gitDir)`：期间没有提交、撤销或维护写入历史库，宿主可以逐个复制库中的文件做备份，不启动 Git。排在后面的操作等它结束，所以 action 应尽快返回，也不能等待同一实例的历史方法。 |
+| `isContentAddressed(relative)` | 判断历史库中的一个文件（路径相对于库目录，以 `/` 分隔）是否名字由内容决定、写出以后不再改写：松散对象 `objects/<2 位>/<38 位>` 与 pack 文件 `objects/pack/pack-<40 位>.pack`。Git 写这两类文件都先写临时文件再改名，同名文件已在时不重写，最多更新修改时间；两个同名文件大小相同即内容相同（松散对象换了压缩级别时大小会不同）。底座的备份据此在几份备份之间共用这些文件。`.idx`、`.rev`、`.bitmap`、`.mtimes`、引用、`HEAD`、`commit-graph` 等会被改写或随 pack 替换，不在其中。 |
 
 上表中的 `revision_not_found` 和 `nothing_to_undo` 以 `HistoryError` 抛出，调用方按 `error.code` 分支处理；其余错误是普通 `Error` 或 Git 故障。
 

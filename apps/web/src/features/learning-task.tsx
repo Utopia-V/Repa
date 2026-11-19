@@ -5,13 +5,16 @@ import type { ModelFailure } from "@repa/base/protocol";
 import type { Delivery, LearningTask, Submission } from "@repa/learning/protocol";
 
 import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusNotice } from "@/components/ui/status-notice";
 import { ErrorNotice } from "@/components/domain/error-notice";
+import { QuizClock } from "@/components/domain/quiz-clock";
 import { buildResponse, emptyDraft, ItemSlots, SlotProblems } from "@/components/domain/item-form";
 import { Content, type Draft } from "@/components/domain/item-parts";
 import { SubmissionReview } from "@/components/domain/submission-feedback";
 import { CodeTrial } from "@/features/code-trial";
 import { useAppStore } from "@/hooks/use-app-store";
+import { useDeadlineRefresh } from "@/hooks/use-deadline-refresh";
 import type { Outgoing } from "@/lib/learning";
 import type { RenderLink } from "@/components/ui/markdown";
 import { t } from "@/lib/strings";
@@ -171,6 +174,8 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   const retryJudging = useAppStore((store) => store.retryJudging);
   const busy = learning.busy !== undefined;
   const { phase } = task;
+  // 测验和重考没有“下一题”可推进：题目一次交付，作答页上直接换题；结束靠交卷或到截止时间。
+  const quiz = task.kind === "quiz" || task.kind === "retake";
 
   switch (phase.stage) {
     case "preparing":
@@ -187,6 +192,13 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
         </Actions>
       </div>;
     case "awaiting_answer": {
+      // 测验的题都答完了：不再显示那道答过的题，只说明等交卷；交卷按钮在页面底部，样式不变。
+      if (quizReady(task)) return <Card role="status">
+        <CardHeader>
+          <CardTitle>{t("learn.quiz.ready.title")}</CardTitle>
+          <CardDescription>{t("learn.quiz.ready.description")}</CardDescription>
+        </CardHeader>
+      </Card>;
       const delivery = task.deliveries.find((candidate) => candidate.deliveryId === phase.deliveryId);
       if (!delivery) return <StatusNotice status="error" title={t("learn.stage.itemMissing.title")}><p>{t("learn.stage.itemMissing.hint")}</p></StatusNotice>;
       return <AnswerForm
@@ -215,7 +227,7 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
           {phase.stage === "recovery" && failure === "auth" && <Button asChild variant="tertiary"><Link to="/settings">{t("common.setupModel.action")}</Link></Button>}
           {phase.stage === "recovery" && <Button variant="tertiary" disabled={busy} onClick={() => { void retryJudging(phase.submissionId); }} leadingIcon={RefreshCw}>{t("learn.stage.regrade.action")}
           </Button>}
-          {phase.stage !== "judging" && <Button disabled={busy} onClick={() => { void advanceTask(); }}>
+          {phase.stage !== "judging" && !quiz && <Button disabled={busy} onClick={() => { void advanceTask(); }}>
             {phase.stage === "recovery" ? t("learn.stage.next.action") : t("common.continue.action")}
           </Button>}
         </Actions>
@@ -235,16 +247,68 @@ function Stage({ task, renderLink }: { task: LearningTask; renderLink: RenderLin
   }
 }
 
-/** 当前任务：类型、topic 名称、知识点进度和当前阶段的画面。 */
+/**
+ * 测验的题都答完、都判完，只等交卷或到截止时间。后端还没有这一阶段，这时交回的是指向最后一题的“等作答”；
+ * 每道题都有作答记录就是这个情形（有作答没判出结果时后端交回的是“判不出结果”）。后端补上这一阶段以后改用它。
+ */
+export function quizReady(task: LearningTask): boolean {
+  if ((task.kind !== "quiz" && task.kind !== "retake") || task.phase.stage !== "awaiting_answer" || task.deliveries.length === 0) return false;
+  const answered = new Set(task.submissions.map((submission) => submission.deliveryId));
+  return task.deliveries.every((delivery) => answered.has(delivery.deliveryId));
+}
+
+/** 测验里当前这道题是第几题：作答中的交付，或者判分中、判不出结果的那份作答所属的交付。结束以后为 undefined。 */
+export function quizPosition(task: LearningTask): { current: number; total: number } | undefined {
+  // 题都答完了：没有“当前这道题”，不写题号。
+  if (quizReady(task)) return undefined;
+  const { phase } = task;
+  const deliveryId = phase.stage === "awaiting_answer"
+    ? phase.deliveryId
+    : "submissionId" in phase ? task.submissions.find((submission) => submission.submissionId === phase.submissionId)?.deliveryId
+      ?? task.deliveries.find((delivery) => delivery.submissionId === phase.submissionId)?.deliveryId : undefined;
+  const index = task.deliveries.findIndex((delivery) => delivery.deliveryId === deliveryId);
+  return index < 0 ? undefined : { current: index + 1, total: task.deliveries.length };
+}
+
+/** 测验里还有几题没答：交卷或到截止时间以后，这些题算错。 */
+export function quizUnanswered(task: LearningTask): number {
+  const answered = new Set(task.submissions.map((submission) => submission.deliveryId));
+  return task.deliveries.filter((delivery) => !answered.has(delivery.deliveryId)).length;
+}
+
+/**
+ * 测验和重考的头部：只写类型、第几题和剩余时间。作答时只留当前这道题，不列全部 topic 的名称，也不显示知识点进度。
+ */
+function QuizHeading({ task }: { task: LearningTask }) {
+  const serverNow = useAppStore((store) => store.learning.state?.serverNow);
+  const readAt = useAppStore((store) => store.learning.readAt);
+  const refreshLearning = useAppStore((store) => store.refreshLearning);
+  const position = quizPosition(task);
+  const running = task.phase.stage !== "completed" && task.phase.stage !== "aborted";
+  // 到了截止时间重新读取：后端按截止时刻结束这一场，画面换成结果。
+  const expire = useCallback(() => { void refreshLearning(); }, [refreshLearning]);
+  useDeadlineRefresh(running ? task.deadlineAt : null, serverNow, readAt, expire);
+
+  return <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{kindText[task.kind]}</h3>
+    {running && <div className="flex flex-wrap items-center gap-3">
+      {position && <p className="m-0 text-body text-muted-foreground">{t("learn.quiz.position.status", position)}</p>}
+      {task.deadlineAt !== null && serverNow !== undefined && <QuizClock deadlineAt={task.deadlineAt} serverNow={serverNow} readAt={readAt} />}
+    </div>}
+  </div>;
+}
+
+/** 当前任务：类型、topic 名称、知识点进度和当前阶段的画面；测验和重考的头部见 QuizHeading。 */
 export function LearningTaskView({ task, renderLink }: { task: LearningTask; renderLink: RenderLink }) {
   const topics = task.topics.map((topic) => topic.title).join("、");
+  const quiz = task.kind === "quiz" || task.kind === "retake";
 
   return <section aria-labelledby="learning-task-title" className="grid gap-5">
-    <div className="grid gap-2">
+    {quiz ? <QuizHeading task={task} /> : <div className="grid gap-2">
       <p className="m-0 text-body text-muted-foreground">{kindText[task.kind]}</p>
       <h3 id="learning-task-title" className="m-0 text-title weight-semibold">{topics}</h3>
       <KpProgress task={task} />
-    </div>
+    </div>}
     <Stage task={task} renderLink={renderLink} />
   </section>;
 }

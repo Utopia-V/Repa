@@ -10,7 +10,7 @@
  * 后端由这里直接持有：走查要能关掉后端再打开（像学习者关掉应用），也要能带着拨过的时钟重启。
  * 页面在浏览器里没有 window.repaHost，向 /__repa/connection 要连接，这里交出当前后端的连接。
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -62,6 +62,8 @@ export class App {
   backend: RepaProcess | undefined;
   /** 给后端时钟加的偏移；隔天就是再加一天。 */
   clockOffsetMs = morningOffset();
+  /** 后端的 clock.mjs 从这个文件读偏移。 */
+  readonly clockFile: string;
   readonly home: string;
   readonly repaHome: string;
   readonly shots: string;
@@ -71,6 +73,7 @@ export class App {
     this.home = path.join(dir, "home");
     this.repaHome = path.join(dir, "repa-home");
     this.shots = path.join(dir, "shots");
+    this.clockFile = path.join(dir, "clock-offset");
   }
 
   get page(): Page {
@@ -144,6 +147,7 @@ export class App {
    */
   async startBackend(): Promise<void> {
     if (this.backend) throw new Error("后端已经在运行");
+    await this.writeClock();
     const environment: NodeJS.ProcessEnv = {
       PATH: process.env.PATH,
       HOME: this.home,
@@ -151,7 +155,7 @@ export class App {
       TZ: TIMEZONE,
       LANG: "C.UTF-8",
       NODE_OPTIONS: `--import=${pathToFileURL(CLOCK).href}`,
-      REPA_VERIFY_CLOCK_OFFSET_MS: String(this.clockOffsetMs),
+      REPA_VERIFY_CLOCK_FILE: this.clockFile,
       ...(process.env.REPA_PYODIDE_PACKAGES ? { REPA_PYODIDE_PACKAGES: process.env.REPA_PYODIDE_PACKAGES } : {}),
       ...(process.env.TMPDIR ? { TMPDIR: process.env.TMPDIR } : {}),
     };
@@ -160,6 +164,22 @@ export class App {
       plugins: [path.join(REPO, "packages/learning"), path.join(REPO, "packages/materials")],
       environment,
     });
+  }
+
+  /** 写下后端时钟的偏移：先写临时文件再改名，后端不会读到写了一半的内容。 */
+  private async writeClock(): Promise<void> {
+    await writeFile(`${this.clockFile}.tmp`, String(this.clockOffsetMs));
+    await rename(`${this.clockFile}.tmp`, this.clockFile);
+  }
+
+  /**
+   * 后端运行中把它的时钟往后拨 ms 毫秒，不重启、不刷新页面，像学习者开着应用等了这么久。
+   * 后端最多 100 毫秒后读到新的偏移；页面的时钟另由 page.shiftClock 拨。
+   */
+  async shiftClock(ms: number): Promise<void> {
+    this.clockOffsetMs += ms;
+    await this.writeClock();
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   /** 正常关闭后端，等它收尾（与学习者关掉应用时桌面端主进程的做法相同）。 */
