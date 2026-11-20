@@ -1,6 +1,6 @@
 # 审查说明
 
-审查 Repa 的改动时依据本文。发现的分级、处置和循环何时结束，见[阶段收尾的约定](.agents/notes/proposed/process/2026-10-30-phase-exit.md#审查)。
+审查 Repa 的改动时依据本文。发现的分级、处置和循环何时结束，见[阶段收尾的约定](.agents/notes/implemented/process/2026-10-30-phase-exit.md#审查)。
 
 ## 阻止合并的发现
 
@@ -47,4 +47,4 @@
 ## 新写的代码
 
 - 新增辅助函数或校验逻辑之前，先查仓库里有没有现成的同类实现；有就复用或合并，不另写一份。
-- 同一种问题第二次出现时，提议把它写成检查，见[能机械判断的规则交给检查](.agents/notes/proposed/process/2026-11-06-mechanical-checks.md)。
+- 同一种问题第二次出现时，提议把它写成检查，见[能机械判断的规则交给检查](.agents/notes/implemented/process/2026-11-06-mechanical-checks.md)。
