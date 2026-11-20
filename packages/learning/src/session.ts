@@ -186,7 +186,7 @@ export class LearningSession {
    */
   taskFacts(task: Omit<FactOf<"task">, "seq" | "at" | "structure" | "course">, key: string): FactBody[] {
     const content = this.courses.get(key);
-    if (!content) throw new RepaFault("course_unavailable", "这门课不在空间里");
+    if (!content) throw new RepaFault("course_unavailable", "该课程不在此学习空间中。");
     const facts: FactBody[] = [];
     let structure = this.recorded.get(key);
     if (structure === undefined) {

@@ -115,6 +115,7 @@ function Learn({ space }: { space: string }) {
 
   const { task, menu, progress, restrictions } = state;
   const { building, settings } = learning;
+  const several = state.courses.length > 1;
   // 测验开始以后按契约中止就是交卷，所以作答、判分中和判不出结果时只有“交卷”；准备阶段仍可中止准备，归还这次门槛。
   const finishing = active && task !== null && (task.kind === "quiz" || task.kind === "retake") && task.phase.stage !== "preparing";
   const unanswered = task ? quizUnanswered(task) : 0;
@@ -128,6 +129,13 @@ function Learn({ space }: { space: string }) {
   const outlineOnly = making && !building.parts.some((part) => part.status !== "outline");
   // 还没有换用过自制课时，学的不是随包的那门：标题栏与起点一样，不显示随包课的课名和今日 XP。
   const plain = state.course === null && (startable || (making && building.course === null));
+  // 标题说的是页面上正在做的事属于哪门课：有任务在页面上时是它的课。没有任务时页面是几门课合起来的安排，
+  // 空间里只有一门课才写课名；选中的那门课只决定下面的课程全貌与课程制作，写在全貌的标题旁。
+  const pageTitle = plain ? undefined
+    : task !== null ? state.course?.title
+    : several ? undefined
+    : building?.key ? building.course?.title : state.course?.title;
+  const shownCourse = several && building ? building.course?.title ?? building.folder?.split("/").at(-1) : undefined;
   // 做课的 Agent 正在运行时，它和后台展开会同时改 course/，“先做”与“再试”先不让点。
   const makingRunning = makingSession !== undefined && conversation.sessionId === makingSession && conversation.run !== "idle";
   // 课第一次可以学、还一节都没有学过时，窄屏的做课抽屉里也放上菜单：学习者读完 Agent 的话，就地点“开始”。
@@ -146,7 +154,7 @@ function Learn({ space }: { space: string }) {
   return <div className="flex h-dvh flex-col">
     {/* 移动端左侧让出浮动的导航按钮。 */}
     <header className="flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border py-2 pr-4 pl-16 md:px-6">
-      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{(plain ? undefined : building?.key ? building.course?.title : state.course?.title) ?? t("learn.page.title")}</h2>
+      <h2 className="m-0 min-w-0 truncate text-title weight-semibold">{pageTitle ?? t("learn.page.title")}</h2>
       <div className="flex items-center gap-3">
         {!plain && <div className="grid w-40 gap-1">
           <span className="text-caption text-muted-foreground">{t("learn.dailyGoal.label", { todayXp: progress.todayXp, dailyGoalXp: progress.dailyGoalXp })}</span>
@@ -183,7 +191,7 @@ function Learn({ space }: { space: string }) {
           {(!startable || state.course !== null) && !outlineOnly && menu && learning.readAt !== undefined && <LearningMenuView menu={menu} serverNow={state.serverNow} readAt={learning.readAt} courses={state.courses} />}
           {/* 上课、做题时整门课不出现，学习者专心在任务上；任务结束回到菜单时再出现。 */}
           {making && !active && (building.parts.length > 0 || building.course !== null
-            ? <CourseOutline building={building} settings={settings} agentRunning={makingRunning} />
+            ? <CourseOutline building={building} settings={settings} agentRunning={makingRunning} courseTitle={shownCourse} />
             // 还没有课：Agent 在运行时说正在做；运行已经结束（出错、被停止或做完了也没有课）时如实说没有成功，
             // 在右侧的对话里再说一句就能接着做。对话还没读到时什么也不说。
             : makingRunning

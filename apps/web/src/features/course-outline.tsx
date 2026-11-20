@@ -44,9 +44,11 @@ const modelFailureText: Record<Exclude<ModelFailure, "other">, string> = {
  * 整门课的全貌：花费和自动展开的开关在标题一行，后台展开与它的取消、最近一次没有成功的原因与再试常在；
  * 各部分的清单可以收起。还没有能学的部分时清单展开，有了以后先收起，不把菜单和任务挤下去。
  */
-export function CourseOutline({ building, settings, agentRunning }: {
+export function CourseOutline({ building, settings, agentRunning, courseTitle }: {
   building: CourseBuilding;
   settings: LearningSettings | undefined;
+  /** 空间里不止一门课时，这份全貌是哪门课的。 */
+  courseTitle?: string | undefined;
   /** 做课的对话里 Agent 正在运行：它和后台展开会同时改 course/，展开类的操作先不让点。 */
   agentRunning: boolean;
 }) {
@@ -87,7 +89,10 @@ export function CourseOutline({ building, settings, agentRunning }: {
     {/* 花费和自动制作的开关只在清单展开时显示：平时学习者要看的是菜单和任务，不是做课的账。 */}
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <div className="grid gap-1">
-        <h3 id="course-outline-title" className="m-0 text-title weight-semibold">{t("outline.title")}</h3>
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <h3 id="course-outline-title" className="m-0 text-title weight-semibold">{t("outline.title")}</h3>
+          {courseTitle !== undefined && <span className="text-body text-muted-foreground">{courseTitle}</span>}
+        </div>
         {open && building.course && <p className="m-0 text-caption text-muted-foreground tabular-nums">
           {t("outline.cost.label", { amount: estimatedUsd(cost.cost), requests: cost.requests })}
           {Object.values(cost.unpriced).some((value) => value > 0) && t("outline.cost.unpriced.hint")}
