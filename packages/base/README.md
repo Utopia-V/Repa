@@ -144,7 +144,7 @@ npm run real-model-check --workspace=@repa/base -- \
 | Windows | `%APPDATA%\Repa`；缺少 `APPDATA` 时用用户目录下的 `AppData\Roaming\Repa` |
 | macOS | `~/Library/Application Support/Repa` |
 
-`agent/` 保存模型凭据、自定义模型、Agent 设置和应用 Skill，`mcp.json` 保存 [MCP 服务器](#mcp-服务器)的配置，`settings.json` 保存命令策略、最近空间、应用提示覆盖与备份设置（`space.list` 只返回最近空间中文件夹仍在的那些，课程文件夹移走以后旧位置不再列出，记录本身不改），`backups/` 保存各空间的备份，`plugins/` 保存各空间已批准的[自写插件快照](#自写插件的快照与启用记录)。设置及提示覆盖读取时忽略未知可选字段，已知字段仍校验，接口输入和写入保持严格；加入备份设置之前保存的 `settings.json` 没有这一项，读取时取默认值。字段见[应用设置](../../docs/generated/persistence.md#app-settings)。
+`agent/` 保存模型凭据、自定义模型、Agent 设置和应用 Skill，`mcp.json` 保存 [MCP 服务器](#mcp-服务器)的配置，`settings.json` 保存命令策略、最近空间、应用提示覆盖与备份设置（`space.list` 只返回最近空间中文件夹仍在的那些，空间文件夹移走以后旧位置不再列出，记录本身不改），`backups/` 保存各空间的备份，`plugins/` 保存各空间已批准的[自写插件快照](#自写插件的快照与启用记录)。设置及提示覆盖读取时忽略未知可选字段，已知字段仍校验，接口输入和写入保持严格；加入备份设置之前保存的 `settings.json` 没有这一项，读取时取默认值。字段见[应用设置](../../docs/generated/persistence.md#app-settings)。
 
 ### 备份与恢复
 

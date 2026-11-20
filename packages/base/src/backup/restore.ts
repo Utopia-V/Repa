@@ -23,7 +23,7 @@ export interface RestoreOptions {
 }
 
 // 从备份原样复制。来源中的目录或文件在复制中途消失即报错：消失说明这份备份正被删除，例如原空间仍在使用，
-// 定期备份恰好把它轮换掉了；复制出的内容缺了学习记录等数据，不能发布。
+// 定期备份恰好把它轮换掉了；复制出的内容缺了插件数据等文件，不能发布。
 const FROM_BACKUP: WalkOptions & { mode(relative: string): CopyMode } = { skip: () => false, mode: () => "plain", vanished: "fail" };
 
 /**
