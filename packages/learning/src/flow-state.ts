@@ -523,7 +523,8 @@ export function foldTask(previous: Fold, entry: TaskEvidence, model: ModelConfig
 }
 
 /**
- * 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。key 是这门课的键，structure 是它现在的结构；
+ * 菜单和已选任务共用资格判断；失败后的重试时机、题量与当前 KP 位置由各入口检查。强制补救是全局的门，只在菜单里
+ * （learningMenu 的 acceptable）：开始任务只能选菜单里的候选，所以不在这里再挡一次。key 是这门课的键，structure 是它现在的结构；
  * fold 的补救只含还要求的义务（见 obligations）。
  */
 export function topicEligible(structure: StructureIndex, fold: Fold, key: string, topicId: string, kind: TaskKind, now: number): boolean {
@@ -535,10 +536,7 @@ export function topicEligible(structure: StructureIndex, fold: Fold, key: string
   if (kind === "review") {
     return Boolean(fold.student[at(topicId)] && (fold.forced.get(at(topicId)) === "review" || topicDue(fold.student, at(topicId), now)));
   }
-  return kind !== "lesson" || (
-    topic.prerequisites.every((id) => fold.student[at(id)]) &&
-    (!fold.forced.size || fold.forced.get(at(topicId)) === "lesson")
-  );
+  return kind !== "lesson" || topic.prerequisites.every((id) => fold.student[at(id)]);
 }
 
 /**
