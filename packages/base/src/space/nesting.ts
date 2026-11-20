@@ -39,14 +39,14 @@ export async function refuseNesting(root: string): Promise<void> {
   while (pending.length > 0) {
     const directory = pending.shift() as string;
     if (++visited > NESTING_SCAN_LIMIT) {
-      throw new RepaFault("nesting_unchecked", `此文件夹下的子文件夹过多，无法确认其中没有学习空间，未予打开：${root}`, { path: root, limit: NESTING_SCAN_LIMIT });
+      throw new RepaFault("nesting_unchecked", `此文件夹下的子文件夹过多，无法确认其中没有别的空间，未予打开：${root}`, { path: root, limit: NESTING_SCAN_LIMIT });
     }
     let handle;
     try {
       handle = await opendir(directory);
     } catch (error) {
       if (directory === root && (error as NodeJS.ErrnoException).code === "ENOENT") return;
-      throw new RepaFault("nesting_unchecked", `无法读取文件夹 ${directory}，不能确认其中没有学习空间，未予打开。`, { path: directory });
+      throw new RepaFault("nesting_unchecked", `无法读取文件夹 ${directory}，不能确认其中没有别的空间，未予打开。`, { path: directory });
     }
     for await (const entry of handle) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
@@ -59,7 +59,7 @@ export async function refuseNesting(root: string): Promise<void> {
 
 function nested(found: string, relation: "ancestor" | "descendant"): RepaFault {
   const text = relation === "ancestor"
-    ? `此文件夹位于另一个学习空间之内：${found}。学习空间不能相互嵌套。`
-    : `此文件夹之内已有学习空间：${found}。学习空间不能相互嵌套。`;
+    ? `此文件夹位于另一个空间之内：${found}。空间不能相互嵌套。`
+    : `此文件夹之内已有别的空间：${found}。空间不能相互嵌套。`;
   return new RepaFault("nested_space", text, { path: found, relation });
 }
