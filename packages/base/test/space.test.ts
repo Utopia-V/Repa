@@ -446,6 +446,8 @@ test("闲置维护遇到 Git 锁后报告错误，无新提交也会继续重试
 });
 
 test("关闭在释放空间锁前完成待维护对象打包，旧历史保持可读", async (t) => {
+  // 闲置维护的计时不走，打包只能来自关闭；否则准备对象慢于三十秒时计时会先打包。
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const { space } = await fixture(t);
   await space.files.write("saved.txt", "历史原文\n");
   const before = await space.history.changes();

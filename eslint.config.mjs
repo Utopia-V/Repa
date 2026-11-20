@@ -1,5 +1,5 @@
 // 只放能机械判断的硬规则，每条报错写明该怎么改；判断性的约定留在 repa-code-style。
-// 规则的来由见 .agents/notes/proposed/process/2026-11-06-mechanical-checks.md。
+// 规则的来由见 .agents/notes/implemented/process/2026-11-06-mechanical-checks.md。
 import tseslint from "typescript-eslint";
 
 const CODE_STYLE = ".agents/skills/repa-code-style/SKILL.md";

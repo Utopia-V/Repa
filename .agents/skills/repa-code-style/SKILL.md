@@ -31,7 +31,7 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 ## 模块与副作用
 
-- `client.ts` 及其依赖保持浏览器可用，使用标准 WebSocket／Fetch；整条依赖链由 `scripts/checks/browser-boundary.ts` 检查。
+- `client.ts`、各包给页面的入口（如 `@repa/learning/protocol`、`@repa/python-runner/browser`）及其依赖保持浏览器可用，使用标准 WebSocket／Fetch；页面实际引用的每个入口连同整条依赖链由 `scripts/checks/browser-boundary.ts` 检查。
 - Pi 运行与消息类型留在后端接入边界，前端和 Agent 工具共享内容的版本检查、保存与恢复语义。运行记录、配置及插件自有数据由各自模块持有写入入口；当前模块位置与调用路径见[开发指南](../../../docs/development/README.md#从哪里开始)。调整实现位置时同步调用方与说明，保留这些责任边界。
 - 通用存储辅助能力只承担文件与调度操作，数据格式、恢复判断与业务含义由所属模块持有。复用前核对原子性、持久化时机和操作顺序是否满足调用方；当前辅助能力见[开发指南](../../../docs/development/README.md#从哪里开始)。
 - 普通文件 I/O 优先异步，避免阻塞后端处理其他请求。SDK 同步回调等确需同步完成的路径可使用同步实现，注明必要时序，并控制单次阻塞的工作量。
@@ -40,4 +40,4 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 ## 检查入口
 
-当前后端类型检查使用 `npm run check`，构建使用 `npm run build`，lint 与依赖边界检查使用 `npm run lint`（`npm test` 会先运行它）。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。能机械判断的规则放进检查，只有检查不了的才留在本规范里，见[能机械判断的规则交给检查](../../notes/proposed/process/2026-11-06-mechanical-checks.md)；本规范不引入格式化器或全仓重排任务。
+当前后端类型检查使用 `npm run check`，构建使用 `npm run build`，lint 与依赖边界检查使用 `npm run lint`（`npm test` 会先运行它）。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。能机械判断的规则放进检查，只有检查不了的才留在本规范里，见[能机械判断的规则交给检查](../../notes/implemented/process/2026-11-06-mechanical-checks.md)；本规范不引入格式化器或全仓重排任务。

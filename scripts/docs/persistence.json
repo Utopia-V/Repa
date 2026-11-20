@@ -38,6 +38,13 @@
       "versionedBy": "无独立版本标记；沿用各家 MCP 客户端通行的 mcpServers 写法，别的客户端写的字段原样保留"
     },
     {
+      "id": "space-prompts",
+      "files": ["<空间>/.repa/prompts.json"],
+      "owner": "@repa/base",
+      "schema": "packages/base/src/schema.ts#PromptOverridesSchema",
+      "versionedBy": "<空间>/.repa/format.json"
+    },
+    {
       "id": "restore-marker",
       "files": ["<空间>/.repa/restore.json"],
       "owner": "@repa/base",
