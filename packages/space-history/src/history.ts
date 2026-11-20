@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, rmdir, symlink, unlink, writeFile, chmod } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, readlink, realpath, rm, rmdir, symlink, unlink, writeFile, chmod } from "node:fs/promises";
 import path from "node:path";
 
 import { Check, Clean } from "typebox/value";
 
 import { createGit, Git, GitError, nul } from "./git.js";
+import { replace } from "./replace.js";
 import {
   ActivitySourceSchema, HistoryOptionsSchema, SnapshotSourceSchema, SourceSchema,
   type ActivitySource, type Change, type ChangeFeed, type HistoryOptions, type Revision,
@@ -870,7 +871,8 @@ export class SpaceHistory {
               await writeFile(temporary, data, { mode, flag: "wx" });
               await chmod(temporary, mode);
             }
-            await rename(temporary, absolute);
+            // 撤回写回的目标多半是已有的文件，Windows 上它可能正被编辑器或杀毒软件打开。
+            await replace(temporary, absolute);
           } finally {
             await rm(temporary, { force: true });
           }
