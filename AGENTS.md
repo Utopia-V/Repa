@@ -21,7 +21,7 @@ Repa 是独立软件，Pi 是它目前内嵌的 Agent 运行时，以后会换�
 - 体量要小。设计写明每一部分预计多少行，PR 写明净增多少行；实际超出预计时停下来重想结构，不继续补。软件不防使用者自己，也不防设想中的误用。
 - 软件是本机的后端加 Web 界面，在 Linux 上以浏览器的独立窗口打开，不做桌面壳。电脑、云端与手机互联是以后的方向。现在只要求数据模型便于同步、核心服务与界面分离，不提前实现同步、鉴权或部署。
 
-现有代码是测试版时期的旧主线，标签 `pre-slim` 保存了转向前的完整状态。新骨架的设计确定之前，旧代码留作零件库；各包的说明和已落地的设计记录描述的是这些旧代码，不规定新设计。
+测试版时期的旧主线已从工作树移出，完整保存在标签 `pre-slim`，留作零件库：需要时可以从中取回核对过的实现，但它的结构、接口和说明不是新设计要保持的基线。
 
 ## 学习产品
 
@@ -60,7 +60,7 @@ Repa 要承接维护者真实的日常学习：公开课、论文、刷题、读
 
 ## 工作入口
 
-- 设计决定及理由记入[设计记录](.agents/notes/README.md)，Issue 只记录待办。新骨架的输入是[个人知识库](.agents/notes/proposed/architecture/2026-11-11-knowledge-base.md)与[状态的范围](.agents/notes/proposed/architecture/2026-11-15-state-scope.md)两份提案，二者写于转向之前，按本文的目标重读。
+- 设计决定及理由记入[设计记录](.agents/notes/README.md)，Issue 只记录待办。新骨架的设计见[自用骨架](.agents/notes/proposed/architecture/2026-11-26-self-use-skeleton.md)。
 - 文档的存放位置与写法见 [docs/AGENTS.md](docs/AGENTS.md)，编写包的约定见 [packages/AGENTS.md](packages/AGENTS.md)。修改代码时在同一提交中更新受影响的文档；`npm test` 会运行文档检查。
 - 审查依据 [REVIEW.md](REVIEW.md)。代码、测试和文档的写法分别见 [repa-code-style](.agents/skills/repa-code-style/SKILL.md)、[repa-test-style](.agents/skills/repa-test-style/SKILL.md) 和 [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md)。改动涉及界面或学习流程时，把应用真正跑起来走一遍，测试通过不代替这一步。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
