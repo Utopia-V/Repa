@@ -81,6 +81,22 @@ schema：packages/base/src/mcp/config.ts#McpConfigSchema；SHA-256 前 16 位：
 | mcpServers | object | 是 |  |
 | mcpServers[^.*$] | object | 是 | 嵌套对象，字段见源码 |
 
+## space-prompts
+
+文件：<空间>/.repa/prompts.json。
+
+负责的包：@repa/base。
+
+版本标记：<空间>/.repa/format.json。
+
+schema：packages/base/src/schema.ts#PromptOverridesSchema；SHA-256 前 16 位：7dce8277251fd132。
+
+| 字段 | 类型 | 可选 | 说明 |
+| --- | --- | --- | --- |
+| $[^.*$] | object | 是 |  |
+| $[^.*$].enabled | boolean | 是 |  |
+| $[^.*$].text | string | 是 |  |
+
 ## restore-marker
 
 文件：<空间>/.repa/restore.json。

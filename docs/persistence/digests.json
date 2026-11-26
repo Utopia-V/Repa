@@ -19,6 +19,10 @@
     "digest": "6294e5153540bdf8",
     "basis": "2026-11-16-mcp-config.md"
   },
+  "space-prompts": {
+    "digest": "7dce8277251fd132",
+    "basis": "2026-11-20-space-prompts.md"
+  },
   "restore-marker": {
     "digest": "d2f76b8ec7ac81a2",
     "basis": "baseline"

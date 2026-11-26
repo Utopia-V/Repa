@@ -104,7 +104,7 @@ function checkAgents(definitions: AgentDefinition[], tools: Set<string>, existin
         // Pi 的 grep 把模型给的 glob 原样交给 ripgrep 的 --glob，后者越过忽略文件，.repa/.ignore 挡不住它；
         // 底座又不另写一套搜索，所以插件 Agent 不提供 grep。
         if (tool === "grep") {
-          throw new RepaFault("agent_tool_unavailable", "插件 Agent 不提供 grep：它会越过 .repa/.ignore 读到会话记录和插件数据。需要搜索课程内容时，请由插件提供自己的工具", { agent: definition.id, tool });
+          throw new RepaFault("agent_tool_unavailable", "插件 Agent 不提供 grep：它会越过 .repa/.ignore 读到会话记录和插件数据。需要搜索空间里的内容时，请由插件提供自己的工具", { agent: definition.id, tool });
         }
       }
       const allowed = new Set(definition.tools);
