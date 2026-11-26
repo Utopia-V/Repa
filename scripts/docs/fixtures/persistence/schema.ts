@@ -1,1 +1,0 @@
-export const FormatSchema = { type: "object", properties: { version: { type: "integer" } }, required: ["version"] };
