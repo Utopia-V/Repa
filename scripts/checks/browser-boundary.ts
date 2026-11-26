@@ -1,7 +1,6 @@
 // 浏览器边界：@repa/base/client 与页面引用的各包入口，以及它们引入的全部模块，必须能在浏览器里运行。
 // 入口取 apps/web/src 实际引用的 @repa/* 子路径；沿相对导入和这些包之间的引用逐层走，
 // 报出引入 Node 内置模块、Pi 或后端存储依赖的文件和行号，并写明改法。
-// 规则来由见 .agents/notes/implemented/process/2026-11-06-mechanical-checks.md。
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
