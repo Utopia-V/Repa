@@ -2,11 +2,13 @@
 
 适用于 `apps/web/` 及其子目录，与[根目录约束](../../AGENTS.md)共同生效；不规定 Desktop 的目录和实现方式。下文 `src/` 路径均相对于本目录，命令在仓库根目录运行。
 
+转向自用以后，`apps/web` 暂不参与构建、lint 和测试：它依赖的后端包已移出主线，保存在标签 `pre-slim`。新骨架有了后端以后，再决定页面怎样接入；基础组件与设计 token 留作新界面的起点。
+
 ## 开发前阅读
 
 - [设计系统规范](../../docs/design-system.md)：稳定设计规则；尺寸、组件用途、状态和可访问性以此为准，不在本文件复制数值表。
 - [设计系统实现说明](../../docs/design-system-implementation.md)：当前接入范围、文件职责和主题加载方式。
-- [开发指南](../../docs/development/README.md)：Web 宿主、后端接入与工程边界。
+- [开发指南](https://github.com/Utopia-V/Repa/blob/pre-slim/docs/development/README.md)：Web 宿主、后端接入与工程边界。
 - 修改基础组件时核对[通用组件说明](src/components/ui/README.md)中的上游来源与本地适配。
 
 ## 样式与组件归属
@@ -33,7 +35,7 @@
 
 ## 数据与接入边界
 
-- 界面是学习状态的视图：呈现后端算出的进度与状态，不另加与学习无关的指标。作答前不显示知识点、进度只在新课显示等规则见[学习契约](../../docs/development/learning-protocol.md#状态与方法)。
+- 界面是学习状态的视图：呈现后端算出的进度与状态，不另加与学习无关的指标。作答前不显示知识点、进度只在新课显示等规则见[学习契约](https://github.com/Utopia-V/Repa/blob/pre-slim/docs/development/learning-protocol.md#状态与方法)。
 - 学习页面目前为学习插件写定，结构不约束以后。
 - 后端能力通过现有 `@repa/base/client` 与 `@repa/base/protocol` 接入；组件层不自行实现协议、持久化或模型调用。
 - 沿用已有路由、启动和连接入口，不另建连接或配置机制。

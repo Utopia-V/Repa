@@ -62,7 +62,7 @@ Repa 要承接维护者真实的日常学习：公开课、论文、刷题、读
 
 - 设计决定及理由记入[设计记录](.agents/notes/README.md)，Issue 只记录待办。新骨架的输入是[个人知识库](.agents/notes/proposed/architecture/2026-11-11-knowledge-base.md)与[状态的范围](.agents/notes/proposed/architecture/2026-11-15-state-scope.md)两份提案，二者写于转向之前，按本文的目标重读。
 - 文档的存放位置与写法见 [docs/AGENTS.md](docs/AGENTS.md)，编写包的约定见 [packages/AGENTS.md](packages/AGENTS.md)。修改代码时在同一提交中更新受影响的文档；`npm test` 会运行文档检查。
-- 审查依据 [REVIEW.md](REVIEW.md)。代码、测试和文档的写法分别见 [repa-code-style](.agents/skills/repa-code-style/SKILL.md)、[repa-test-style](.agents/skills/repa-test-style/SKILL.md) 和 [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md)；改动涉及界面或学习流程时，用 [verify](.agents/skills/verify/SKILL.md) 把应用跑一遍。
+- 审查依据 [REVIEW.md](REVIEW.md)。代码、测试和文档的写法分别见 [repa-code-style](.agents/skills/repa-code-style/SKILL.md)、[repa-test-style](.agents/skills/repa-test-style/SKILL.md) 和 [repa-docs-style](.agents/skills/repa-docs-style/SKILL.md)。改动涉及界面或学习流程时，把应用真正跑起来走一遍，测试通过不代替这一步。
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
 - 跨任务协作使用 [GitHub Issues](https://github.com/Utopia-V/repa/issues)，通过已认证的 `gh` CLI 操作。
 - 项目自有文档使用简体中文；代码标识符、命令、协议字段、包名和上游专有名称保持原文。

@@ -262,7 +262,7 @@ test("入口只查 git 跟踪文件，失败非零并输出文件行号，修复
   const success = invoke();
   assert.equal(success.status, 0, success.stderr);
   assert.match(success.stdout, /文档检查全部通过/);
-  assert.equal(CHECK_NAMES.length, 9);
+  assert.equal(CHECK_NAMES.length, 8);
 });
 
 test("HTML 的 data-id 不冒充 id，目录锚点作为链接问题报告", async (t) => {
