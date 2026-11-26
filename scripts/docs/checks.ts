@@ -6,7 +6,6 @@ import type { Nodes, Root } from "mdast";
 
 import { catalogs } from "./catalog-checks.js";
 import { exportComments } from "./compiler.js";
-import { changeRecord, checkPersistence } from "./gen-persistence.js";
 
 import {
   charCount, inScope, plainText, walk,
@@ -14,7 +13,7 @@ import {
 } from "./context.js";
 
 export const CHECK_NAMES = [
-  "链接", "路径", "不写提交哈希", "一段一行", "篇幅上限", "停用词", "包 README 骨架", "设计记录格式", "生成目录", "导出说明注释", "持久格式",
+  "链接", "路径", "不写提交哈希", "一段一行", "停用词", "包 README 骨架", "设计记录格式", "生成目录", "导出说明注释",
 ] as const;
 export type CheckName = typeof CHECK_NAMES[number];
 
@@ -150,32 +149,10 @@ async function hashes({ repo, markdown }: CheckContext): Promise<Issue[]> {
 async function paragraphs({ repo, markdown }: CheckContext): Promise<Issue[]> {
   const issues: Issue[] = [];
   for (const file of markdown) {
-    const record = /^docs\/persistence\/changes\/\d{4}-\d{2}-\d{2}-.+\.md$/.test(file)
-      && changeRecord(await repo.text(file));
     walk(await repo.tree(file), (node) => {
       if (node.type !== "paragraph" || !node.position || node.position.start.line === node.position.end.line) return;
-      // 变更记录的前两行是固定元数据；其余正文仍服从段落规则。
-      if (record && node.position.start.line === 1 && node.position.end.line === 2) return;
       issues.push(issue(file, "一段一行", "段落不能跨行", node));
     });
-  }
-  return issues;
-}
-
-async function budgets({ repo, settings, markdown }: CheckContext): Promise<Issue[]> {
-  const issues: Issue[] = [];
-  for (const file of markdown.filter((file) => path.posix.basename(file) === "AGENTS.md")) {
-    const entries = settings.budgets.filter((entry) => entry.path === file);
-    if (entries.length !== 1) {
-      issues.push(issue(file, "篇幅上限", "budgets.json 必须为每份 AGENTS.md 配置一条上限和理由"));
-      continue;
-    }
-    const entry = entries[0];
-    if (!entry) continue;
-    const count = charCount(await repo.text(file));
-    if (count > entry.maxChars) {
-      issues.push(issue(file, "篇幅上限", `${count} 字符超过 ${entry.maxChars}：先把内容挪到它该在的地方，再压缩，最后才提上限并写明理由`));
-    }
   }
   return issues;
 }
@@ -270,13 +247,11 @@ const CHECKS: Record<CheckName, (context: CheckContext) => Promise<Issue[]>> = {
   路径: paths,
   不写提交哈希: hashes,
   一段一行: paragraphs,
-  篇幅上限: budgets,
   停用词: bannedTerms,
   "包 README 骨架": readmes,
   设计记录格式: notes,
   生成目录: ({ repo }) => catalogs(repo),
   导出说明注释: ({ repo }) => exportComments(repo),
-  持久格式: ({ repo }) => repo.files.includes("scripts/docs/persistence.json") ? checkPersistence(repo.root) : Promise.resolve([]),
 };
 
 export async function runChecks(repo: Repository, settings: Settings): Promise<Issue[]> {

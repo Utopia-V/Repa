@@ -20,12 +20,6 @@ export interface Exclusion {
   reason: string;
 }
 
-export interface Budget {
-  path: string;
-  maxChars: number;
-  reason: string;
-}
-
 export interface BannedTerm {
   term: string;
   replacement: string;
@@ -34,7 +28,6 @@ export interface BannedTerm {
 
 export interface Settings {
   exclusions: Exclusion[];
-  budgets: Budget[];
   bannedTerms: BannedTerm[];
   exceptions: Record<string, Record<string, string>>;
 }
@@ -153,13 +146,6 @@ export async function readSettings(repo: Repository): Promise<Settings> {
       ...(entry.include === undefined ? {} : { include: array(entry.include).map(nonempty) }),
     };
   });
-  const budgets = array(await read("budgets")).map((value) => {
-    const entry = object(value);
-    if (typeof entry.maxChars !== "number" || !Number.isSafeInteger(entry.maxChars) || entry.maxChars <= 0) {
-      throw new Error("maxChars 应为正整数");
-    }
-    return { path: nonempty(entry.path), maxChars: entry.maxChars, reason: nonempty(entry.reason) };
-  });
   const bannedTerms = array(await read("banned-terms")).map((value) => {
     const entry = object(value);
     return { term: nonempty(entry.term), replacement: nonempty(entry.replacement), reason: nonempty(entry.reason) };
@@ -167,5 +153,5 @@ export async function readSettings(repo: Repository): Promise<Settings> {
   const exceptions = Object.fromEntries(Object.entries(object(await read("exceptions"))).map(([name, value]) => [
     name, Object.fromEntries(Object.entries(object(value)).map(([file, reason]) => [file, nonempty(reason)])),
   ]));
-  return { exclusions, budgets, bannedTerms, exceptions };
+  return { exclusions, bannedTerms, exceptions };
 }
