@@ -16,19 +16,22 @@
 
 `applyRepetition(graph, student, repetition, config)` 返回新状态，不修改输入。`repetition.day` 是统一时间基准上的连续天数，由调用方传入。每个主题保存 `repNum`、`memory`、`speed`、`lastRepetitionDay` 和 `interval`；没有条目表示尚未学完。初学通过才创建状态，失败和遗忘不删除已有学习经历。
 
-一次更新先把旧 memory 按旧 interval 衰减到这一天，记为 u，再按这次的信用 rawDelta 更新 repNum 和 memory：
+一次更新先把旧 memory 按旧 interval 衰减到这一天，记为 u，再按这次的信用 rawDelta 更新 repNum 和 memory。通过时 rawDelta 为正，失败时为负：
 
 ```text
 u       = memory × 0.5^(days / interval)
 repNum' = max(0, repNum + speed × decay^failed × rawDelta)
-memory' = max(0, u + (1 − u) × rawDelta)
+memory' = u + (1 − u) × rawDelta     通过
+memory' = u × (1 + rawDelta)         失败
 ```
 
-repNum 式沿用公开的写法。公开的 memory 式写作 `max(0, memory + rawDelta) × 0.5^(days / interval)`，没有标出式中各项属于哪个时刻；Repa 取差额更新：这次的信用补上 u 与 1 之间差额的 rawDelta 倍，新状态以这一天为锚点，此后按新的 interval 衰减。若把这一天的信用也乘以此前的衰减，晚一个间隔以上才回来复习的学习者，通过的复习会立刻再次到期。按差额更新，拿到满额信用的通过不论迟到多久都回到 1；质量较低的通过补得少，较早到期，理想间隔到了上限以后也是如此；失败按同样的比例往下扣；信用为零时只移动锚点，遗忘的轨迹不变。
+repNum 式沿用公开的写法。公开的 memory 式写作 `max(0, memory + rawDelta) × 0.5^(days / interval)`，没有标出式中各项属于哪个时刻；Repa 取差额更新：通过的信用补上 u 与 1 之间差额的 rawDelta 倍，新状态以这一天为锚点，此后按新的 interval 衰减。若把这一天的信用也乘以此前的衰减，晚一个间隔以上才回来复习的学习者，通过的复习会立刻再次到期。按差额更新，拿到满额信用的通过不论迟到多久都回到 1；质量较低的通过补得少，较早到期，理想间隔到了上限以后也是如此；信用为零时只移动锚点，遗忘的轨迹不变。
+
+失败的 memory 按这次失败的分量成比例扣减：满额的失败归零，一半的失败减半。提前的折扣只打在通过上，失败不打。原因是对话里随时会出题，最常见的失败恰恰发生在刚复习过不久：若失败也打折扣，且按 1 − u 的比例扣，一张间隔 24 天的卡片在通过后的第二天答错，间隔只从 24.3 天变为 23.0 天，memory 仍是 0.97，几乎没有影响；按现在的式子，间隔退到约 9 天，一半的失败退到约 15 天，第二天都已到期。在到期线上（u 为 0.5，折扣为 1），两种式子的结果相同。
 
 从空状态算起，memory 始终在 0 到 1 之间，但它是调度量，不是答对概率。查询 `memoryAt` 只读投影，不改锚点。
 
-来源研究以 Justin Skycak 的 [HSRS / FIRe 文章](https://www.justinmath.com/individualized-spaced-repetition-in-hierarchical-knowledge-structures/)为机制依据，原分支记录核对日期为 2026-10-10。文章未公开的参数和函数形状属于 Repa 假设，逐项命名在 `DEFAULT_MODEL_CONFIG`，注释写明各自的出处：到期线 `dueMemory`、提前复习的折扣 `fullCreditMemory`、speed 的起点与调整、理想间隔的底数与上限、逾期退回的斜率。多条路径取最大值的合并方式和 memory 的差额更新也是假设。它们控制什么、什么证据会改变它们，见学习插件的[尚待查证的假设](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/learning/README.md#尚待查证的假设)。
+来源研究以 Justin Skycak 的 [HSRS / FIRe 文章](https://www.justinmath.com/individualized-spaced-repetition-in-hierarchical-knowledge-structures/)为机制依据，原分支记录核对日期为 2026-10-10。文章未公开的参数和函数形状属于 Repa 假设，逐项命名在 `DEFAULT_MODEL_CONFIG`，注释写明各自的出处：到期线 `dueMemory`、提前通过的折扣 `fullCreditMemory`、speed 的起点与调整、理想间隔的底数与上限、逾期退回的斜率。多条路径取最大值的合并方式、memory 的差额更新和失败的比例扣减也是假设。它们控制什么、什么证据会改变它们，见学习插件的[尚待查证的假设](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/learning/README.md#尚待查证的假设)。
 
 ### 候选与配置
 
@@ -46,7 +49,7 @@ npm test --workspace=@repa/learning-model
 npm run build --workspace=@repa/learning-model
 ```
 
-`test/model.test.ts`、`test/selector.test.ts` 和 `test/config.test.ts` 覆盖默认数值、memory 的差额更新（迟到与按时的满额通过、质量差别、零信用、隐式信用累积）、分图、直接／隐式信用、路径汇合、各项参数的作用、换一组参数得出不同的预测、调用方不接受的候选不压掉到期复习和选择器回归。
+`test/model.test.ts`、`test/selector.test.ts` 和 `test/config.test.ts` 覆盖默认数值、memory 的差额更新（迟到与按时的满额通过、质量差别、零信用、隐式信用累积）、刚复习过就失败的回退、分图、直接／隐式信用、路径汇合、各项参数的作用、换一组参数得出不同的预测、调用方不接受的候选不压掉到期复习和选择器回归。
 
 ## 对模型的影响
 

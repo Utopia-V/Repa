@@ -146,7 +146,7 @@ test("低速主题拒收正隐式信用，但不阻断更下层、不拒绝显�
   assert.equal(state(failed, "c").repNum, 0.5);
 });
 
-test("提前复习在接收主题按自身 memory 折扣，失败也折扣，间隔随小数 repNum 更新", () => {
+test("提前的通过在接收主题按自身 memory 折扣，失败不折扣，间隔随小数 repNum 更新", () => {
   const graph = { ...multiplication, encompassings: [] };
   const student = learned(graph);
   const topicId = "one-digit-multiplication";
@@ -156,17 +156,34 @@ test("提前复习在接收主题按自身 memory 折扣，失败也折扣，间
   close(state(pass, topicId).interval, 2 ** rawDelta);
   // 半天以后 memory 为 √0.5，再补上它与 1 之间差额的 rawDelta 倍。
   close(state(pass, topicId).memory, Math.sqrt(0.5) + (1 - Math.sqrt(0.5)) * rawDelta);
+  // 失败不打折扣：一半的失败退半步，memory 减半。
   const fail = applyRepetition(graph, student, { topicId, day: 0.5, outcome: "fail", quality: 0.5 });
-  close(state(fail, topicId).repNum, 1 - rawDelta);
+  close(state(fail, topicId).repNum, 0.5);
+  close(state(fail, topicId).memory, Math.sqrt(0.5) * 0.5);
+});
+
+test("间隔 24 天的卡片在通过后的第二天答错，间隔退到约 9 天，部分对退到约 15 天，第二天回到到期", () => {
+  // 每次在到期当天通过：第 0、1、3、8、18 天，第 18 天以后理想间隔约 24.3 天，speed 为 1.4。
+  let student: Student = {};
+  for (const day of [0, 1, 3, 8, 18]) student = applyRepetition(single, student, { topicId: "a", day, outcome: "pass" });
+  assert.equal(state(student, "a").interval.toFixed(1), "24.3");
+  const fail = state(applyRepetition(single, student, { topicId: "a", day: 19, outcome: "fail" }), "a");
+  const partial = state(applyRepetition(single, student, { topicId: "a", day: 19, outcome: "fail", quality: 0.5 }), "a");
+  assert.equal(Math.round(fail.interval), 9);
+  assert.equal(Math.round(partial.interval), 15);
+  assert.equal(fail.memory, 0);
+  assert.ok(partial.memory < 0.5);
+  assert.equal(isDue(fail, 20), true);
+  assert.equal(isDue(partial, 20), true);
 });
 
 test("逾期倍数只放大失败的 repNum 回退；memory 按差额更新，逾期的低质量通过仍到期", () => {
   const graph: KnowledgeGraph = { topics: ["a"], prerequisites: [], encompassings: [] };
   const student: Student = { a: { repNum: 1, memory: 1, speed: 1, lastRepetitionDay: 0, interval: 1 } };
-  // 第 3 天 memory 衰减到 0.125。失败扣掉差额 0.875 的四分之一以后低于零，取零；通过补上同样多。
+  // 第 3 天 memory 衰减到 0.125。四分之一的失败扣掉它的四分之一；通过补上差额 0.875 的四分之一。
   const fail = applyRepetition(graph, student, { topicId: "a", day: 3, outcome: "fail", quality: 0.25 });
   assert.equal(state(fail, "a").repNum, 0.25);
-  assert.equal(state(fail, "a").memory, 0);
+  assert.equal(state(fail, "a").memory, 0.125 * 0.75);
   const pass = applyRepetition(graph, student, { topicId: "a", day: 3, outcome: "pass", quality: 0.25 });
   assert.equal(state(pass, "a").repNum, 1.25);
   assert.equal(state(pass, "a").memory, 0.125 + 0.875 * 0.25);
@@ -227,17 +244,15 @@ test("理想间隔到了 365 天上限以后，质量仍然区分下次到期的
   assert.equal(isDue(full, 665), false);
 });
 
-test("零信用事件只把锚点移到这一天，遗忘的轨迹不变", () => {
-  // 这一天的 memory 不低于 1 时没有信用。差额更新不会让 memory 超过 1，但 schema 允许调用方给出更高的值，
-  // 借它让零信用事件落在锚点之后。
+test("零信用的通过只把锚点移到这一天，遗忘的轨迹不变", () => {
+  // 这一天的 memory 不低于 1 时通过没有信用。差额更新不会让 memory 超过 1，但 schema 允许调用方给出更高的值，
+  // 借它让零信用事件落在锚点之后。失败不打折扣，所以没有零信用的失败。
   const previous: TopicState = { repNum: 1, memory: 2, speed: 1, lastRepetitionDay: 0, interval: intervalFor(1) };
-  for (const outcome of ["pass", "fail"] as const) {
-    const next = state(applyRepetition(single, { a: previous }, { topicId: "a", day: 0.5, outcome }), "a");
-    assert.equal(next.lastRepetitionDay, 0.5);
-    assert.equal(next.repNum, previous.repNum);
-    assert.equal(next.interval, previous.interval);
-    for (const day of [0.5, 1, 2, 10]) close(memoryAt(next, day), memoryAt(previous, day));
-  }
+  const next = state(applyRepetition(single, { a: previous }, { topicId: "a", day: 0.5, outcome: "pass" }), "a");
+  assert.equal(next.lastRepetitionDay, 0.5);
+  assert.equal(next.repNum, previous.repNum);
+  assert.equal(next.interval, previous.interval);
+  for (const day of [0.5, 1, 2, 10]) close(memoryAt(next, day), memoryAt(previous, day));
 });
 
 test("连续的 FIRe 隐式信用逐次累积，合起来可以解除到期", () => {
