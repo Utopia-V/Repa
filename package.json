@@ -7,7 +7,8 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "workspaces": [
-    "packages/learning-model"
+    "packages/learning-model",
+    "packages/repa"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
@@ -24,5 +25,14 @@
     "mdast-util-gfm": "^3.0.0",
     "micromark-extension-gfm": "^3.0.0",
     "typescript-eslint": "^8.72.1"
+  },
+  "overrides": {
+    "@earendil-works/pi-ai": "1.6.1",
+    "@earendil-works/pi-agent-core": "1.6.1",
+    "@earendil-works/pi-mcp": "1.6.1",
+    "@earendil-works/pi-tui": "1.6.1",
+    "@earendil-works/pi-codemode": "1.6.1",
+    "@earendil-works/pi-schema": "1.6.1",
+    "@earendil-works/pi-telemetry": "1.6.1"
   }
 }
