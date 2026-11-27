@@ -230,9 +230,19 @@ export class Sessions {
     await this.get(id).session.abort();
   }
 
-  /** 手动压缩。 */
-  async compact(id: string): Promise<void> {
-    await this.get(id).session.compact();
+  /**
+   * 手动压缩。对话还短时 Pi 不压缩：它保留最近约 2 万 token 原样不动，没有更早的内容可压。Pi 对这种情况和其他失败
+   * （没有模型、刚压缩过、被取消、模型出错）都只抛出一个普通的 Error，判断“够不够压”的 prepareCompaction 也不在公开导出里，
+   * 所以压缩失败一律作为“没有压缩”连同 Pi 给出的原因返回，不靠匹配报错文字。
+   */
+  async compact(id: string): Promise<{ compacted: true } | { compacted: false; reason: string }> {
+    try {
+      await this.get(id).session.compact();
+      return { compacted: true };
+    } catch (error) {
+      if (error instanceof RepaFault) throw error;
+      return { compacted: false, reason: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** 换模型；它同时成为以后新对话的默认模型。 */

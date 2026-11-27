@@ -209,7 +209,7 @@ test("打开“运行命令先确认”以后，命令先出现确认卡片；�
   assert.match(JSON.stringify(server.seen.at(-1)?.messages.at(-1)), /学习者没有同意，理由是：用 write 建/u);
 });
 
-test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能找到 CSAPP 里的卡片；重启以后接着原来的对话；手动压缩后照常继续", async (t) => {
+test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能找到 CSAPP 里的卡片；重启以后接着原来的对话；对话还短时不压缩，够长时压缩后照常继续", async (t) => {
   const server = await backend(t, {
     "CSAPP/注意力的局部性.md": "---\nsummary: 访存的时间局部性\n---\n正文",
     "论文/Transformer.md": "---\nsummary: 注意力机制\n---\n正文",
@@ -229,6 +229,7 @@ test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能�
 
   await server.restart();
   assert.equal(await open(server, "论文"), id);
+  const other = await open(server, "CSAPP");
   const again = await server.connect(id);
   assert.deepEqual(again.conversation.items.map((item) => item.type), ["user", "tool", "assistant"]);
 
@@ -236,8 +237,11 @@ test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能�
   server.script({ text: "又一轮" });
   await server.api("POST", `/api/sessions/${id}/prompt`, { text: `再看一段\n${"后来".repeat(60_000)}` });
   await again.until(() => again.settled === 1, "第二轮长消息");
+  // 对话还短时 Pi 不压缩，接口照常回 200，说明没有压缩和原因。
+  const early = await server.api("POST", `/api/sessions/${other}/compact`, {});
+  assert.deepEqual({ status: early.status, compacted: early.json.compacted, hasReason: typeof early.json.reason === "string" }, { status: 200, compacted: false, hasReason: true });
   server.script({ text: "这是压缩后的摘要" });
-  assert.equal((await server.api("POST", `/api/sessions/${id}/compact`, {})).status, 200);
+  assert.deepEqual((await server.api("POST", `/api/sessions/${id}/compact`, {})).json, { compacted: true });
   await again.until(() => again.conversation.items.some((item) => item.type === "compaction"), "压缩");
   server.script({ text: "接着说" });
   await server.api("POST", `/api/sessions/${id}/prompt`, { text: "继续" });

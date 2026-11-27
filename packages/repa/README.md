@@ -41,7 +41,7 @@ Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 | `GET /api/file?path=` | 知识库里的图片等文件 |
 | `GET /api/today` | 复习的建议（`due` 是手定日期已到的和到期的，`fresh` 是还没答对过的，各带总数）与最近用过的层 |
 | `GET /api/sessions?folder=`、`POST /api/sessions` | 一层的学习对话与复习对话；打开（`id`）、新开（`fresh`）或接着最近的一段，`review` 给出卡片路径时新开一段复习对话 |
-| `POST /api/sessions/:id/prompt`、`abort`、`compact`、`model`、`mode` | 发消息（`viewing` 是正在看的卡片）、停止、压缩、换模型、换模式 |
+| `POST /api/sessions/:id/prompt`、`abort`、`compact`、`model`、`mode` | 发消息（`viewing` 是正在看的卡片）、停止、压缩（回 `compacted` 和没有压缩的原因）、换模型、换模式 |
 | `GET /api/sessions/:id/events`、`GET /api/sessions/:id/context` | 对话的 SSE 事件流；上下文占比与注入的内容 |
 | `POST /api/pending/:toolCallId` | 交上题目卡片的作答（`answers`，`null` 是没有作答），或回应确认卡片（`approve`、`reason`） |
 | `GET /api/change?path=&tool=`、`POST /api/revert` | 一次改动的逐行差异；把文件恢复成某个版本，返回恢复前留的版本名 |
@@ -63,5 +63,6 @@ Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 - 一张卡片的改动差异以“下一份旧版本或当前文件”为改写后的内容，这次改动之后学习者在编辑器里的修改也会算进去。
 - 撤回之后又撤回撤回，靠 `POST /api/revert` 返回的版本名；对话重新打开以后，界面不再记得哪次改动已经撤回。
 - Agent 正在回复时发出的消息经 Pi 的 steer 插入，这条消息不附带正在看的卡片。
-- 对话太短时手动压缩，Pi 回“Nothing to compact (session too small)”，接口原样返回 500。
+- Pi 压缩时保留最近约 2 万 token 原样不动，对话还短时不压缩。Pi 对这种情况和其他失败都只抛出普通的 Error，判断能否压缩的函数也不在公开导出里，所以 `compact` 失败一律回 `{ compacted: false, reason }`，`reason` 是 Pi 的英文原话。
+- `compact` 会先停止正在进行的回复，这是 Pi 的做法。
 - 地图、首页和工具每次都重新扫描整个知识库；几百张卡片时不成问题，更大时再加缓存。
