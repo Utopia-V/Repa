@@ -8,9 +8,8 @@
 | --- | --- |
 | 做法的理由与放弃的方案 | [设计记录](../.agents/notes/README.md) |
 | 包的用法和约定 | 包的 README |
-| 当前怎样接入 | `docs/development/` |
 | 待办事项 | GitHub Issue |
-| 代码目录 | `packages/README.md` 与 `docs/generated/`，脚本生成，不要手改 |
+| 代码目录 | `packages/README.md` |
 | 常设规则 | 对应层级的 AGENTS.md，每条一至三行，链接到说明理由之处 |
 
 - 每件事只在一处记录，别处链接过去；不抄写同一份状态或约定。
@@ -51,7 +50,7 @@
 | 一段一行 | 段落不跨行，包括列表项和引用块中的段落；表格、代码块和 HTML 不查 |
 | 停用词 | 按 `scripts/docs/banned-terms.json` 的词、替换词和理由检查，不区分大小写 |
 | 包 README 骨架 | 检查上述章节顺序、概述长度、模型影响和限制说明 |
-| 代码线索 | 目录逐字节核对；原导出须有说明，转导出语句不查 |
+| 导出说明注释 | 原导出须有说明，转导出语句不查 |
 | 设计记录格式 | 按[设计记录格式](../.agents/notes/README.md#格式)检查路径、首行标题、状态和小节，不允许索引文件 |
 
 - 检查范围为 git 跟踪的 Markdown；`scripts/docs/config.json` 记录带理由的排除项，冻结证据、第三方材料和检查 fixture 按该清单排除，Repa 自有 Skill 仍检查。

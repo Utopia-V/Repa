@@ -7,42 +7,15 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "workspaces": [
-    "packages/space-history",
-    "packages/base",
-    "packages/learning-model",
-    "packages/python-runner",
-    "packages/learning",
-    "packages/materials",
-    "apps/*"
+    "packages/learning-model"
   ],
   "scripts": {
-    "build": "npm run build:packages && npm run build:app --workspaces --if-present",
-    "build:backend": "npm run build --workspace=@repa/base",
-    "check": "npm run check --workspaces --if-present --ignore-scripts",
-    "predev:backend": "npm run build:packages",
-    "dev:backend": "npm --workspace=@repa/base run start -- serve --plugin ../materials",
-    "dev:desktop": "npm run dev --workspace=@repa/desktop",
-    "dev:web": "npm run dev --workspace=@repa/web",
-    "dev:web:learning": "npm run dev:learning --workspace=@repa/web",
-    "precheck": "npm run build:packages",
-    "pretest": "npm run build:packages",
-    "prestart": "npm run build:packages",
-    "start": "npm --workspace=@repa/base run start -- serve --plugin ../materials",
-    "test": "npm run lint && npm run check && npm run docs:check && npm run test:docs-scripts && npm run test --workspaces --if-present --ignore-scripts",
-    "course:check": "npm run course:check --workspace=@repa/learning --",
-    "course:runtime": "npm run course:runtime --workspace=@repa/learning --",
-    "course:confirm": "npm run course:confirm --workspace=@repa/learning --",
-    "predev:learning": "npm run build:packages",
-    "dev:learning": "npm --workspace=@repa/base run start -- serve --plugin ../learning --plugin ../materials",
-    "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run lint && npm run docs:check && npm run test:docs-scripts && npm run test --workspaces --if-present",
+    "lint": "eslint .",
     "docs:check": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/check.ts",
-    "test:docs-scripts": "tsx --tsconfig scripts/docs/tsconfig.json --test scripts/docs/*.test.ts",
-    "docs:gen": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-packages.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-protocol.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-tools.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-host-api.ts",
-    "lint": "eslint . && tsx --tsconfig scripts/docs/tsconfig.json scripts/checks/browser-boundary.ts && npm run lint:ui-text",
-    "lint:ui-text": "tsx --tsconfig scripts/docs/tsconfig.json scripts/checks/ui-strings.ts",
-    "preverify": "npm run build:packages",
-    "verify": "tsx --tsconfig scripts/verify/tsconfig.json scripts/verify/walk.ts",
-    "verify:drive": "tsx --tsconfig scripts/verify/tsconfig.json scripts/verify/drive.ts"
+    "test:docs-scripts": "tsx --tsconfig scripts/docs/tsconfig.json --test scripts/docs/*.test.ts"
   },
   "devDependencies": {
     "eslint": "^10.14.0",

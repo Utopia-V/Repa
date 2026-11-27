@@ -1,8 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "lib": ["ES2023", "DOM", "DOM.Iterable"]
-  },
-  "include": ["src/browser/**/*.ts", "test/browser-runner.test.ts", "test/service.test.ts"],
-  "exclude": []
-}

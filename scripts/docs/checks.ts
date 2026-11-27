@@ -4,7 +4,6 @@ import GithubSlugger from "github-slugger";
 import ts from "typescript";
 import type { Nodes, Root } from "mdast";
 
-import { catalogs } from "./catalog-checks.js";
 import { exportComments } from "./compiler.js";
 
 import {
@@ -13,7 +12,7 @@ import {
 } from "./context.js";
 
 export const CHECK_NAMES = [
-  "链接", "路径", "不写提交哈希", "一段一行", "停用词", "包 README 骨架", "设计记录格式", "生成目录", "导出说明注释",
+  "链接", "路径", "不写提交哈希", "一段一行", "停用词", "包 README 骨架", "设计记录格式", "导出说明注释",
 ] as const;
 export type CheckName = typeof CHECK_NAMES[number];
 
@@ -250,7 +249,6 @@ const CHECKS: Record<CheckName, (context: CheckContext) => Promise<Issue[]>> = {
   停用词: bannedTerms,
   "包 README 骨架": readmes,
   设计记录格式: notes,
-  生成目录: ({ repo }) => catalogs(repo),
   导出说明注释: ({ repo }) => exportComments(repo),
 };
 

@@ -12,8 +12,6 @@ jobs:
     runs-on: ubuntu-24.04
     # 各包的测试有单个测试的时限；这里兜住测试以外的挂住，免得一次挂住占满缺省的 6 小时。
     timeout-minutes: 60
-    env:
-      REPA_TEST_REQUIRE_ENV: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,13 +19,6 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm install -g npm@12.0.2
-      - uses: actions/cache@v4
-        with:
-          path: packages/python-runner/.cache/pyodide
-          # npm 锁定 Pyodide 及其 pyodide-lock.json；课程清单决定 wheel 及其依赖。
-          key: ${{ runner.os }}-pyodide-${{ hashFiles('package-lock.json', 'packages/python-runner/package.json', 'packages/learning/courses/*/course.yaml') }}
-      - run: sudo apt-get update && sudo apt-get install -y libseccomp2 python3
       - run: npm ci
-      - run: npm run course:runtime
       - run: npm test
 

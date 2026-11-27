@@ -28,7 +28,7 @@ repNum 式沿用公开的写法。公开的 memory 式写作 `max(0, memory + ra
 
 从空状态算起，memory 始终在 0 到 1 之间，但它是调度量，不是答对概率。查询 `memoryAt` 只读投影，不改锚点。
 
-来源研究以 Justin Skycak 的 [HSRS / FIRe 文章](https://www.justinmath.com/individualized-spaced-repetition-in-hierarchical-knowledge-structures/)为机制依据，原分支记录核对日期为 2026-10-10。文章未公开的参数和函数形状属于 Repa 假设，逐项命名在 `DEFAULT_MODEL_CONFIG`，注释写明各自的出处：到期线 `dueMemory`、提前复习的折扣 `fullCreditMemory`、speed 的起点与调整、理想间隔的底数与上限、逾期退回的斜率。多条路径取最大值的合并方式和 memory 的差额更新也是假设。它们控制什么、什么证据会改变它们，见学习插件的[尚待查证的假设](../learning/README.md#尚待查证的假设)。
+来源研究以 Justin Skycak 的 [HSRS / FIRe 文章](https://www.justinmath.com/individualized-spaced-repetition-in-hierarchical-knowledge-structures/)为机制依据，原分支记录核对日期为 2026-10-10。文章未公开的参数和函数形状属于 Repa 假设，逐项命名在 `DEFAULT_MODEL_CONFIG`，注释写明各自的出处：到期线 `dueMemory`、提前复习的折扣 `fullCreditMemory`、speed 的起点与调整、理想间隔的底数与上限、逾期退回的斜率。多条路径取最大值的合并方式和 memory 的差额更新也是假设。它们控制什么、什么证据会改变它们，见学习插件的[尚待查证的假设](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/learning/README.md#尚待查证的假设)。
 
 ### 候选与配置
 

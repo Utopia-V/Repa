@@ -9,7 +9,7 @@ description: 编写、修改或审阅 Repa 测试时使用，规定后端与前�
 
 ## 框架与目录
 
-- 后端使用 Node 自带测试器、`node:assert/strict` 和 `tsx`。当前后端包位于 `packages/base` 和 `packages/space-history`，普通测试入口发现 `test/*.test.ts`；调整测试目录时同步发现规则，确保相关测试仍进入 `npm test`。
+- 后端使用 Node 自带测试器、`node:assert/strict` 和 `tsx`。各包的普通测试入口发现 `test/*.test.ts`；调整测试目录时同步发现规则，确保相关测试仍进入 `npm test`。
 - 使用 `import test, { type TestContext } from "node:test"` 和 `import assert from "node:assert/strict"`。文件名按模块或行为使用小写连字符，沿用相邻测试粒度。
 - 固定样本放在 `test/fixtures/`，例如扩展包、子进程入口和旧版本会话；注明必要的生产版本与用途。可在测试中生成的小文件使用临时目录。
 - 已有 Web／Electron 前端使用各自 workspace 的 Vitest 与 Testing Library；测试放在所属 `test/`，沿用该 workspace 的配置与近端 `AGENTS.md`，不套用后端 Node 测试入口。
@@ -29,7 +29,7 @@ description: 编写、修改或审阅 Repa 测试时使用，规定后端与前�
 - 文件测试使用 `realpath(await mkdtemp(path.join(os.tmpdir(), "repa-模块-")))`，将学习空间、应用配置、凭据文件与会话目录放在其中。底座打开空间时解析真实路径，返回值和会话记录里都是解析后的路径；`os.tmpdir()` 可能经过符号链接或短文件名（如 macOS 的 `/var` 指向 `/private/var`），拿原始路径比较只在这些机器上失败。路径本来就是真实路径时 `realpath` 原样返回。通过 `t.after` 关闭创建的客户端、后端和子进程，再清理目录；也覆盖中途失败的清理。
 - 普通 Pi 接入回归使用锁定的真实 SDK 和本地 `fauxProvider`，验证请求内容及运行流程。显式使用临时 `authPath`，关闭模型网络发现与初始化刷新，不读取个人模型配置、不依赖付费调用。需要判断真实模型表现时另行评测，本地预设响应不能支持模型能力或学习效果的结论。
 - 验证模型输入的端到端接入时，观察 provider 实际接收的 `TranscriptContext`，用 Pi 的公开函数读取系统提示和工具声明；装配函数的单元测试可以验证局部规则，但不能代替实际请求的接入证据。
-- 状态由操作序列决定、情形多到无法逐一列举的模块，可以用 `fast-check` 经真实入口生成随机操作序列，核对不依赖具体情形的性质，写法见 `packages/learning/test/replay-properties.test.ts`。门禁用固定的种子，并断言序列走到了关键情形；窄问题靠定时任务换种子多跑（见 `.github/workflows/property-exploration.yml`）。提交前把已知的错误放回源码，确认性质查得出。
+- 状态由操作序列决定、情形多到无法逐一列举的模块，可以用 `fast-check` 经真实入口生成随机操作序列，核对不依赖具体情形的性质，写法见标签 `pre-slim` 中学习插件的 [replay-properties.test.ts](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/learning/test/replay-properties.test.ts)。门禁用固定的种子，并断言序列走到了关键情形。提交前把已知的错误放回源码，确认性质查得出。
 - 内容、持久化与恢复测试使用真实临时文件；应用协议测试使用实际 `RepaClient` 和本地 HTTP／WebSocket 后端。替身放在模型服务或确需隔离的外部边界，不替换掉本次要验证的保存、订阅或 SDK 行为。
 
 ## 异步与时间
@@ -40,12 +40,12 @@ description: 编写、修改或审阅 Repa 测试时使用，规定后端与前�
 
 ## 运行入口
 
-以下命令在 `packages/base` 下运行；workspace 调整后以所属 `package.json` 为准。
+以下命令在包目录下运行，以所属 `package.json` 为准。
 
 ```sh
 npm test
-node --import tsx --test test/e2e.test.ts
-node --import tsx --test --test-name-pattern='旧历史' test/e2e.test.ts
+node --import tsx --test test/<文件>.test.ts
+node --import tsx --test --test-name-pattern='<测试名>' test/<文件>.test.ts
 npm run check
 ```
 

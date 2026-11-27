@@ -54,7 +54,7 @@ docs/design-system.md
 
 `SelectionButton` 统一持续选择的背景、可见标记与键盘焦点，用于目录、筛选和拓扑节点；`SearchInput` 组合 Input 和 Button，页面不再通过子元素选择器改写输入框圆角。`ConversationMessage` 将 sender 映射到 `MessageBubble` 的 variant；通用气泡视觉由 ui 持有。没有真实调用方的业务组件不预建。
 
-Desktop 没有自己的界面：renderer 就是 `apps/web`，由 `apps/desktop/electron.vite.config.ts` 按 Web 自己的 Vite 配置以 desktop 模式构建和开发，所以组件、主题和路由只有 Web 一份。页面运行在桌面端时，preload 在 `window.repaHost` 上提供连接和“在文件夹中显示”，见 `apps/web/src/lib/host.ts`；窗口保留原生标题栏。
+Desktop 没有自己的界面：renderer 就是 `apps/web`，由 [electron.vite.config.ts](https://github.com/Utopia-V/Repa/blob/pre-slim/apps/desktop/electron.vite.config.ts) 按 Web 自己的 Vite 配置以 desktop 模式构建和开发，所以组件、主题和路由只有 Web 一份。页面运行在桌面端时，preload 在 `window.repaHost` 上提供连接和“在文件夹中显示”，见 `apps/web/src/lib/host.ts`；窗口保留原生标题栏。
 
 Desktop 验证入口为 `npm run check --workspace=@repa/desktop`、`npm run test --workspace=@repa/desktop` 和 `npm run build --workspace=@repa/desktop`；界面本身的测试在 Web。
 
@@ -162,7 +162,7 @@ Agent 或插件在对话里提问时，后端发出 `ask.request`。Web 在 `Rep
 
 ## 学习页的测验
 
-测验和重考与课、复习共用 `features/learning-task.tsx`，按[测验与 XP](development/learning-quiz-xp.md) 的契约接入；还没做完的部分见 `npm run verify` 的 `quiz` 步骤里的预期失败。
+测验和重考与课、复习共用 `features/learning-task.tsx`，按[测验与 XP](https://github.com/Utopia-V/Repa/blob/pre-slim/docs/development/learning-quiz-xp.md) 的契约接入；还没做完的部分见 `npm run verify` 的 `quiz` 步骤里的预期失败。
 
 - **头部**：标题只写“测验”或“重考”，旁边是第几题（当前作答或判分中的那份作答所属的交付，在 `deliveries` 里的位置）和剩余时间；不列全部 topic 的名称，也不显示知识点进度。结束以后不再写题号和剩余时间。
 - **剩余时间**：`components/domain/quiz-clock.tsx`，显示到秒，秒向上取整。截止时间是服务端时间，按读到状态时 `serverNow` 与本机时间之差换算（`lib/countdown.ts`，菜单的恢复时间用同一个换算）；同一场测验里只减不增，重新读取时网络延迟或本机时钟回拨不会让它往回跳。Badge 始终是灰色；最后 1 分钟秒表换成闹钟，最后 10 秒闹钟图标以 `animate-breathe` 每秒明暗一次，数字不动，减少动态效果时不动。计时区域是 `role="timer"`，读屏软件只在跨过 5 分钟和 1 分钟时由礼貌播报区各说一次；打开时已经不到 5 分钟不补报。
@@ -172,7 +172,7 @@ Agent 或插件在对话里提问时，后端发出 `ask.request`。Web 在 `Rep
 
 ## 修改历史页
 
-Agent、插件和编辑器都会改动空间里的文件，用户需要知道改了什么，改错时还要能撤回。后端的[空间历史](../packages/space-history/README.md)把每次 Agent 运行、插件写入和外部改动各记成一个提交；Web 的 `pages/history.tsx` 挂在 `/history`，列出这些提交并提供撤回。没有打开空间时重定向回 `/learning-space`，侧栏的“修改历史”栏目也只在打开空间后出现。
+Agent、插件和编辑器都会改动空间里的文件，用户需要知道改了什么，改错时还要能撤回。后端的[空间历史](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/space-history/README.md)把每次 Agent 运行、插件写入和外部改动各记成一个提交；Web 的 `pages/history.tsx` 挂在 `/history`，列出这些提交并提供撤回。没有打开空间时重定向回 `/learning-space`，侧栏的“修改历史”栏目也只在打开空间后出现。
 
 `history.list` 只返回提交的来源和时间，`history.changes` 才带每个提交改动的文件，但它从游标一直读到最新。因此 store 的 `history` 读取先用 `history.list` 取最近 200 条提交，再从其中最早一条的父提交开始调用 `history.changes`，两次请求合起来就是同一段带文件的记录；两次之间若有新提交，也一并列出。记录超过 200 条时页面注明更早的没有显示，还没有分页；读到最早的初始状态时，改为注明从什么时候开始记录。每次 Agent 运行即使没改文件也有一个提交，全部冲突的撤回也留下空提交，它们占用 200 条的名额，但不列出。初始状态是第一次打开空间时已有的文件，后端不允许撤回，所以也不作为记录列出。
 
@@ -191,7 +191,7 @@ Web 的 `pages/settings.tsx` 挂在 `/settings`，目前有模型设置、学习
 - “默认模型”显示 `model.getDefault` 的结果，即新会话不指定模型时使用的模型：Pi 设置里的默认模型，没设置时是第一个可用模型。它的提供方没有连接时在名称下提示发送会失败。“更换”打开 `features/model-picker.tsx`，只列已连接提供方的模型；一个提供方可能有几百个模型，所以用搜索加列表，选中后调用 `model.setDefault`。
 - “模型提供方”列出 `configured` 的提供方及凭据类型。`stored` 的可以“断开”（`auth.logout`）；环境变量或 `models.json` 提供的凭据标“由环境变量或配置文件提供”，不显示断开。还没有连接时“添加提供方”是主按钮。
 - `features/provider-connect.tsx` 是连接对话框：先搜索选择提供方（不搜索时，国内学生最常有的几家单列在最前面一组，DeepSeek 在第一个，下面仍是 Pi 目录里的全部），有多种方式时再选“用账号登录”或“填写 API key”，只能在 Repa 之外配置的方式只给说明。key 用密码输入框，经 `auth.setKey` 保存，后端保存前先用它试发一次请求：提供方拒绝时不保存，对话框留着说明原因、可以重填；连不上或余额不足时照样保存，对话框说明没能验证的原因，由用户点“完成”关掉；后端返回 `requires_interactive_login`（例如 Amazon Bedrock 还要选认证方式）时自动改走 `auth.login`。账号登录和这类 key 登录过程中，后端发来的 `display` 显示为说明和“打开链接”（新标签页），收到即回复，后端不用等用户点；`input`（`secret` 时为密码框）和 `select` 在对话框里排队回答。底座把选项写成 message 里的“id：名称 — 说明”，每项都能对上时按钮直接显示这一行。关闭对话框即取消：未回答的请求回复 `null`，之后的失败不再提示；只在浏览器里等待回调、没有可回答请求的步骤要等后端自己结束。登录失败显示原因，可以重试。
-- “命令授权”读写应用设置里的 `commandPolicy`（`settings.get`／`settings.set`），store 只取这一项，最近空间和提示覆盖由各自入口读取。“每次询问”（`ask`）时 Agent 调用 `bash` 都弹出对话页的授权对话框，只由少数只读命令组成的命令除外（见 [`@repa/base` 说明](../packages/base/README.md)）；“完全访问”（`fullAccess`）时直接运行，没有发起连接的后台命令也会运行，而询问模式下它们会被阻止。命令不在沙箱里，可能改动学习空间之外的文件，这些改动不在空间历史的撤回范围内，所以选完全访问时先用对话框说明后果，确认后才保存；改回询问没有风险，选中即保存。后端在每次命令执行前读取设置，保存后从下一条命令起生效，正在运行的会话也一样；已经弹出的授权对话框不会因此自动允许。设置对所有空间生效，保存失败时显示原因并保留原来的选项。
+- “命令授权”读写应用设置里的 `commandPolicy`（`settings.get`／`settings.set`），store 只取这一项，最近空间和提示覆盖由各自入口读取。“每次询问”（`ask`）时 Agent 调用 `bash` 都弹出对话页的授权对话框，只由少数只读命令组成的命令除外（见 [`@repa/base` 说明](https://github.com/Utopia-V/Repa/blob/pre-slim/packages/base/README.md)）；“完全访问”（`fullAccess`）时直接运行，没有发起连接的后台命令也会运行，而询问模式下它们会被阻止。命令不在沙箱里，可能改动学习空间之外的文件，这些改动不在空间历史的撤回范围内，所以选完全访问时先用对话框说明后果，确认后才保存；改回询问没有风险，选中即保存。后端在每次命令执行前读取设置，保存后从下一条命令起生效，正在运行的会话也一样；已经弹出的授权对话框不会因此自动允许。设置对所有空间生效，保存失败时显示原因并保留原来的选项。
 - “MCP 服务器”由 `features/mcp-settings.tsx` 渲染，数据是 store 的 `mcpServers`（`mcp.list`），随 `mcp.updated` 整份替换。每个服务器一张卡片：名称、状态（已连接及工具数、连接中、停用、失败，状态同时用文字表达）、命令名或地址；失败时下方用错误提示显示原因，并有“重新连接”（`mcp.reconnect`）。两个开关分别是启用（`mcp.set` 的 `enabled`）和调用前询问（`ask`）；删除先用对话框确认，因为这一项里的令牌随之删除。“添加”打开对话框，粘贴服务器说明里给的一段配置（整段或其中“名字: {…}”的部分），交给 `mcp.add`，格式不对时显示后端的原因并保留输入。没有通用 Agent 的装配里后端以 `mcp_unavailable` 拒绝，这一节不显示。调用工具前的确认（确认种类 `mcp`）与命令共用 `features/command-confirmation.tsx` 的对话框：标题写服务器与工具，下面是参数的 JSON。对话页的工具活动把 `mcp__<服务器>__<工具>` 分开显示。这一节的界面文字目前是占位。
 - “提示”由 `features/prompt-settings.tsx` 渲染，显示后端每次运行开始时装配系统提示用的各段（`prompt.list`），顺序就是装配顺序。各段由打开的空间和其中的插件决定，没有打开空间时只说明这一点并给出去选空间页的链接。后端只给出段落 id，名称和来源说明由 `lib/prompts.ts` 按已知 id 对照，未知的直接显示 id；插件段落显示为“插件 <id>”。每段可以启停和编辑，修改从下一条消息起生效：
   - 后端按默认、应用（所有空间）、空间三级合成，`prompt.set` 整体替换一级的覆盖，`prompt.reset` 清除一级。应用级覆盖从 `settings.get` 的 `prompts` 读取；空间级覆盖协议读不到，由有效内容和上一级的差异推出，和上一级相同的部分当作没有覆盖，对装配结果没有区别。
