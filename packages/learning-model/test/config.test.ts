@@ -46,7 +46,7 @@ test("默认参数逐项命名，常数保留 v0 的取值；省略参数和显�
 });
 
 test("差额更新的基线：simulate 的四项默认结果与冻结的数值一致", () => {
-  // memory 改为差额更新以后，默认 compare() 的冻结基线；v0 的数值（memory 先加信用再整体衰减）见 git 历史。
+  // 默认 compare() 的冻结基线：memory 的通过按差额更新，失败不打提前折扣、按分量成比例扣减。此前各版的数值见 git 历史。
   // 计数精确比较。回忆率是一长串浮点运算的结果，不同 Node 版本的数学函数在最后一位上可能相差，按 1e-12 比较。
   const recall = (value: number | null) => (value === null ? null : Math.round(value * 1e12) / 1e12);
   assert.deepEqual(compare().map((row) => ({ ...row, meanRecallAfterSevenDays: recall(row.meanRecallAfterSevenDays) })), [
@@ -68,7 +68,7 @@ test("差额更新的基线：simulate 的四项默认结果与冻结的数值�
     {
       scenario: "forgetting", policy: "fire-compression", explicitReviews: 183, failures: 31,
       learnedTopics: 36, dueAtEnd: 0, maximumDueAtDayEnd: 1, dueTopicDays: 1,
-      budgetExhaustedDays: 1, meanRecallAfterSevenDays: 0.604200452789,
+      budgetExhaustedDays: 1, meanRecallAfterSevenDays: 0.611548978,
     },
   ]);
 });
@@ -97,20 +97,22 @@ test("提前复习的折扣在 memory 降到满额线时拿满额，之前线性
   const later = state(applyRepetition(independent, student, { topicId: "a", day: 0.5, outcome: "pass" }, config));
   assert.equal(later.repNum, 4 + (1 - factor) / 0.75);
   assert.equal(later.memory, factor + (1 - factor) * ((1 - factor) / 0.75));
-  for (const outcome of ["pass", "fail"] as const) {
-    const fresh = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome }, config));
-    assert.equal(fresh.repNum, 4);
-    assert.equal(fresh.memory, 1);
-  }
+  const fresh = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome: "pass" }, config));
+  assert.equal(fresh.repNum, 4);
+  assert.equal(fresh.memory, 1);
+  // 失败不打折扣：刚复习过就答错，照样退一整步。
+  const failed = state(applyRepetition(independent, student, { topicId: "a", day: 0, outcome: "fail" }, config));
+  assert.equal(failed.repNum, 3);
+  assert.equal(failed.memory, 0);
 });
 
 test("逾期倒退的斜率只放大失败的 repNum，不改变 memory 公式", () => {
   const config: ModelConfig = { ...DEFAULT_MODEL_CONFIG, decaySlope: 0.5 };
   const student: Student = { a: { ...learnedState } };
-  // 逾期两个理想间隔：decay 为 1 + 0.5 × 2。memory 衰减到 0.125，失败扣掉差额 0.875 的四分之一以后低于零，取零。
+  // 逾期两个理想间隔：decay 为 1 + 0.5 × 2。memory 衰减到 0.125，四分之一的失败扣掉它的四分之一。
   const fail = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "fail", quality: 0.25 }, config));
   assert.equal(fail.repNum, 3.5);
-  assert.equal(fail.memory, 0);
+  assert.equal(fail.memory, 0.125 * 0.75);
   const pass = state(applyRepetition(independent, student, { topicId: "a", day: 3, outcome: "pass", quality: 0.25 }, config));
   assert.equal(pass.repNum, 4.25);
   assert.equal(pass.memory, 0.125 + 0.875 * 0.25);

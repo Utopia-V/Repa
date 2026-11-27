@@ -12,7 +12,7 @@ export type { ModelConfig } from "./schema.js";
 export const DEFAULT_MODEL_CONFIG: ModelConfig = {
   /** 到期线：memory 降到它（含）以下就到期。公开资料只说降到“足够低”时到期。 */
   dueMemory: 0.5,
-  /** 提前复习的信用折扣：memory 为 1（刚复习过）时没有信用，降到这里时拿满额，中间线性。公开资料只说提前的复习要打折。 */
+  /** 提前通过的信用折扣：memory 为 1（刚复习过）时没有信用，降到这里时拿满额，中间线性；失败不打折扣。公开资料只说提前的复习要打折。 */
   fullCreditMemory: 0.5,
   /** 初学时的 speed。MA 按学习者能力与 topic 难度之比估计 speed，估计方法没有公开。 */
   initialSpeed: 1,
@@ -76,8 +76,8 @@ export function repetitionWeights(
 
 /**
  * 把一次已确认的学习或复习结论记进学生状态，返回新状态，不修改输入；同一串结论换一组参数重放，就得到那组参数下的状态。
- * 信用按 repetitionWeights 传给相关 topic，每个 topic 再按自己此刻的 memory 打提前折扣，走同一套更新：repNum 用公开式，
- * memory 用差额更新（见函数内的说明）。
+ * 信用按 repetitionWeights 传给相关 topic，走同一套更新：repNum 用公开式；通过时每个 topic 按自己此刻的 memory 打提前折扣，
+ * memory 用差额更新；失败不打折扣，memory 按这次失败的分量成比例扣减（见函数内的说明）。
  */
 export function applyRepetition(
   graph: KnowledgeGraph,
@@ -107,15 +107,18 @@ export function applyRepetition(
     if (!explicit && passed && previous.speed < 1) continue;
     const days = day - previous.lastRepetitionDay;
     const memory = memoryAt(previous, day);
-    const discount = Math.max(0, Math.min(1, (1 - memory) / (1 - config.fullCreditMemory)));
+    // 提前的复习只在通过时打折扣（Repa 假设）。失败也打折扣时，刚复习过的 topic 答错几乎没有影响：间隔 24 天的卡片在通过后的
+    // 第二天答错，间隔只从 24.3 天变为 23.0 天；而随时出题的对话里，这正是最常见的失败。
+    const discount = passed ? Math.max(0, Math.min(1, (1 - memory) / (1 - config.fullCreditMemory))) : 1;
     const rawDelta = (passed ? 1 : -1) * quality * weight * discount;
     // 每逾期一个理想间隔，失败多退 decaySlope 倍；成功不受此项放大。
     const decay = 1 + config.decaySlope * Math.max(0, days / previous.interval - 1);
     const repNum = Math.max(0, previous.repNum + previous.speed * (passed ? 1 : decay) * rawDelta);
-    // 差额更新（Repa 假设，公开式没有标出各项属于哪个时刻）：旧 memory 先按旧间隔衰减到这一天，这次的信用再补上它与 1 之间差额的
-    // rawDelta 倍，从这一天起按新间隔衰减。这一天的信用不再乘以此前的衰减，迟到的满额通过同样回到 1，不会马上又到期；
-    // 失败按同样的比例往下扣。信用为零时只把锚点移到这一天，遗忘的轨迹不变。
-    const updatedMemory = Math.max(0, memory + (1 - memory) * rawDelta);
+    // 差额更新（Repa 假设，公开式没有标出各项属于哪个时刻）：旧 memory 先按旧间隔衰减到这一天，通过的信用再补上它与 1 之间差额的
+    // rawDelta 倍，从这一天起按新间隔衰减。这一天的信用不再乘以此前的衰减，迟到的满额通过同样回到 1，不会马上又到期。
+    // 失败按分量成比例扣减（同为 Repa 假设）：满额失败归零，一半的失败减半。旧式按 1 - memory 的比例扣，memory 接近 1 时几乎不动；
+    // 在到期线 0.5 上两式相同。信用为零时只把锚点移到这一天，遗忘的轨迹不变。
+    const updatedMemory = passed ? memory + (1 - memory) * rawDelta : memory * (1 + rawDelta);
     // 只有显式复习调整 speed；本次仍用旧 speed，下一次才用新值。
     let speed = previous.speed;
     if (explicit && !firstLearning) {
