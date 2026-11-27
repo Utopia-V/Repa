@@ -37,7 +37,7 @@
     "build:packages": "tsc -b tsconfig.build.json && npm run build:assets --workspaces --if-present",
     "docs:check": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/check.ts",
     "test:docs-scripts": "tsx --tsconfig scripts/docs/tsconfig.json --test scripts/docs/*.test.ts",
-    "docs:gen": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-packages.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-protocol.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-tools.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-host-api.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-persistence.ts",
+    "docs:gen": "tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-packages.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-protocol.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-tools.ts && tsx --tsconfig scripts/docs/tsconfig.json scripts/docs/gen-host-api.ts",
     "lint": "eslint . && tsx --tsconfig scripts/docs/tsconfig.json scripts/checks/browser-boundary.ts && npm run lint:ui-text",
     "lint:ui-text": "tsx --tsconfig scripts/docs/tsconfig.json scripts/checks/ui-strings.ts",
     "preverify": "npm run build:packages",

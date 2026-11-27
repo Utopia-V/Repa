@@ -40,4 +40,4 @@ description: 编写、修改或审阅 Repa 代码时使用，规定 TypeScript �
 
 ## 检查入口
 
-当前后端类型检查使用 `npm run check`，构建使用 `npm run build`，lint 与依赖边界检查使用 `npm run lint`（`npm test` 会先运行它）。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。能机械判断的规则放进检查，只有检查不了的才留在本规范里，见[能机械判断的规则交给检查](../../notes/implemented/process/2026-11-06-mechanical-checks.md)；本规范不引入格式化器或全仓重排任务。
+当前后端类型检查使用 `npm run check`，构建使用 `npm run build`，lint 与依赖边界检查使用 `npm run lint`（`npm test` 会先运行它）。具体脚本、编译选项与依赖版本分别以所属 `package.json`、`tsconfig` 和锁文件为准。能机械判断的规则放进检查，只有检查不了的才留在本规范里；本规范不引入格式化器或全仓重排任务。

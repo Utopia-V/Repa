@@ -1,3 +1,0 @@
-interface:
-  display_name: "Codebase Design"
-  short_description: "Design root-cause modules with small interfaces"

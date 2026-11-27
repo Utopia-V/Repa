@@ -1,1 +1,0 @@
-{"stage": "test", "formats": [{"id": "fixture", "files": ["<空间>/format.json"], "owner": "@repa/fixture", "schema": "schema.ts#FormatSchema", "versionedBy": "<空间>/format.json"}]}

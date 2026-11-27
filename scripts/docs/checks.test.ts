@@ -6,13 +6,13 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 
 import { applyExceptions, CHECK_NAMES, runChecks, type CheckName } from "./checks.js";
-import { charCount, inScope, Repository, readSettings, type Settings } from "./context.js";
+import { inScope, Repository, readSettings, type Settings } from "./context.js";
 
 const fixtureRoot = path.resolve(import.meta.dirname, "fixtures");
 const projectRoot = path.resolve(import.meta.dirname, "../..");
 
 function settings(): Settings {
-  return { exclusions: [], budgets: [], bannedTerms: [], exceptions: {} };
+  return { exclusions: [], bannedTerms: [], exceptions: {} };
 }
 
 async function fixture(t: TestContext, files: Record<string, string>): Promise<Repository> {
@@ -49,8 +49,8 @@ test("断链、缺失图片、错误锚点和引用目标报告原文行号", as
 const pathTargets = {
   "packages/demo/src/existing.ts": "paths/pass.ts",
   "apps/demo/src/existing.ts": "paths/pass.ts",
-  "docs/existing.md": "budgets/pass.md",
-  ".agents/existing.md": "budgets/pass.md",
+  "docs/existing.md": "links/target.md",
+  ".agents/existing.md": "links/target.md",
   "scripts/existing.ts": "paths/pass.ts",
 };
 
@@ -74,8 +74,8 @@ test("设计记录中的旧路径跳过，源码正文不会被当作路径注�
   const repo = await fixture(t, {
     ".agents/notes/proposed/process/2026-10-30-paths.md": "paths/fail.md",
     "packages/demo/src/index.ts": "paths/pass.ts",
-    "docs/existing.md": "budgets/pass.md",
-    ".agents/existing.md": "budgets/pass.md",
+    "docs/existing.md": "links/target.md",
+    ".agents/existing.md": "links/target.md",
   });
   assert.deepEqual(await check(repo, "路径"), []);
 });
@@ -129,23 +129,6 @@ for (const [name, directory, failureCount] of [
     assert.equal((await check(repo, name)).length, failureCount);
   });
 }
-
-test("篇幅按非空白 Unicode 字符计数，等于上限时通过", async (t) => {
-  const repo = await fixture(t, { "AGENTS.md": "budgets/pass.md" });
-  const config = settings();
-  config.budgets = [{ path: "AGENTS.md", maxChars: 6, reason: "夹具上限" }];
-  assert.equal(charCount("# 规则\n\n短文。\n"), 6);
-  assert.equal(charCount("a 😀\n中"), 3);
-  assert.deepEqual(await check(repo, "篇幅上限", config), []);
-});
-
-test("篇幅超限报指定处置说明，缺少预算也会报错", async (t) => {
-  const repo = await fixture(t, { "AGENTS.md": "budgets/fail.md" });
-  const config = settings();
-  config.budgets = [{ path: "AGENTS.md", maxChars: 6, reason: "夹具上限" }];
-  assert.match((await check(repo, "篇幅上限", config))[0]?.message ?? "", /先把内容挪到它该在的地方，再压缩，最后才提上限并写明理由/);
-  assert.equal((await check(repo, "篇幅上限")).length, 1);
-});
 
 for (const success of [true, false]) {
   test(`停用词在文档、包与应用的 TS 和 Svelte 中${success ? "放行新词" : "忽略大小写报错"}`, async (t) => {
@@ -279,7 +262,7 @@ test("入口只查 git 跟踪文件，失败非零并输出文件行号，修复
   const success = invoke();
   assert.equal(success.status, 0, success.stderr);
   assert.match(success.stdout, /文档检查全部通过/);
-  assert.equal(CHECK_NAMES.length, 11);
+  assert.equal(CHECK_NAMES.length, 9);
 });
 
 test("HTML 的 data-id 不冒充 id，目录锚点作为链接问题报告", async (t) => {
@@ -301,9 +284,4 @@ test("被删除但尚未暂存的文件不读取，引用它的文档仍指出�
   const tracked = Repository.tracked(repo.root);
   assert.deepEqual(tracked.files, ["README.md"]);
   assert.ok((await check(tracked, "链接")).some((issue) => issue.message.includes("target.md")));
-});
-
-test("持久格式记录的前两行是元数据，其余正文仍按一段一行检查", async (t) => {
-  const repo = await fixture(t, { "docs/persistence/changes/2026-10-30-fields.md": "paragraphs/persistence.md" });
-  assert.deepEqual((await check(repo, "一段一行")).map((issue) => issue.line), [4]);
 });
