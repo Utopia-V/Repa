@@ -11,6 +11,7 @@ import { applyEvent, type Conversation, type Item, type PendingReply, type Pendi
 import { createRepaExtension, systemPrompt } from "./extension.js";
 
 type Kind = SessionInfo["kind"];
+type ThinkingLevel = Parameters<AgentSession["setThinkingLevel"]>[0];
 
 // 内存里的一段对话。conversation 用界面同一个 applyEvent 更新，之后连上的界面直接取它作快照。
 interface Live {
@@ -142,12 +143,14 @@ export class Sessions {
     });
     await loader.reload();
     const model = manager.getEntries().length === 0 ? await this.defaultModel() : undefined;
-    // 设置只放在内存里：Repa 的设置在 .repa/settings.json，不写 Pi 的全局设置。
-    const settingsManager = SettingsManager.inMemory();
+    // Pi 的设置只放在内存里，不读也不改 Pi 全局目录的设置。Repa 记下的 thinking 级别作为 Pi 的缺省级别交进去：
+    // 新对话、换模型时由 Pi 按它取级别，并按模型支持的级别收窄；没记过时用 Pi 的缺省。
+    const { thinking } = await readSettings(this.root);
+    const settingsManager = SettingsManager.inMemory(thinking ? { defaultThinkingLevel: thinking as ThinkingLevel } : {});
     const { session } = await createAgentSession({ cwd, agentDir: this.agentDir, modelRuntime: this.runtime, resourceLoader: loader, sessionManager: manager, settingsManager, ...(model ? { model } : {}) });
     await session.bindExtensions({});
     live.session = session;
-    if (session.model) live.info.model = `${session.model.provider}/${session.model.id}`;
+    Object.assign(live.info, modelInfo(session));
     session.subscribe((event) => {
       const ui = uiEventOf(event, this.root, cwd);
       if (ui) this.emit(live, ui);
@@ -252,7 +255,16 @@ export class Sessions {
     if (!model) throw new RepaFault("not_found", `没有模型 ${provider}/${modelId}。`);
     await live.session.setModel(model);
     await updateSettings(this.root, { model: `${provider}/${modelId}` });
-    this.update(live, { model: `${provider}/${modelId}` });
+    this.update(live, modelInfo(live.session));
+  }
+
+  /** 换 thinking 级别；它同时成为以后新对话的默认。模型不支持的级别由 Pi 收窄到它支持的，记下的仍是选的那一级，与 Pi 一致。 */
+  async setThinking(id: string, level: string): Promise<void> {
+    const live = this.get(id);
+    // persist 只写进这段对话在内存里的 Pi 设置，之后换模型时 Pi 按它重新取级别。
+    live.session.setThinkingLevel(level as ThinkingLevel, { persist: true });
+    await updateSettings(this.root, { thinking: level });
+    this.update(live, modelInfo(live.session));
   }
 
   /** 换模式：从下一轮起，Pi 只追加模式这一段。 */
@@ -286,6 +298,15 @@ export class Sessions {
     live.conversation = applyEvent(live.conversation, event);
     for (const listener of live.listeners) listener(event);
   }
+}
+
+// 界面要显示的模型与 thinking 级别，以及当前模型可选的级别。
+function modelInfo(session: AgentSession): Pick<SessionInfo, "model" | "thinking" | "thinkingLevels"> {
+  return {
+    ...(session.model ? { model: `${session.model.provider}/${session.model.id}` } : {}),
+    thinking: session.thinkingLevel,
+    thinkingLevels: session.getAvailableThinkingLevels(),
+  };
 }
 
 function textOf(content: unknown): string {

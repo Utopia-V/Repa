@@ -143,6 +143,7 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     ["POST", /^\/api\/sessions\/([^/]+)\/abort$/u, async (_request, _url, _body, [id = ""]) => sessions.abort(id).then(() => ({}))],
     ["POST", /^\/api\/sessions\/([^/]+)\/compact$/u, async (_request, _url, _body, [id = ""]) => sessions.compact(id)],
     ["POST", /^\/api\/sessions\/([^/]+)\/model$/u, async (_request, _url, body, [id = ""]) => sessions.setModel(id, String(body.provider), String(body.id)).then(() => ({}))],
+    ["POST", /^\/api\/sessions\/([^/]+)\/thinking$/u, async (_request, _url, body, [id = ""]) => sessions.setThinking(id, String(body.level)).then(() => ({}))],
     ["POST", /^\/api\/sessions\/([^/]+)\/mode$/u, async (_request, _url, body, [id = ""]) => {
       sessions.setMode(id, String(body.mode));
       return {};

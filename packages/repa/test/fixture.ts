@@ -62,7 +62,8 @@ export async function backend(t: TestContext, files: Record<string, string>): Pr
   await ensureModes(root);
   await write(path.join(root, ".repa/settings.json"), JSON.stringify({ model: "faux/faux-1" }));
 
-  const faux = fauxProvider();
+  // faux-1 支持 thinking，faux-plain 不支持，用来看换模型时级别怎样收窄。
+  const faux = fauxProvider({ models: [{ id: "faux-1", reasoning: true }, { id: "faux-plain" }] });
   const seen: Seen[] = [];
   const runtime = await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json") });
   runtime.registerNativeProvider(faux.provider);

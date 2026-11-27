@@ -293,3 +293,25 @@ test("Agent 读过卡片以后学习者在编辑器里又改了它：整篇 writ
   assert.match(stale?.type === "tool" ? stale.output : "", /先用 read 读当前的内容/u);
   assert.equal(await readFile(file, "utf8"), "第一版\n学习者刚写的一段。\n补充\n");
 });
+
+test("thinking 级别由 Repa 记在 .repa/settings.json：换了以后成为新对话的默认；模型不支持时由 Pi 收窄，换回来又恢复；不写 Pi 全局目录", async (t) => {
+  const server = await backend(t, {});
+  const id = await open(server, "");
+  const client = await server.connect(id);
+  const info = () => client.conversation.session;
+  assert.equal(info()?.thinking, "medium");
+  assert.ok(info()?.thinkingLevels?.includes("high"));
+  assert.equal((await server.api("POST", `/api/sessions/${id}/thinking`, { level: "high" })).status, 200);
+  await client.until(() => info()?.thinking === "high", "换成 high");
+  const settings = JSON.parse(await readFile(path.join(server.root, ".repa/settings.json"), "utf8")) as Record<string, unknown>;
+  assert.equal(settings.thinking, "high");
+  await server.api("POST", `/api/sessions/${id}/model`, { provider: "faux", id: "faux-plain" });
+  await client.until(() => info()?.model === "faux/faux-plain", "换成不支持 thinking 的模型");
+  assert.equal(info()?.thinking, "off");
+  await server.api("POST", `/api/sessions/${id}/model`, { provider: "faux", id: "faux-1" });
+  await client.until(() => info()?.model === "faux/faux-1", "换回来");
+  assert.equal(info()?.thinking, "high");
+  const fresh = await server.api("POST", "/api/sessions", { folder: "", fresh: true });
+  assert.equal(fresh.json.thinking, "high");
+  await assert.rejects(stat(path.join(path.dirname(server.root), "agent", "settings.json")));
+});

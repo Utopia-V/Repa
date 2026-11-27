@@ -187,11 +187,12 @@ export async function readMode(root: string, name: string): Promise<string> {
   return `当前模式：${name}\n${(await readOptional(path.join(modesDir(root), `${path.basename(name)}.md`))) ?? "（这个模式的文件不在了。）"}`;
 }
 
-/** .repa/settings.json：两个确认开关和新对话的默认模型（provider/id）。 */
+/** .repa/settings.json：两个确认开关，以及新对话的默认模型（provider/id）和 thinking 级别。与 Pi 自己的设置分开，不读也不改。 */
 export interface Settings {
   confirmEdits: boolean;
   confirmCommands: boolean;
   model?: string;
+  thinking?: string;
 }
 
 function settingsFile(root: string): string {
@@ -202,7 +203,12 @@ function settingsFile(root: string): string {
 export async function readSettings(root: string): Promise<Settings> {
   const text = await readOptional(settingsFile(root));
   const value = (text === undefined ? {} : JSON.parse(text)) as Partial<Settings>;
-  return { confirmEdits: value.confirmEdits === true, confirmCommands: value.confirmCommands === true, ...(typeof value.model === "string" ? { model: value.model } : {}) };
+  return {
+    confirmEdits: value.confirmEdits === true,
+    confirmCommands: value.confirmCommands === true,
+    ...(typeof value.model === "string" ? { model: value.model } : {}),
+    ...(typeof value.thinking === "string" ? { thinking: value.thinking } : {}),
+  };
 }
 
 /** 改几项设置，返回改后的全部设置。 */

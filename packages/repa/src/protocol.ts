@@ -31,6 +31,8 @@ export interface SessionInfo {
   kind: "learn" | "review";
   mode: string;
   model?: string;
+  thinking?: string;
+  thinkingLevels?: string[];
 }
 
 /** 推给界面的事件。snapshot 在连上时发一次，之后是增量。 */
