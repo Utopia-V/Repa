@@ -100,7 +100,8 @@ test("Agent 出题：题目卡片有开放题和单选题，作答交回 Agent�
   const id = await open(server, "CSAPP");
   const client = await server.connect(id);
   const questions = [{ text: "多级页表为什么省空间？" }, { text: "TLB 缓存的是什么？", options: ["物理页", "页表项", "磁盘块"] }];
-  server.script({ tool: "quiz", id: "call_quiz", args: { card: "页表", questions } });
+  // 开放题带一个空的 options，是 DeepSeek 实际给过的写法。
+  server.script({ tool: "quiz", id: "call_quiz", args: { card: "页表", questions: [{ ...questions[0], options: [] }, questions[1]] } });
   await server.api("POST", `/api/sessions/${id}/prompt`, { text: "考考我" });
   await client.until(() => client.conversation.pending.length === 1, "题目卡片");
   assert.deepEqual(client.conversation.pending[0], { kind: "quiz", questions, card: "CSAPP/页表.md", id: "call_quiz" });
@@ -121,7 +122,11 @@ test("Agent 出题：题目卡片有开放题和单选题，作答交回 Agent�
   const cardId = String(card.json.text).match(/^id: (\w+)$/mu)?.[1];
   assert.ok(cardId);
 
-  server.script({ tool: "write", id: "call_rewrite", args: { path: "页表.md", content: "---\nsummary: 页表\n---\n整篇改写的正文\n" } }, { text: "改好了" });
+  server.script(
+    { tool: "read", id: "call_read", args: { path: "页表.md" } },
+    { tool: "write", id: "call_rewrite", args: { path: "页表.md", content: "---\nsummary: 页表\n---\n整篇改写的正文\n" } },
+    { text: "改好了" },
+  );
   await server.api("POST", `/api/sessions/${id}/prompt`, { text: "整篇重写" });
   await client.until(() => client.settled === 2, "改写结束");
   const text = await readFile(path.join(server.root, "CSAPP/页表.md"), "utf8");
@@ -254,4 +259,33 @@ test("全部卡片的元数据：路径、标题、summary、keep、先修、正
     path: "A/页表.md", title: "页表", summary: "和 [[TLB]]、[[没有]] 一起看", moc: false, keep: true, folder: "A",
     requires: [{ target: "缓存", path: null }], links: [{ target: "TLB", path: "A/TLB.md" }, { target: "没有", path: null }], memory: "number", due: true,
   });
+});
+
+test("Agent 读过卡片以后学习者在编辑器里又改了它：整篇 write 被拦下，读过当前内容以后才写入", async (t) => {
+  const server = await backend(t, { "笔记.md": "第一版\n" });
+  const id = await open(server, "");
+  const client = await server.connect(id);
+  const file = path.join(server.root, "笔记.md");
+  server.script(
+    { tool: "read", id: "call_read1", args: { path: "笔记.md" } },
+    { tool: "write", id: "call_new", args: { path: "新卡片.md", content: "新建不用先读\n" } },
+    { text: "读完了" },
+  );
+  await server.api("POST", `/api/sessions/${id}/prompt`, { text: "读一下" });
+  await client.until(() => client.settled === 1, "读完");
+  assert.equal(await readFile(path.join(server.root, "新卡片.md"), "utf8"), "新建不用先读\n");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await writeFile(file, "第一版\n学习者刚写的一段。\n");
+  server.script(
+    { tool: "write", id: "call_stale", args: { path: "笔记.md", content: "凭旧印象重写\n" } },
+    { tool: "read", id: "call_read2", args: { path: "笔记.md" } },
+    { tool: "write", id: "call_fresh", args: { path: "笔记.md", content: "第一版\n学习者刚写的一段。\n补充\n" } },
+    { text: "写好了" },
+  );
+  await server.api("POST", `/api/sessions/${id}/prompt`, { text: "重写" });
+  await client.until(() => client.settled === 2, "重写结束");
+  const stale = client.conversation.items.find((item) => item.type === "tool" && item.id === "call_stale");
+  assert.equal(stale?.type === "tool" && stale.isError, true);
+  assert.match(stale?.type === "tool" ? stale.output : "", /先用 read 读当前的内容/u);
+  assert.equal(await readFile(file, "utf8"), "第一版\n学习者刚写的一段。\n补充\n");
 });

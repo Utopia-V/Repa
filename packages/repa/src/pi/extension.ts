@@ -1,4 +1,5 @@
 // Repa 以一个 Pi 扩展接入每段对话：五个工具、每轮的地图与模式、随消息附带的上下文、写前留旧版本、保住 id、确认开关。
+import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import { isToolCallEventType, type ExtensionAPI, type ExtensionFactory, type ToolCallEventResult } from "@earendil-works/pi-coding-agent";
@@ -27,7 +28,7 @@ export function systemPrompt(root: string): string {
     "文件头的 id 由程序管理，不要写、改或删。keep、requires 和 MOC 先向学习者提议，同意后再写；review 只在学习者说了日期时写。",
     "卡片正文是学习者的文字。补充时加在合适的位置，不改写、不删去学习者写的段落；确实要改，先说明改什么。",
     "名字以 _ 开头的文件夹和克隆下来的仓库是资料（讲义、转写稿、作业），可以读，但不是卡片。",
-    "想考学习者时用 quiz，出题前先用 practice_history 查这张卡片以前的题和结果。作答交回以后，用 grade 如实记下结果和一句讲评：作答前向你要过提示的最多记为部分对，只是问清题干的不算。不经题目卡片的练习（例如学习者在编辑器里做完的题）也用 grade 记，给出卡片。",
+    "想考学习者时用 quiz，出题前先用 practice_history 查这张卡片以前的题和结果；复习时这些已经附在消息里，不必再查。作答交回以后，用 grade 如实记下结果和一句讲评：作答前向你要过提示的最多记为部分对，只是问清题干的不算。不经题目卡片的练习（例如学习者在编辑器里做完的题）也用 grade 记，给出卡片。",
     "需要别的层的内容时，用 kb_search 按标题和概括检索整个知识库，用 kb_browse 浏览一层，再用 read 读原文。",
     "<repa_map> 是这一层的地图，<repa_review> 是这一层到期的复习和最近没答好的练习，<repa_mode> 是现在的任务模式。学习者的消息后面可能附有一条上下文，写着正在看的卡片或复习的材料；学习者说“这里”“这一段”时，指的就是这张卡片。",
     "用中文回答。公式用 $…$ 或 $$…$$。",
@@ -62,6 +63,10 @@ function findCard(state: State, folder: string, ref: string): Page {
 /** 生成 Repa 扩展。Pi 重新加载时会再次调用它，所以状态都放在 host 里。 */
 export function createRepaExtension(host: Host): ExtensionFactory {
   const { root } = host;
+  // Agent 上次读到或写下每个文件时的修改时间。整篇 write 一个已有的文件之前，它必须读过当前的内容：
+  // 否则学习者在编辑器里刚写的段落会被 Agent 凭旧印象写回去的全文悄悄盖掉（走查时实际出现过）。
+  const known = new Map<string, number>();
+  const mtimeOf = async (file: string) => (await stat(file).catch(() => undefined))?.mtimeMs;
   return (pi: ExtensionAPI) => {
     pi.registerTool({
       name: "quiz",
@@ -72,9 +77,11 @@ export function createRepaExtension(host: Host): ExtensionFactory {
         const state = await loadState(root);
         const card = params.card === undefined ? undefined : findCard(state, host.folder, params.card);
         const cardId = card ? await ensureId(root, card) : undefined;
-        const reply = await host.ask(toolCallId, { kind: "quiz", questions: params.questions, ...(card ? { card: card.path } : {}) }, signal);
+        // 模型给开放题也常带一个空的 options，这里统一成没有选项。
+        const questions = params.questions.map((question) => (question.options?.length ? question : { text: question.text }));
+        const reply = await host.ask(toolCallId, { kind: "quiz", questions, ...(card ? { card: card.path } : {}) }, signal);
         const answers = reply.answers ?? null;
-        const entry = await appendLog(root, { kind: "quiz", ...(cardId ? { card: cardId } : { folder: host.folder }), questions: params.questions, answers });
+        const entry = await appendLog(root, { kind: "quiz", ...(cardId ? { card: cardId } : { folder: host.folder }), questions, answers });
         const details = { quiz: entry.id, card: card?.path, answers };
         if (answers === null) return text(`练习 ${entry.id}：学习者没有作答。`, details);
         return text(`练习 ${entry.id} 的作答：\n${answers.map((answer, index) => `${index + 1}. ${answer || "（空）"}`).join("\n")}`, details);
@@ -174,23 +181,34 @@ export function createRepaExtension(host: Host): ExtensionFactory {
         const blocked = await confirm(event.toolCallId, event.toolName, rel ?? file, ctx.signal);
         if (blocked) return blocked;
       }
+      const current = await mtimeOf(file);
+      if (isToolCallEventType("write", event) && current !== undefined && known.get(file) !== current) {
+        return { block: true, reason: `${target} 在你上次读过以后被改过，或者你还没有读过它。先用 read 读当前的内容，再整篇写入。` };
+      }
       if (rel !== undefined) await saveVersion(root, rel, event.toolCallId);
       return undefined;
     });
 
     // id 归程序所有：改写把它丢了或改了，就在改写完成以后写回，练习记录不会悄悄断开。
     pi.on("tool_result", async (event, ctx) => {
-      if ((event.toolName !== "write" && event.toolName !== "edit") || event.isError) return undefined;
+      if (!["read", "write", "edit"].includes(event.toolName) || event.isError) return undefined;
       const file = path.resolve(ctx.cwd, String(event.input.path));
-      if (!inside(root, file) || !file.endsWith(".md")) return undefined;
-      const { before } = await changeOf(root, path.relative(root, file), event.toolCallId);
-      const id = before === undefined ? undefined : idOf(before);
-      const now = await readOptional(file);
-      if (id === undefined || now === undefined || idOf(now) === id) return undefined;
-      await writeAtomic(file, setId(now, id));
-      return { content: [...event.content, { type: "text" as const, text: `文件头的 id 由程序管理，已恢复为 ${id}。` }] };
+      const result = event.toolName === "read" ? undefined : await restoreId(file, event.toolCallId);
+      const mtime = await mtimeOf(file);
+      if (mtime !== undefined) known.set(file, mtime);
+      return result;
     });
   };
+
+  async function restoreId(file: string, toolCallId: string) {
+    if (!inside(root, file) || !file.endsWith(".md")) return undefined;
+    const { before } = await changeOf(root, path.relative(root, file), toolCallId);
+    const id = before === undefined ? undefined : idOf(before);
+    const now = await readOptional(file);
+    if (id === undefined || now === undefined || idOf(now) === id) return undefined;
+    await writeAtomic(file, setId(now, id));
+    return { content: [{ type: "text" as const, text: `已写入。文件头的 id 由程序管理，已恢复为 ${id}。` }] };
+  }
 
   async function confirm(toolCallId: string, tool: string, target: string, signal: AbortSignal | undefined): Promise<ToolCallEventResult | undefined> {
     const reply = await host.ask(toolCallId, { kind: "confirm", tool, target }, signal);

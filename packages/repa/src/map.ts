@@ -146,7 +146,7 @@ export function formatPractices(state: State, cardId: string | undefined, limit:
     const lines = [`- ${practiceLine(state, practice)}`];
     for (const [index, question] of (practice.quiz?.questions ?? []).entries()) {
       const answer = practice.quiz?.answers?.[index];
-      lines.push(`  题 ${index + 1}：${question.text}${question.options ? `（选项：${question.options.join(" / ")}）` : ""}`);
+      lines.push(`  题 ${index + 1}：${question.text}${question.options?.length ? `（选项：${question.options.join(" / ")}）` : ""}`);
       lines.push(`  答：${answer ?? "没有作答"}`);
     }
     if (practice.grade?.external) lines.push(`  外部评测：${practice.grade.external}`);

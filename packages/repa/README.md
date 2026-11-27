@@ -16,7 +16,7 @@ node packages/repa/bin/repa.mjs --kb ~/Repa
 
 ## 知识库与数据
 
-每个文件夹是一层，Markdown 文件是卡片，文件名就是标题。名字以 `_` 或点开头的文件夹、名为 `node_modules` 的文件夹，以及含 `.git` 的文件夹（知识库的根除外）是资料，里面的 Markdown 不算卡片，文件夹也不成层；`_` 开头的文件夹、仓库和非 Markdown 文件仍列在树里。文件头的 `id`、`summary`、`keep`、`requires`、`review` 和 `moc` 都可以不写，含义见[设计记录](../../.agents/notes/proposed/architecture/2026-11-26-self-use-skeleton.md#知识库是一个文件夹)。程序只写文件头的 `id`，在一张卡片第一次被练习时写入；Agent 的改写丢了它或改了它，程序在改写完成后写回。
+每个文件夹是一层，Markdown 文件是卡片，文件名就是标题。名字以 `_` 或点开头的文件夹、名为 `node_modules` 的文件夹，以及含 `.git` 的文件夹（知识库的根除外）是资料，里面的 Markdown 不算卡片，文件夹也不成层；`_` 开头的文件夹、仓库和非 Markdown 文件仍列在树里。文件头的 `id`、`summary`、`keep`、`requires`、`review` 和 `moc` 都可以不写，含义见[设计记录](../../.agents/notes/proposed/architecture/2026-11-26-self-use-skeleton.md#知识库是一个文件夹)。程序只写文件头的 `id`，在一张卡片第一次被练习时写入；Agent 的改写丢了它或改了它，程序在改写完成后写回。Agent 用 `write` 整篇写入一个已有的文件之前，必须读过它当前的内容，否则这次写入被拦下，理由交回给 Agent：学习者在编辑器里刚补的段落，因此不会被 Agent 凭旧印象写回的全文悄悄盖掉。
 
 Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 
