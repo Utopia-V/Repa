@@ -458,3 +458,9 @@ test("写卡片先留一份完整的临时文件：临时文件写不进去时�
   assert.equal(await readFile(file, "utf8"), "新的正文\n");
   assert.deepEqual((await readdir(server.root)).filter((name) => name.endsWith(".repa-tmp")), []);
 });
+
+test("还没有打开的对话时连上全局的事件流，响应头立刻送达：后端重启以后界面据此知道已经连上，断开的提示随之消失", async (t) => {
+  const server = await backend(t, {});
+  const connected = await Promise.race([server.watch().then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 2000))]);
+  assert.equal(connected, true);
+});

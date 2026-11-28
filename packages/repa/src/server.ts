@@ -253,6 +253,8 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     const events: unknown[] = [];
     const unsubscribe = subscribe((event) => (response.headersSent ? write(event) : events.push(event)));
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
+    // 还没有事件可发时也先把响应头送出去，浏览器的 EventSource 据此才算连上
+    response.flushHeaders();
     for (const event of events) write(event);
     request.on("close", unsubscribe);
   }
