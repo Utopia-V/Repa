@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { CardSummary } from "./api";
 import { Glyph, stoneOf } from "./glyph";
 import { go } from "./store";
-import { t, type TextKey } from "./strings";
+import { t } from "./strings";
 
 const W = 1000;
 const C = 16;
@@ -71,7 +71,7 @@ export function layout(cards: CardSummary[]): { piles: Pile[]; regions: Pile[][]
     x0 += right - left + GAP;
     row = Math.max(row, bottom - top);
   });
-  return { piles: regions.flat(), regions, height: y0 + row + 44 };
+  return { piles: regions.flat(), regions, height: y0 + row + 16 };
 }
 
 /** 与一张卡片有关的卡片：它的先修、以它为先修的后续、两边任一方链到对方的链接，以及列出它的专题。 */
@@ -106,6 +106,48 @@ function Name({ node, strong = false }: { node: Node; strong?: boolean }) {
   return <text className={`name${strong ? " strong" : ""}`} x={node.x + (left ? -15 : 15)} y={node.y + 5} textAnchor={left ? "end" : undefined}>{node.card.title}</text>;
 }
 
+/** 同一堆里与焦点有关的卡片：名字写在这一堆的左右两侧，按高低排开、至少隔 18，让开焦点自己的名字，各用一条细线引到石头。 */
+function Leads({ focus, near }: { focus: Node; near: Node[] }) {
+  const pile = focus.pile;
+  const side = focus.x < pile.x - 4 ? -1 : 1;
+  return <>{[-1, 1].flatMap((dir) => {
+    const rim = pile.x + dir * (pile.r - 20);
+    let y = -Infinity;
+    return near.filter((node) => (node.x < pile.x ? -1 : 1) === dir).sort((a, b) => a.y - b.y).map((node) => {
+      y = Math.max(node.y, y + 18);
+      if (dir === side && Math.abs(y - focus.y) < 17) y = focus.y + 18;
+      return <g key={node.card.path}>
+        <path className="lead" d={`M${node.x + dir * 11} ${node.y}L${rim - dir * 5} ${y}`} />
+        <text className="name" x={rim} y={y + 5} textAnchor={dir < 0 ? "end" : undefined}>{node.card.title}</text>
+      </g>;
+    });
+  })}</>;
+}
+
+const ARROW = <svg className="graph mk" width="26" height="10" viewBox="0 0 26 10"><path className="edge req" d="M1 5H23M19 1.5L23 5L19 8.5" /></svg>;
+const DASH = <svg className="graph mk" width="26" height="10" viewBox="0 0 26 10"><path className="edge link" d="M1 5H25" /></svg>;
+const DIAMOND = <svg className="graph mk" width="14" height="14" viewBox="-7 -7 14 14"><rect x="-4.5" y="-4.5" width="9" height="9" rx="2" transform="rotate(45)" className="topic" /></svg>;
+
+/**
+ * 图下面的一行，高度始终留着，指上指下版面不跳；图比窗口高时贴在窗口底部。没有指到卡片时是图例；
+ * 指到时按学的先后写成一串：先修 → 这张卡片 → 后续，再是链接和专题，第二行是概括。不浮在图上，所以不会盖住石头。
+ */
+function Foot({ focus, named }: { focus: CardSummary | undefined; named: (kind: Kind) => string }) {
+  if (!focus) {
+    return <div className="g-foot legend"><p className="chain">
+      <span className="grp">{ARROW}{t("graph.pre")}</span><span className="grp">{DASH}{t("graph.link")}</span><span className="grp">{DIAMOND}{t("graph.topic")}</span>
+    </p><p className="sum" /></div>;
+  }
+  const [pre, post, link, topic] = (["pre", "post", "link", "topic"] as const).map(named);
+  return <div className="g-foot"><p className="chain">
+    {pre && <><span>{pre}</span>{ARROW}</>}
+    <b>{focus.moc ? DIAMOND : <Glyph stone={stoneOf(focus)} size={18} />}{focus.title}</b>
+    {post && <>{ARROW}<span>{post}</span></>}
+    {link && <span className="grp">{DASH}{link}</span>}
+    {topic && <span className="grp">{DIAMOND}{topic}</span>}
+  </p><p className="sum">{focus.summary}</p></div>;
+}
+
 /** 知识库的图。shown 是筛选以后留下的卡片，其余退淡。 */
 export function Graph({ cards, shown }: { cards: CardSummary[]; shown: Set<string> }) {
   const [focusPath, setFocus] = useState<string>();
@@ -115,9 +157,7 @@ export function Graph({ cards, shown }: { cards: CardSummary[]; shown: Set<strin
   const focus = focusPath === undefined ? undefined : at(focusPath);
   const rel = focus ? relations(focus.card, cards) : new Map<string, Kind>();
   const named = (kind: Kind) => [...rel].filter(([, value]) => value === kind).map(([path]) => at(path)?.card.title).filter(Boolean).join("、");
-  const boxY = focus ? focus.pile.y + focus.pile.r * 0.92 + 12 : 0;
-  const boxX = focus ? Math.max(8, Math.min(W - 268, focus.pile.x - 130)) : 0;
-  const h = Math.max(height, focus ? boxY + 200 : 0);
+  const h = height;
   return <div className="graph-wrap" onMouseLeave={() => setFocus(undefined)}>
     <svg className="graph" viewBox={`0 0 ${W} ${h}`} width={W} height={h} role="img" aria-label={t("kb.graph")}>
       <defs><marker id="arrow" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" className="arrowhead" /></marker></defs>
@@ -161,16 +201,9 @@ export function Graph({ cards, shown }: { cards: CardSummary[]; shown: Set<strin
       })}
       {/* 名字：专题一直写；指到一张卡片时，写它自己和别的堆里与它有关的卡片 */}
       {nodes.filter((node) => (node.card.moc && (!focus || rel.has(node.card.path))) || (focus && node.pile !== focus.pile && rel.has(node.card.path) && !node.card.moc)).map((node) => <Name key={node.card.path} node={node} />)}
+      {focus && <Leads focus={focus} near={[...rel.keys()].flatMap((path) => { const node = at(path); return node && !node.card.moc && node.pile === focus.pile ? [node] : []; })} />}
       {focus && <Name node={focus} strong />}
-      {focus && <foreignObject x={boxX} y={boxY} width="260" height="200"><div className="g-info">
-        <b>{focus.card.title}</b><span>{focus.card.summary}</span>
-        {(["pre", "post", "link", "topic"] as const).map((kind) => named(kind) && <p key={kind}><i>{t(`graph.${kind}` as TextKey)}</i>{named(kind)}</p>)}
-      </div></foreignObject>}
-      <g className="legend" transform={`translate(12 ${h - 22})`}>
-        <path className="edge req" d="M0 0H26" markerEnd="url(#arrow)" /><text x="36" y="4">{t("graph.pre")}</text>
-        <path className="edge link" d="M84 0H112" /><text x="120" y="4">{t("graph.link")}</text>
-        <rect x="168" y="-5" width="10" height="10" rx="2.5" transform="rotate(45 173 0)" className="topic" /><text x="186" y="4">{t("graph.topic")}</text>
-      </g>
     </svg>
+    <Foot focus={focus?.card} named={named} />
   </div>;
 }

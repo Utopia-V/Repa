@@ -275,12 +275,16 @@ th[aria-sort] .sort .icon { opacity: 1; }
 .graph .arrowhead { fill: none; stroke: var(--soft); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
 .graph .name { font: 400 14px/1 var(--font-name); fill: var(--ink); paint-order: stroke; stroke: var(--tint); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
 .graph .name.strong { font-size: 16px; font-weight: 500; }
-.graph .legend text { font: 400 12px/1 var(--font-ui); fill: var(--faint); }
-.g-info { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r); background: var(--paper); box-shadow: var(--lift); font-size: 13px; line-height: 20px; color: var(--soft); }
-.g-info b { font: 500 16px/22px var(--font-name); color: var(--ink); }
-.g-info span { margin-bottom: 4px; }
-.g-info p { color: var(--ink); }
-.g-info p i { display: inline-block; width: 3em; font-style: normal; color: var(--faint); }
+.graph .lead { fill: none; stroke: var(--faint); stroke-width: 1; stroke-linecap: round; opacity: .7; }
+.g-foot { position: sticky; bottom: 0; padding: 8px 12px 4px; background: var(--paper); }
+.g-foot .chain { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-height: 26px; font: 400 14px/26px var(--font-name); color: var(--ink); }
+.g-foot b { display: inline-flex; align-items: center; gap: 7px; font-size: 16px; font-weight: 500; }
+.g-foot .grp { display: inline-flex; align-items: center; gap: 8px; margin-left: 16px; }
+.g-foot .mk { flex: none; display: block; }
+.g-foot .sum { min-height: 20px; font-size: 13px; line-height: 20px; color: var(--soft); }
+.g-foot.legend .chain { font: 400 12px/26px var(--font-ui); color: var(--faint); }
+.g-foot.legend .grp:first-child { margin-left: 0; }
+.g-foot .topic { fill: var(--paper); }
 
 /* ── 卡片 ─────────────────────────────────────────── */
 .cardpage { position: relative; padding: 72px 104px 32px 40px; }

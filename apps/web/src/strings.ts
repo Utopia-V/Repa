@@ -70,7 +70,6 @@ const strings = {
   "kb.graphView": "图",
   "kb.graph": "知识库的图",
   "graph.pre": "先修",
-  "graph.post": "后续",
   "graph.link": "链接",
   "graph.topic": "专题",
 
