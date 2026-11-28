@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -441,4 +441,20 @@ test("Repa 保存卡片、改文件头的一行都原地写入：文件的建立
   await server.api("POST", "/api/card/meta", { path: "甲.md", keep: true });
   assert.equal(await readFile(file, "utf8"), "---\nsummary: 概括\nkeep: true\n---\n改过的正文\n");
   assert.equal(await created(), before);
+});
+
+test("写卡片先留一份完整的临时文件：临时文件写不进去时原卡片不变，写成以后不留临时文件；扫描不列出 .repa-tmp", async (t) => {
+  const server = await backend(t, { "甲.md": "---\nsummary: 概括\n---\n原来的正文\n" });
+  const file = path.join(server.root, "甲.md");
+  // 同名的目录占住临时文件的路径，临时文件写不进去
+  await mkdir(`${file}.${process.pid}.repa-tmp`);
+  const failed = await server.api("PUT", "/api/card", { path: "甲.md", text: "新的正文\n", mtime: (await stat(file)).mtimeMs });
+  assert.equal(failed.status, 500);
+  assert.equal(await readFile(file, "utf8"), "---\nsummary: 概括\n---\n原来的正文\n");
+  const tree = (await server.api("GET", "/api/tree")).json as { materials: Array<{ path: string }> };
+  assert.deepEqual(tree.materials, []);
+  await rm(`${file}.${process.pid}.repa-tmp`, { recursive: true });
+  await server.api("PUT", "/api/card", { path: "甲.md", text: "新的正文\n", mtime: (await stat(file)).mtimeMs });
+  assert.equal(await readFile(file, "utf8"), "新的正文\n");
+  assert.deepEqual((await readdir(server.root)).filter((name) => name.endsWith(".repa-tmp")), []);
 });

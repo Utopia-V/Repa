@@ -67,7 +67,8 @@ async function walk(kb: Kb, folder: string): Promise<boolean> {
   entries.sort((a, b) => COLLATOR.compare(a.name, b.name));
   for (const entry of entries) {
     const child = folder === "" ? entry.name : `${folder}/${entry.name}`;
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+    // 写卡片时旁边短暂存在的 .repa-tmp 不是资料
+    if (entry.name.startsWith(".") || entry.name === "node_modules" || entry.name.endsWith(".repa-tmp")) continue;
     if (entry.isDirectory()) {
       if (entry.name.startsWith("_")) kb.materials.push({ path: child, kind: "folder" });
       else if (!(await walk(kb, child))) kb.materials.push({ path: child, kind: "repo" });
@@ -211,12 +212,16 @@ export async function readOptional(file: string): Promise<string | undefined> {
 }
 
 /**
- * 写一张卡片或知识库里的文件：原地写入，不写临时文件再换名，所以文件的建立时间不变，知识库的图里石头不挪。
- * Pi 的 write、edit 本来就原地写同一批文件；写到一半断电属于少见的故障，不为它留机制。
+ * 写一张卡片或知识库里的文件：先把全文写进旁边的临时文件，再原地写目标文件，成功后删掉临时文件。
+ * 原地写不换名，文件的建立时间不变，知识库的图里石头不挪；先留的临时文件保证写失败时盘上仍有一份完整的内容：
+ * 临时文件写不进去（例如磁盘满）时原文件没动，原地写失败时全文留在临时文件里。不写恢复的代码，报错即可。
  */
 export async function writeCard(file: string, text: string): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.repa-tmp`;
+  await writeFile(temporary, text);
   await writeFile(file, text);
+  await rm(temporary);
 }
 
 /** Repa 自己的数据（设置、模式）先写临时文件再改名，写到一半失败时原文件不受影响。 */
