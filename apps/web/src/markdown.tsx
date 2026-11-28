@@ -39,7 +39,7 @@ function remarkCjkBreaks() {
 }
 
 // 中文里 `20~25` 常表示范围，只认双波浪线为删除线。
-const remarkPlugins: NonNullable<Options["remarkPlugins"]> = [[remarkGfm, { singleTilde: false }], remarkCjkFriendly, [remarkCjkFriendlyStrikethrough, { singleTilde: false }], remarkMath, remarkCjkBreaks];
+const remarkPlugins: NonNullable<Options["remarkPlugins"]> = [[remarkGfm, { singleTilde: false }], remarkCjkFriendly, [remarkCjkFriendlyStrikethrough, { singleTilde: false }], remarkMath, remarkCjkBreaks, remarkWikiLinks];
 const cardPlugins = [...remarkPlugins, remarkMarks];
 
 // 按 Shiki 的细粒度引入只带几种常用语言，同步创建，渲染时不需要等待；没标语言或没加载的语言按纯文本显示。
@@ -55,15 +55,34 @@ const rehypePlugins: Options["rehypePlugins"] = [
 ];
 
 const IMAGE = /\.(png|jpe?g|gif|webp|svg)$/iu;
-const CODE = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/gu;
 
-/** 把 [[链接]] 换成 repa: 链接、![[图片]] 换成 repa-file: 图片交给 Markdown，代码里的不动。 */
-export function linkify(text: string): string {
-  return text.split(CODE).map((part, index) => (index % 2 === 1 ? part : part.replace(WIKI_LINK, (_whole, bang: string, target: string, label: string | undefined) => {
-    const name = target.trim();
-    if (bang && IMAGE.test(name)) return `![${name}](repa-file:${encodeURI(name)})`;
-    return `[${(label ?? name).replace(/[[\]]/gu, "")}](repa:${encodeURIComponent(name)})`;
-  }))).join("");
+interface MdNode { type: string; value?: string; url?: string; alt?: string; children?: MdNode[] }
+/**
+ * remark 插件：文字里的 [[链接]] 换成 repa: 链接，![[图片]] 换成 repa-file: 图片；代码里的不是文字节点，不动。
+ * 在语法树上换而不在原文上换，块的位置仍是原文的位置，勾画靠它把选区对回原文。
+ */
+function remarkWikiLinks() {
+  const walk = (node: MdNode) => {
+    if (!node.children) return;
+    node.children = node.children.flatMap((child) => {
+      walk(child);
+      if (child.type !== "text" || !child.value?.includes("[[")) return [child];
+      const out: MdNode[] = [];
+      let last = 0;
+      for (const match of child.value.matchAll(WIKI_LINK)) {
+        const [whole, bang, target = "", label] = match;
+        if (match.index > last) out.push({ type: "text", value: child.value.slice(last, match.index) });
+        const name = target.trim();
+        out.push(bang && IMAGE.test(name)
+          ? { type: "image", url: `repa-file:${encodeURI(name)}`, alt: name }
+          : { type: "link", url: `repa:${encodeURIComponent(name)}`, children: [{ type: "text", value: label ?? name }] });
+        last = match.index + whole.length;
+      }
+      if (last < child.value.length) out.push({ type: "text", value: child.value.slice(last) });
+      return out;
+    });
+  };
+  return walk;
 }
 
 /** 链接与图片怎样处理：link 给出 [[目标]] 的渲染，image 把相对路径换成可以显示的地址。 */
@@ -72,15 +91,21 @@ export interface MarkdownLinks {
   image: (src: string) => string;
 }
 
+type Block = "p" | "li" | "td" | "th" | "blockquote" | "h3" | "h4" | "h5" | "h6";
+function block(Tag: Block) {
+  return function Block({ node, ...props }: React.HTMLAttributes<HTMLElement> & { node?: { position?: { start: { offset?: number }; end: { offset?: number } } } }) {
+    return <Tag {...props} data-start={node?.position?.start.offset} data-end={node?.position?.end.offset} />;
+  };
+}
+
 const external = (url: string | undefined) => (url && /^(https?:|mailto:)/iu.test(url) ? url : undefined);
 
 /** 渲染 Markdown。streaming 时先补全还没写完的语法，免得排版来回跳；marks 时显示卡片里的勾画与批注。 */
 export const Markdown = memo(function Markdown({ text, links, streaming = false, marks = false, className }: { text: string; links: MarkdownLinks; streaming?: boolean; marks?: boolean; className?: string }) {
   const components = useMemo<Components>(() => ({
-    // 正文位于卡片标题之下，标题层级整体下移两级。
-    h1: ({ node: _node, ...props }) => <h3 {...props} />,
-    h2: ({ node: _node, ...props }) => <h4 {...props} />,
-    h3: ({ node: _node, ...props }) => <h5 {...props} />,
+    // 正文位于卡片标题之下，标题层级整体下移两级。段落一级的块带上它在原文里的起止位置，勾画按它把选区对回原文。
+    h1: block("h3"), h2: block("h4"), h3: block("h5"), h4: block("h6"), h5: block("h6"), h6: block("h6"),
+    p: block("p"), li: block("li"), td: block("td"), th: block("th"), blockquote: block("blockquote"),
     a: ({ node: _node, href, children }) => {
       if (href?.startsWith("repa:")) return links.link(decodeURIComponent(href.slice(5)), children);
       const url = external(href);
@@ -93,7 +118,7 @@ export const Markdown = memo(function Markdown({ text, links, streaming = false,
       return <img src={links.image(decodeURI(source.replace(/^repa-file:/u, "")))} alt={alt ?? ""} />;
     },
   }), [links]);
-  const source = linkify(streaming ? remend(text, { inlineKatex: true, linkMode: "text-only" }) : text);
+  const source = streaming ? remend(text, { inlineKatex: true, linkMode: "text-only" }) : text;
   return <div className={className}>
     <ReactMarkdown remarkPlugins={marks ? cardPlugins : remarkPlugins} rehypePlugins={rehypePlugins} components={components}
       urlTransform={(url) => (url.startsWith("repa:") || url.startsWith("repa-file:") ? url : defaultUrlTransform(url))}>{source}</ReactMarkdown>

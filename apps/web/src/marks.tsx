@@ -33,15 +33,17 @@ export function findMarks(body: string): Mark[] {
 }
 
 /**
- * 把选中的一段话勾画上：它在渲染后的正文里是第 index 处（从 0 数），原文里也必须恰好有同样多处逐字相同、
- * 不在代码和公式里、不碰已有勾画的地方，才取第 index 处。对不上返回 undefined。
+ * 把选中的一段话勾画上。block 是选区所在的那一块（段落、列表项、表格的格、标题、引用）在原文里的起止位置；
+ * 选区是这一块可见文字里同样文字的第 index 处（从 0 数），这一块一共 rendered 处。原文的这一块里也必须恰好有
+ * 同样多处逐字相同、不在代码、公式、链接、图片和已有勾画里的地方，才取第 index 处，对不上返回 undefined。
+ * 只在一块里对：被隐藏的脚注正文、别的段落里的链接文字都不在这一块里，不会和选区抵消。
  */
-export function addMark(body: string, text: string, index: number, rendered: number): { body: string; start: number } | undefined {
-  // 链接、脚注引用也遮住：勾进 [[页表]] 里会把链接写坏
-  const masked = mask(body).replace(/!?\[\[[^\]\n]*\]\]|\]\([^)\n]*\)|\[\^[^\]\n]*\]/gu, (part) => " ".repeat(part.length));
+export function addMark(body: string, text: string, index: number, rendered: number, block: [number, number]): { body: string; start: number } | undefined {
+  // 链接和图片整个遮住，界面上这些地方的字也不算（见 card.tsx 的 visibleText），两边按同样的规矩数
+  const masked = mask(body).replace(/!?\[\[[^\]\n]*\]\]|!?\[[^\]\n]*\]\([^)\n]*\)|\[\^[^\]\n]*\]/gu, (part) => " ".repeat(part.length));
   const taken = findMarks(body);
   const spots: number[] = [];
-  for (let at = masked.indexOf(text); at >= 0; at = masked.indexOf(text, at + 1)) {
+  for (let at = masked.indexOf(text, block[0]); at >= 0 && at + text.length <= block[1]; at = masked.indexOf(text, at + 1)) {
     if (body.slice(at, at + text.length) === text && !taken.some((mark) => at < mark.end && at + text.length > mark.start)) spots.push(at);
   }
   const at = spots[index];
@@ -49,14 +51,12 @@ export function addMark(body: string, text: string, index: number, rendered: num
   return { body: `${body.slice(0, at)}==${text}==${body.slice(at + text.length)}`, start: at };
 }
 
-/** 给一处勾画写批注；note 为空就去掉批注。 */
+/** 给一处勾画写批注；note 为空就去掉批注。先在原文上换掉勾画，再删旧的脚注正文：脚注正文写在勾画前面时，位置也不会错。 */
 export function setNote(body: string, mark: Mark, note: string): string {
   const clean = note.replace(/\s*\n\s*/gu, " ").trim();
-  let next = body;
-  if (mark.id) next = next.replace(DEF(mark.id), "");
   const id = mark.id ?? Array.from({ length: 999 }, (_, n) => `a${n + 1}`).find((name) => !body.includes(`[^${name}]`)) ?? "a0";
-  const head = `==${mark.text}==`;
-  next = `${next.slice(0, mark.start)}${head}${clean ? `[^${id}]` : ""}${next.slice(mark.end)}`;
+  let next = `${body.slice(0, mark.start)}==${mark.text}==${clean ? `[^${id}]` : ""}${body.slice(mark.end)}`;
+  if (mark.id) next = next.replace(DEF(mark.id), "");
   if (!clean) return next;
   return `${next.replace(/\s*$/u, "")}\n\n[^${id}]: ${clean}\n`;
 }

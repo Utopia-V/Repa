@@ -61,37 +61,45 @@ export function Editor({ path, title, text, body, mtime, folder, onSaved, empty,
   </>;
 }
 
-/** 选中的一段话：只取第一段里的部分；index 是它在正文里同样文字中的第几处，rendered 是正文里一共几处。 */
+/** 选中的一段话：只取第一块（段落、列表项、表格的格、标题、引用）里的部分；index 是它在这一块里同样文字中的第几处，rendered 是一共几处，block 是这一块在原文里的起止位置。 */
 export interface Pick {
   text: string;
   index: number;
   rendered: number;
+  block: [number, number];
 }
 
-const BLOCK = "p, li, td, th, h1, h2, h3, h4, h5, h6, blockquote";
+// 链接、代码、公式、勾画、上标和图片里的字不算：原文那边同样遮住了它们，两边按同样的规矩数
+const HIDDEN = "a, code, pre, .katex, mark, sup, img";
+const visible = (part: Node) => {
+  const copy = part.cloneNode(true) as Element | DocumentFragment;
+  copy.querySelectorAll(HIDDEN).forEach((node) => node.remove());
+  return copy.textContent ?? "";
+};
 
-function pickOf(range: Range, box: HTMLElement): Pick | undefined {
-  const start = range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement;
-  const block = start?.closest(BLOCK);
-  const md = block?.closest(".md");
-  if (!block || !md || !box.contains(md) || start?.closest("pre, code, .katex, mark, sup")) return undefined;
-  // 跨了段只取第一段
+/** 把选区换成勾画要的东西；选区不在正文的一块里、或者起止落在链接、代码这些地方时返回 undefined。 */
+export function pickOf(range: Range, box: HTMLElement): Pick | undefined {
+  const at = (node: Node) => (node instanceof Element ? node : node.parentElement);
+  const block = at(range.startContainer)?.closest("[data-start]");
+  if (!block || !box.contains(block) || !block.closest(".md") || at(range.startContainer)?.closest(HIDDEN)) return undefined;
+  // 跨了块只取第一块；终点落在链接、代码这些地方也不勾
   const own = range.cloneRange();
   if (!block.contains(range.endContainer)) own.setEnd(block, block.childNodes.length);
+  else if (at(range.endContainer)?.closest(HIDDEN)) return undefined;
   const text = own.toString().trim();
   if (!text) return undefined;
   const before = document.createRange();
-  before.setStart(md, 0);
+  before.setStart(block, 0);
   before.setEnd(own.startContainer, own.startOffset);
-  const offset = before.toString().length + (own.toString().length - own.toString().trimStart().length);
-  const all = md.textContent ?? "";
+  const offset = visible(before.cloneContents()).length + (own.toString().length - own.toString().trimStart().length);
+  const all = visible(block);
   let index = 0;
   let rendered = 0;
-  for (let at = all.indexOf(text); at >= 0; at = all.indexOf(text, at + 1)) {
+  for (let found = all.indexOf(text); found >= 0; found = all.indexOf(text, found + 1)) {
     rendered += 1;
-    if (at < offset) index += 1;
+    if (found < offset) index += 1;
   }
-  return { text, index, rendered };
+  return { text, index, rendered, block: [Number(block.getAttribute("data-start")), Number(block.getAttribute("data-end"))] };
 }
 
 /**
@@ -295,7 +303,7 @@ export function CardPage({ path }: { path: string }) {
     reload();
   }, [data, head, path, reload]);
   const onMark = useCallback((pick: Pick) => {
-    const next = data && addMark(data.body, pick.text, pick.index, pick.rendered);
+    const next = data && addMark(data.body, pick.text, pick.index, pick.rendered, pick.block);
     if (!next) return undefined;
     return () => {
       setEditing(findMarks(next.body).findIndex((mark) => mark.start === next.start));
