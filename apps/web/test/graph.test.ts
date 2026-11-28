@@ -19,3 +19,16 @@ test("知识库的图里，新建一张卡片，旧卡片的石头原地不动�
   // 读入的先后不影响位置：按建立时间排
   expect(places([...before].reverse())).toEqual(old);
 });
+
+test("一个顶层文件夹有十二个子文件夹时，这块滩在一页宽里蛇形折行，相邻的堆始终挨着", () => {
+  const cards = Array.from({ length: 12 }, (_, chapter) => Array.from({ length: 6 + chapter }, (_, i) => card(`CSAPP/第${chapter + 1}章/卡${i}.md`, i))).flat();
+  const { piles } = layout(cards);
+  expect(piles).toHaveLength(12);
+  for (const pile of piles) expect([pile.x - pile.r >= 0, pile.x + pile.r <= 1000]).toEqual([true, true]);
+  for (let i = 1; i < piles.length; i += 1) {
+    const [a, b] = [piles[i - 1], piles[i]];
+    if (!a || !b) continue;
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThanOrEqual(a.r + b.r + 24);
+  }
+  expect(new Set(piles.map((pile) => Math.round(pile.y / 100))).size).toBeGreaterThan(1);
+});

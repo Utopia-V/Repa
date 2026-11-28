@@ -24,7 +24,8 @@ const radius = (n: number) => C * Math.sqrt(Math.ceil(n / 8) * 8) * 0.95 + 26;
 /**
  * 排出全部石头。位置只由文件夹和卡片建立的先后决定，所以是稳定的：
  * 每一堆按建立的先后排在一条向外的螺线上，新卡片落在外沿，旧的不挪；
- * 一个顶层文件夹的几堆从左到右排成一行，上下错开，连成一块滩；各块滩像排字一样从左到右排，排满一行换行。
+ * 一个顶层文件夹的几堆从左到右排开，排满一页宽就在这块滩里折到下面往回排（蛇形），连成一块滩；
+ * 各块滩像排字一样从左到右排，排满一行换行。
  * 堆的大小按档长，所以多几张卡片时别的堆不动；跨过一档时，后面的堆整体挪一点，堆里的相对位置仍不变。
  */
 export function layout(cards: CardSummary[]): { piles: Pile[]; regions: Pile[][]; height: number } {
@@ -43,12 +44,22 @@ export function layout(cards: CardSummary[]): { piles: Pile[]; regions: Pile[][]
   let y0 = 0;
   let row = 0;
   regions.forEach((piles, ri) => {
-    // 先在这块滩自己的坐标里排，再整体挪到这一行
-    let x = 0;
+    // 先在这块滩自己的坐标里排，再整体挪到这一行。几堆蛇形排开：排满一页宽就在这块滩里折到下面，反过来往回排，
+    // 相邻的堆始终挨着，连成一块滩；同一行里上下错开一点
+    let dir = 1;
+    let base = 0;
+    let turn = 0;
     piles.forEach((pile, i) => {
       const before = piles[i - 1];
-      x += before ? (before.r + pile.r) * 0.8 : 0;
-      Object.assign(pile, { x, y: (i % 2 ? 0.3 : -0.3) * pile.r * (piles.length > 1 ? 1 : 0) });
+      if (!before) return Object.assign(pile, { x: pile.r, y: 0 });
+      const x = before.x + dir * (before.r + pile.r) * 0.8;
+      if (x + pile.r > W || x - pile.r < 0) {
+        dir = -dir;
+        base += before.r + pile.r + 24;
+        turn = i;
+        return Object.assign(pile, { x: before.x, y: base });
+      }
+      return Object.assign(pile, { x, y: base + ((i - turn) % 2 ? 0.3 : 0) * pile.r });
     });
     const left = Math.min(...piles.map((pile) => pile.x - pile.r));
     const right = Math.max(...piles.map((pile) => pile.x + pile.r));
@@ -162,10 +173,10 @@ export function Graph({ cards, shown }: { cards: CardSummary[]; shown: Set<strin
     <svg className="graph" viewBox={`0 0 ${W} ${h}`} width={W} height={h} role="img" aria-label={t("kb.graph")}>
       <defs><marker id="arrow" viewBox="0 0 8 8" refX="6.5" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L7 4L1 7" className="arrowhead" /></marker></defs>
       {regions.map((group) => {
-        // 几堆合成一块滩：把各堆的中心连成多边形，用很粗、圆角的边描一圈
+        // 几堆合成一块滩：沿各堆中心的折线描一条很粗、圆角的线，再加上各堆的圆
         const r = Math.min(...group.map((pile) => pile.r)) * 0.92;
         return <g key={group[0]?.folder} className="region">
-          {group.length > 1 && <polygon points={group.map((pile) => `${pile.x},${pile.y}`).join(" ")} strokeWidth={2 * r} strokeLinejoin="round" />}
+          {group.length > 1 && <polyline points={group.map((pile) => `${pile.x},${pile.y}`).join(" ")} fill="none" strokeWidth={2 * r} strokeLinejoin="round" />}
           {group.map((pile) => <ellipse key={pile.folder} cx={pile.x} cy={pile.y} rx={pile.r} ry={pile.r * 0.92} />)}
         </g>;
       })}
@@ -193,6 +204,8 @@ export function Graph({ cards, shown }: { cards: CardSummary[]; shown: Set<strin
         return <g key={node.card.path} className={`node${dim ? " dim" : ""}`} transform={`translate(${node.x} ${node.y})${cur ? " scale(1.3)" : ""}`}
           role="link" tabIndex={0} aria-label={node.card.title} onMouseEnter={() => setFocus(node.card.path)} onFocus={() => setFocus(node.card.path)}
           onClick={() => go({ page: "card", path: node.card.path })} onKeyDown={(event) => { if (event.key === "Enter") go({ page: "card", path: node.card.path }); }}>
+          {/* 没纳入复习的只是一个小点，指到它要有一块和石头一样大的地方 */}
+          <circle r="11" fill="transparent" />
           {cur && <rect className="ring" x="-14" y="-13" width="28" height="26" rx="9" />}
           {node.card.moc
             ? <rect x="-6" y="-6" width="12" height="12" rx="3" transform="rotate(45)" className="topic" />
