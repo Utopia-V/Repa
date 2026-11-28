@@ -204,9 +204,11 @@ export class Sessions {
     return live;
   }
 
+  // 新对话的模型：记下的默认模型现在有凭据就用它，否则用第一个有凭据的；一个都没有时是 undefined
   private async defaultModel() {
-    const [provider = "", ...rest] = (await readSettings(this.root)).model?.split("/") ?? [];
-    return this.runtime.getModel(provider, rest.join("/")) ?? (await this.runtime.getAvailable())[0];
+    const available = await this.runtime.getAvailable();
+    const saved = (await readSettings(this.root)).model;
+    return available.find((model) => `${model.provider}/${model.id}` === saved) ?? available[0];
   }
 
   // 这个文件夹到知识库根的 AGENTS.md 的修改时间；变了就在下一条消息前让 Pi 重新加载。
@@ -262,6 +264,16 @@ export class Sessions {
     for (const toolCallId of [...live.resolvers.keys()]) this.answer(toolCallId, { answers: null, approve: false, reason: "学习者没有回应这张卡片，直接回了话。" });
     // 插进正在进行的一轮的消息不经 before_agent_start，没有附带的上下文，所以引文直接写进消息里。
     if (live.session.isStreaming) return live.session.prompt(quote ? `${quoteBlock(quote)}\n\n${message}` : message, { streamingBehavior: "steer" });
+    // 对话在登录以前就开着，或者它的模型已经登出：换成现在有凭据的默认模型。凭据由 Pi 每次从 auth.json 重读，
+    // 所以在终端里 repa login 以后不必重启后端
+    const current = live.session.model;
+    if (!current || !(await this.runtime.getAvailable()).some((model) => model.provider === current.provider && model.id === current.id)) {
+      const model = await this.defaultModel();
+      if (model) {
+        await live.session.setModel(model);
+        this.update(live, modelInfo(live.session));
+      }
+    }
     const stamp = await this.agentsStamp(live.info.folder);
     if (stamp !== live.agentsStamp) await live.session.reload();
     live.agentsStamp = stamp;
