@@ -167,14 +167,15 @@ const placed = new Map<NoteId, Box>();
 const EDGES = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
 /** 一张便签：顶部的把手拖动，四边四角拉大拉小，右上角的小叉收回。盖住正文没关系，挪开就是。 */
-function Note({ id, title, onClose, page, children }: { id: NoteId; title: string; onClose: () => void; page: RefObject<HTMLElement | null>; children: ReactNode }) {
+function Note({ id, title, onClose, children }: { id: NoteId; title: string; onClose: () => void; children: ReactNode }) {
   const [, redraw] = useState(0);
   const self = useRef<HTMLElement>(null);
   const place = placed.get(id);
-  // edges 为空是挪动；位置相对卡片页，第一次动它时从它现在的位置和大小算起
+  // edges 为空是挪动；第一次动它时从它现在的位置和大小算起
   const drag = (event: React.PointerEvent, edges: string) => {
+    // 位置相对便签所在的那一栏（.notes）：挪过的和没挪过的便签都留在这一栏里，拖动时不换父元素，指针不丢
     const box = self.current?.getBoundingClientRect();
-    const outer = page.current?.getBoundingClientRect();
+    const outer = (self.current?.offsetParent as HTMLElement | null)?.getBoundingClientRect();
     if (!box || !outer) return;
     event.preventDefault();
     const from = { left: box.left - outer.left, top: box.top - outer.top, width: box.width, height: box.height };
@@ -221,7 +222,7 @@ interface MarkTools {
   onRemove: (mark: Mark) => void;
 }
 
-function Notes({ card, page, tools }: { card: CardDetail; page: RefObject<HTMLElement | null>; tools: MarkTools }) {
+function Notes({ card, tools }: { card: CardDetail; tools: MarkTools }) {
   const { cards = [] } = useApp();
   const [, redraw] = useState(0);
   const toggle = (id: NoteId) => {
@@ -249,11 +250,10 @@ function Notes({ card, page, tools }: { card: CardDetail; page: RefObject<HTMLEl
     marks: <MarksList {...tools} />,
   };
   const shown = tabs.filter(([id]) => opened.has(id));
-  const note = ([id, , , title]: (typeof tabs)[number]) => <Note key={id} id={id} title={title} page={page} onClose={() => toggle(id)}>{body[id]}</Note>;
+  const note = ([id, , , title]: (typeof tabs)[number]) => <Note key={id} id={id} title={title} onClose={() => toggle(id)}>{body[id]}</Note>;
   return <>
     <div className="tabs">{tabs.map(([id, icon, value, title]) => <button key={id} type="button" className="tab" aria-expanded={opened.has(id)} aria-label={title} data-tip={title} onClick={() => toggle(id)}>{icon}<span className="num">{value}</span></button>)}</div>
-    <div className="notes">{shown.filter(([id]) => !placed.has(id)).map(note)}</div>
-    {shown.filter(([id]) => placed.has(id)).map(note)}
+    <div className="notes">{shown.map(note)}</div>
   </>;
 }
 
@@ -340,7 +340,7 @@ export function CardPage({ path }: { path: string }) {
     onRemove: (mark) => void write(removeMark(data.body, mark)),
   };
   return <main className="cardpage" ref={page}>
-    <Notes card={data} page={page} tools={tools} />
+    <Notes card={data} tools={tools} />
     <div className="card-grid">
       <article ref={article}>
         <header className="card-head">
