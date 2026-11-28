@@ -1,9 +1,9 @@
 // 后端与界面之间的对话事件。后端把 Pi 的事件换成这几种，界面因此不依赖 Pi 的类型；applyEvent 两边共用。
 import type { Question } from "./log.js";
 
-/** 对话里的一项：学习者的消息、Agent 的回复、一次工具调用、一次压缩或一条错误。change 是 write/edit 改动的知识库内的文件。 */
+/** 对话里的一项：学习者的消息（quote 是随它引用的一段话）、Agent 的回复、一次工具调用、一次压缩或一条错误。change 是 write/edit 改动的知识库内的文件。 */
 export type Item =
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; quote?: string }
   | { type: "assistant"; text: string }
   | { type: "tool"; id: string; name: string; args: Record<string, unknown>; done: boolean; isError: boolean; output: string; details?: unknown; change?: string }
   | { type: "compaction" }
@@ -33,6 +33,15 @@ export interface SessionInfo {
   model?: string;
   thinking?: string;
   thinkingLevels?: string[];
+}
+
+/** 一段打开着的对话的状态，经全局的事件流推给左栏：是否正在回复，是否有卡片在等回应。 */
+export interface SessionStatus {
+  id: string;
+  folder: string;
+  kind: SessionInfo["kind"];
+  running: boolean;
+  waiting: boolean;
 }
 
 /** 推给界面的事件。snapshot 在连上时发一次，之后是增量。 */

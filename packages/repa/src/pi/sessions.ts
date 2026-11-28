@@ -1,4 +1,4 @@
-// 对话：每段对话一个 Pi 会话，以所在层的文件夹为工作目录；学习对话存在 .repa/sessions/<层>/，复习对话存在 .repa/reviews/<层>/。
+// 对话：每段对话一个 Pi 会话，以所在的文件夹为工作目录；学习对话存在 .repa/sessions/<文件夹>/，复习对话存在 .repa/reviews/<文件夹>/。
 // Pi 的类型只出现在 src/pi/ 里，知识库、练习记录、复习、地图和 HTTP 层都不导入它们。
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +7,7 @@ import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, S
 
 import { inside, RepaFault, resolveIn, type Page } from "../kb.js";
 import { buildMap, LEARN_MODE, loadState, readMode, readSettings, REVIEW_MODE, reviewMaterial, updateSettings } from "../map.js";
-import { applyEvent, type Conversation, type Item, type PendingReply, type PendingRequest, type SessionInfo, type UiEvent } from "../protocol.js";
+import { applyEvent, type Conversation, type Item, type PendingReply, type PendingRequest, type SessionInfo, type SessionStatus, type UiEvent } from "../protocol.js";
 import { createRepaExtension, systemPrompt } from "./extension.js";
 
 type Kind = SessionInfo["kind"];
@@ -20,15 +20,29 @@ interface Live {
   conversation: Conversation;
   resolvers: Map<string, (reply: PendingReply) => void>;
   listeners: Set<(event: UiEvent) => void>;
-  attachment?: string;
+  attachment?: { content: string; details?: unknown };
+  quote?: string;
   agentsStamp: string;
 }
 
-/** 对话列表里的一项。 */
+/** 对话列表里的一项。running 是正在回复，waiting 是有题目卡片或确认卡片在等回应。 */
 export interface SessionSummary {
   id: string;
+  folder: string;
+  kind: Kind;
   title: string;
+  created: string;
   modified: string;
+  running: boolean;
+  waiting: boolean;
+}
+
+/** 列对话的条件：不给 folder 就是全部文件夹；q 按标题和全文筛；reviews 为真时包含复习对话。 */
+export interface ListOptions {
+  folder?: string;
+  q?: string;
+  reviews?: boolean;
+  sort?: "recent" | "oldest" | "folder";
 }
 
 const MODE_ENTRY = "repa-mode";
@@ -37,6 +51,7 @@ const MODE_ENTRY = "repa-mode";
 export class Sessions {
   private readonly live = new Map<string, Live>();
   private readonly byToolCall = new Map<string, Live>();
+  private readonly watchers = new Set<(status: SessionStatus) => void>();
 
   private constructor(private readonly root: string, private readonly runtime: ModelRuntime, private readonly agentDir: string) {}
 
@@ -65,13 +80,39 @@ export class Sessions {
     return infos.sort((a, b) => b.modified.getTime() - a.modified.getTime());
   }
 
-  /** 一层的学习对话和复习对话，最近的在前。 */
-  async list(folder: string): Promise<Record<"learn" | "reviews", SessionSummary[]>> {
-    const summarize = (infos: Awaited<ReturnType<Sessions["saved"]>>) => infos.map((info) => ({ id: info.id, title: info.name ?? info.firstMessage.slice(0, 40), modified: info.modified.toISOString() }));
-    return { learn: summarize(await this.saved("learn", folder)), reviews: summarize(await this.saved("review", folder)) };
+  /** 列对话，缺省是全部文件夹的学习对话，最近的在前。 */
+  async list(options: ListOptions): Promise<SessionSummary[]> {
+    const kinds: Kind[] = options.reviews ? ["learn", "review"] : ["learn"];
+    const q = options.q?.trim().toLowerCase();
+    const found: SessionSummary[] = [];
+    for (const kind of kinds) {
+      const folders = options.folder === undefined ? await this.foldersWithSessions(kind) : [options.folder];
+      for (const folder of folders) {
+        for (const info of await this.saved(kind, folder)) {
+          if (q && !`${info.name ?? ""}\n${info.allMessagesText}`.toLowerCase().includes(q)) continue;
+          const live = this.live.get(info.id);
+          found.push({
+            id: info.id, folder, kind, title: info.name ?? info.firstMessage.slice(0, 40),
+            created: info.created.toISOString(), modified: info.modified.toISOString(),
+            running: live?.session.isStreaming ?? false, waiting: (live?.resolvers.size ?? 0) > 0,
+          });
+        }
+      }
+    }
+    const byTime = (a: SessionSummary, b: SessionSummary) => b.modified.localeCompare(a.modified);
+    if (options.sort === "oldest") return found.sort((a, b) => a.created.localeCompare(b.created));
+    if (options.sort === "folder") return found.sort((a, b) => a.folder.localeCompare(b.folder, "zh-CN") || byTime(a, b));
+    return found.sort(byTime);
   }
 
-  /** 最近用过的几层，按学习对话文件的修改时间排；第一项就是启动时接着的那一层。 */
+  // 存过对话的文件夹：会话目录按文件夹分开存放，有 .jsonl 文件的目录就是。
+  private async foldersWithSessions(kind: Kind): Promise<string[]> {
+    const base = this.dir(kind, "");
+    const names = (await readdir(base, { recursive: true }).catch(() => [])).filter((name) => name.endsWith(".jsonl"));
+    return [...new Set(names.map((name) => path.dirname(name).replace(/^\.$/u, "")))];
+  }
+
+  /** 最近用过的几个文件夹，按学习对话文件的修改时间排。 */
   async recentFolders(limit = 6): Promise<string[]> {
     const base = path.join(this.root, ".repa", "sessions");
     const names = (await readdir(base, { recursive: true }).catch(() => [])).filter((name) => name.endsWith(".jsonl"));
@@ -80,7 +121,7 @@ export class Sessions {
     return [...new Set(folders)].slice(0, limit);
   }
 
-  /** 打开一段对话：给了 id 就打开它，fresh 就新开一段，否则接着这一层最近的学习对话，没有就新开。 */
+  /** 打开一段对话：给了 id 就打开它，fresh 就新开一段，否则接着这个文件夹最近的学习对话，没有就新开。 */
   async open(request: { folder: string; id?: string; fresh?: boolean }): Promise<SessionInfo> {
     const { folder, id } = request;
     if (id !== undefined && this.live.has(id)) return this.get(id).info;
@@ -96,11 +137,11 @@ export class Sessions {
     return (await this.start("learn", folder, SessionManager.create(cwd, this.dir("learn", folder)))).info;
   }
 
-  /** 新开一段复习对话：卡片所在的层、抽查复习模式，发出“复习「标题」”，卡片全文和最近的练习附在这条消息里。 */
+  /** 新开一段复习对话：卡片所在的文件夹、复习模式，发出“复习「标题」”，卡片全文和最近的练习附在这条消息里。 */
   async review(page: Page): Promise<SessionInfo> {
     const manager = SessionManager.create(resolveIn(this.root, page.folder), this.dir("review", page.folder));
     const live = await this.start("review", page.folder, manager, REVIEW_MODE);
-    live.attachment = await reviewMaterial(await loadState(this.root), page);
+    live.attachment = { content: await reviewMaterial(await loadState(this.root), page) };
     this.run(live, `复习「${page.title}」`);
     return live.info;
   }
@@ -153,6 +194,10 @@ export class Sessions {
     Object.assign(live.info, modelInfo(session));
     session.subscribe((event) => {
       const ui = uiEventOf(event, this.root, cwd);
+      if (ui?.type === "item" && ui.item.type === "user" && live.quote) {
+        ui.item.quote = live.quote;
+        delete live.quote;
+      }
       if (ui) this.emit(live, ui);
     });
     this.live.set(info.id, live);
@@ -164,7 +209,7 @@ export class Sessions {
     return this.runtime.getModel(provider, rest.join("/")) ?? (await this.runtime.getAvailable())[0];
   }
 
-  // 这一层到知识库根的 AGENTS.md 的修改时间；变了就在下一条消息前让 Pi 重新加载。
+  // 这个文件夹到知识库根的 AGENTS.md 的修改时间；变了就在下一条消息前让 Pi 重新加载。
   private async agentsStamp(folder: string): Promise<string> {
     const parts = folder === "" ? [] : folder.split("/");
     const chain = ["", ...parts.map((_, index) => parts.slice(0, index + 1).join("/"))];
@@ -209,17 +254,20 @@ export class Sessions {
   }
 
   /**
-   * 发一条消息，viewing 是学习者正在看的卡片。还在等回应的卡片按“没有作答”“没有同意”交回。Agent 正在回复时，
-   * 这条消息在当前的工具调用结束后插进去；否则开始新的一轮，这一层的 AGENTS.md 变了就先让 Pi 重新加载。
+   * 发一条消息，viewing 是学习者正在看的卡片，quote 是学习者在卡片或回复里选中、就它提问的一段话。还在等回应的卡片按“没有作答”“没有同意”交回。Agent 正在回复时，
+   * 这条消息在当前的工具调用结束后插进去；否则开始新的一轮，这个文件夹到根的 AGENTS.md 变了就先让 Pi 重新加载。
    */
-  async prompt(id: string, message: string, viewing: string | undefined): Promise<void> {
+  async prompt(id: string, message: string, viewing: string | undefined, quote: string | undefined): Promise<void> {
     const live = this.get(id);
     for (const toolCallId of [...live.resolvers.keys()]) this.answer(toolCallId, { answers: null, approve: false, reason: "学习者没有回应这张卡片，直接回了话。" });
-    if (live.session.isStreaming) return live.session.prompt(message, { streamingBehavior: "steer" });
+    // 插进正在进行的一轮的消息不经 before_agent_start，没有附带的上下文，所以引文直接写进消息里。
+    if (live.session.isStreaming) return live.session.prompt(quote ? `${quoteBlock(quote)}\n\n${message}` : message, { streamingBehavior: "steer" });
     const stamp = await this.agentsStamp(live.info.folder);
     if (stamp !== live.agentsStamp) await live.session.reload();
     live.agentsStamp = stamp;
-    if (viewing) live.attachment = [`学习者正在看：${viewing}`, live.attachment].filter(Boolean).join("\n\n");
+    const parts = [viewing ? `学习者正在看：${viewing}` : undefined, quote ? `学习者引用了这段话：\n${quoteBlock(quote)}` : undefined, live.attachment?.content];
+    if (viewing || quote) live.attachment = { content: parts.filter(Boolean).join("\n\n"), ...(quote ? { details: { quote } } : {}) };
+    live.quote = quote;
     this.run(live, message);
   }
 
@@ -297,7 +345,20 @@ export class Sessions {
   private emit(live: Live, event: UiEvent): void {
     live.conversation = applyEvent(live.conversation, event);
     for (const listener of live.listeners) listener(event);
+    if (event.type === "running" || event.type === "pending" || event.type === "resolved") for (const watcher of this.watchers) watcher(statusOf(live));
   }
+
+  /** 订阅全部对话的状态：先同步收到每段打开着的对话的当前状态，之后是变化。返回取消订阅的函数。 */
+  watch(watcher: (status: SessionStatus) => void): () => void {
+    for (const live of this.live.values()) watcher(statusOf(live));
+    this.watchers.add(watcher);
+    return () => this.watchers.delete(watcher);
+  }
+}
+
+function statusOf(live: Live): SessionStatus {
+  const { id, folder, kind } = live.info;
+  return { id, folder, kind, running: live.conversation.running, waiting: live.conversation.pending.length > 0 };
 }
 
 // 界面要显示的模型与 thinking 级别，以及当前模型可选的级别。
@@ -307,6 +368,10 @@ function modelInfo(session: AgentSession): Pick<SessionInfo, "model" | "thinking
     thinking: session.thinkingLevel,
     thinkingLevels: session.getAvailableThinkingLevels(),
   };
+}
+
+function quoteBlock(quote: string): string {
+  return quote.split("\n").map((line) => `> ${line}`).join("\n");
 }
 
 function textOf(content: unknown): string {
@@ -355,6 +420,9 @@ function itemsOf(entries: SessionEntry[], root: string, cwd: string): Item[] {
   let items: Item[] = [];
   for (const entry of entries) {
     if (entry.type === "compaction") items.push({ type: "compaction" });
+    const last = items.at(-1);
+    const details = entry.type === "custom_message" ? (entry.details as { quote?: unknown } | undefined) : undefined;
+    if (last?.type === "user" && typeof details?.quote === "string") items[items.length - 1] = { ...last, quote: details.quote };
     if (entry.type !== "message") continue;
     const message = entry.message;
     if (message.role === "user") items.push({ type: "user", text: textOf(message.content) });

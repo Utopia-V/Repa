@@ -18,12 +18,12 @@ export const QuestionSchema = Type.Object({
 /** 一道小题。 */
 export type Question = Static<typeof QuestionSchema>;
 
-/** 练习的结果：对、部分对、错。 */
+/** 练习的结果：正确、部分正确、错误。 */
 export const ResultSchema = Type.Union([Type.Literal("pass"), Type.Literal("partial"), Type.Literal("fail")]);
 /** 练习的结果。 */
 export type Result = Static<typeof ResultSchema>;
 
-/** 一次出题与作答。card 是卡片的 id；没有指定卡片时记下出题时所在的层。answers 为 null 表示没有作答。 */
+/** 一次出题与作答。card 是卡片的 id；没有指定卡片时记下出题时所在的文件夹。answers 为 null 表示没有作答。 */
 export interface QuizEntry {
   v: 1;
   id: string;

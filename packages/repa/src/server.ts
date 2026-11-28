@@ -6,8 +6,9 @@ import path from "node:path";
 
 import { diffLines } from "diff";
 
-import { backlinks, brokenLinks, cardCount, changeOf, createFolder, mocMembers, readOptional, RepaFault, resolveIn, resolvePage, revert, saveCard, type Page } from "./kb.js";
-import { childFolders, listModes, loadState, readSettings, updateSettings, type State } from "./map.js";
+import { backlinks, brokenLinks, cardCount, changeOf, createFolder, mocMembers, readOptional, RepaFault, resolveIn, resolvePage, revert, saveCard, setCardMeta, type Page } from "./kb.js";
+import { calendarDays, childFolders, listModes, loadState, readModeText, readSettings, updateSettings, writeMode, type State } from "./map.js";
+import { dateOf, dayOf } from "./review.js";
 import { wikiTargets } from "./links.js";
 import type { PendingReply } from "./protocol.js";
 import type { Sessions } from "./pi/sessions.js";
@@ -35,10 +36,20 @@ export async function startServer(options: ServerOptions): Promise<Server> {
   const { sessions } = options;
   const query = (url: URL, name: string) => url.searchParams.get(name) ?? "";
 
-  const summary = (state: State, page: Page) => ({
-    path: page.path, title: page.title, summary: page.summary, moc: page.moc, keep: state.kept.has(page.path),
-    ...(page.error ? { error: page.error } : {}), ...(page.review ? { review: page.review } : {}),
-  });
+  // 每张卡片的列表项都带上画记号要用的复习状态：记忆估计、是否到期、逾期几天、下次到期和上次练习的日子。
+  const summary = (state: State, page: Page) => {
+    const review = state.review.get(page.path);
+    const last = review?.practicedDays.at(-1);
+    return {
+      path: page.path, title: page.title, folder: page.folder, summary: page.summary, moc: page.moc, keep: state.kept.has(page.path),
+      ...(page.error ? { error: page.error } : {}), ...(page.review ? { review: page.review } : {}),
+      ...(review?.memory === undefined ? {} : { memory: review.memory }),
+      due: Boolean(review && !review.practicedToday && (review.due || review.manualDue)),
+      overdueDays: review?.overdueDays ?? 0,
+      ...(review?.nextDue === undefined ? {} : { nextDue: dateOf(review.nextDue) }),
+      ...(last === undefined ? {} : { lastPracticed: dateOf(last) }),
+    };
+  };
   const folderInfo = (state: State, folder: string) => ({ path: folder, name: folder.slice(folder.lastIndexOf("/") + 1), count: cardCount(state.kb, folder) });
   const pageAt = (state: State, rel: string) => {
     const page = state.kb.byPath.get(rel);
@@ -61,27 +72,22 @@ export async function startServer(options: ServerOptions): Promise<Server> {
       const linked = (page: Page, targets: string[]) => targets.map((target) => ({ target, path: resolvePage(state.kb, page.folder, target)?.path ?? null }));
       return {
         cards: state.kb.pages.map((page) => {
-          const review = state.review.get(page.path);
-          return {
-            ...summary(state, page),
-            folder: page.folder,
-            requires: linked(page, page.requires),
-            links: linked(page, [...new Set(wikiTargets(page.body))]),
-            ...(review?.memory === undefined ? {} : { memory: review.memory }),
-            due: Boolean(review && !review.practicedToday && (review.due || review.manualDue)),
-          };
+          return { ...summary(state, page), requires: linked(page, page.requires), links: linked(page, [...new Set(wikiTargets(page.body))]) };
         }),
       };
     }],
     ["GET", /^\/api\/folder$/u, async (_request, url) => {
       const state = await loadState(root);
       const folder = query(url, "path");
-      if (!state.kb.folders.includes(folder)) throw new RepaFault("not_found", `知识库里没有 ${folder} 这一层。`);
-      const agents = await readOptional(path.join(resolveIn(root, folder), "AGENTS.md"));
+      if (!state.kb.folders.includes(folder)) throw new RepaFault("not_found", `知识库里没有 ${folder} 这个文件夹。`);
+      // AGENTS.md 带上修改时间，文件夹页编辑它时经 PUT /api/card 保存，被别处改过就拒绝。
+      const agentsFile = path.join(resolveIn(root, folder), "AGENTS.md");
+      const agentsText = await readOptional(agentsFile);
+      const agents = agentsText === undefined ? null : { text: agentsText, mtime: (await stat(agentsFile)).mtimeMs };
       const own = state.kb.pages.filter((page) => page.folder === folder);
       return {
         path: folder,
-        agents: agents ?? null,
+        agents,
         mocs: own.filter((page) => page.moc).map((page) => summary(state, page)),
         cards: own.filter((page) => !page.moc).map((page) => summary(state, page)),
         folders: childFolders(state.kb, folder).map((child) => folderInfo(state, child)),
@@ -99,7 +105,6 @@ export async function startServer(options: ServerOptions): Promise<Server> {
         members: page.moc ? mocMembers(state.kb, page).members.map((member) => ({ path: member.path, title: member.title })) : [],
         broken: [...brokenLinks(state.kb, page), ...(page.moc ? mocMembers(state.kb, page).broken : [])],
         backlinks: backlinks(state.kb, page).map((other) => ({ path: other.path, title: other.title })),
-        state: state.review.get(page.path) ?? null,
         practices: practices.map((practice) => ({
           id: practice.id, t: practice.t, questions: practice.quiz?.questions ?? [], answers: practice.quiz?.answers ?? null,
           ...(practice.grade ? { result: practice.grade.result, note: practice.grade.note, ...(practice.grade.external ? { external: practice.grade.external } : {}) } : {}),
@@ -109,25 +114,54 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     ["PUT", /^\/api\/card$/u, async (_request, _url, body) => ({
       mtime: await saveCard(root, String(body.path), String(body.text), typeof body.mtime === "number" ? body.mtime : undefined),
     })],
+    ["POST", /^\/api\/card\/meta$/u, async (_request, _url, body) => ({
+      mtime: await setCardMeta(root, String(body.path), {
+        ...(body.keep === null || typeof body.keep === "boolean" ? { keep: body.keep } : {}),
+        ...(body.review === null || typeof body.review === "string" ? { review: body.review } : {}),
+      }),
+    })],
     ["POST", /^\/api\/folder$/u, async (_request, _url, body) => {
       await createFolder(root, String(body.path));
       return {};
     }],
-    ["GET", /^\/api\/today$/u, async () => {
-      const state = await loadState(root);
-      const item = (rel: string) => {
-        const page = pageAt(state, rel);
-        const review = state.review.get(rel);
-        return { ...summary(state, page), folder: page.folder, manual: review?.manualDue ?? false, overdueDays: review?.overdueDays ?? 0 };
-      };
+    // extra 是“再来几张”累计要的张数，加在每天的张数上；做完当天的张数时 done 为真。
+    ["GET", /^\/api\/today$/u, async (_request, url) => {
+      const { dailyLimit } = await readSettings(root);
+      const limit = dailyLimit === null ? null : dailyLimit + Number(query(url, "extra") || 0);
+      const state = await loadState(root, new Date(), limit);
+      const item = (rel: string) => ({ ...summary(state, pageAt(state, rel)), manual: state.review.get(rel)?.manualDue ?? false });
       const { suggestions } = state;
       return {
+        practiced: suggestions.practiced, limit, done: limit !== null && suggestions.practiced >= limit,
         due: suggestions.due.map(item), dueTotal: suggestions.dueTotal,
         fresh: suggestions.fresh.map(item), freshTotal: suggestions.freshTotal,
         recent: await sessions.recentFolders(),
       };
     }],
-    ["GET", /^\/api\/sessions$/u, async (_request, url) => sessions.list(query(url, "folder"))],
+    // month=YYYY-MM 给出每天到期几张、练了几张；date=YYYY-MM-DD 给出那一天的卡片。
+    ["GET", /^\/api\/calendar$/u, async (_request, url) => {
+      const state = await loadState(root);
+      const date = query(url, "date");
+      if (date) {
+        const day = calendarDays(state, dayOf(date), dayOf(date)).get(dayOf(date));
+        return { date, due: (day?.due ?? []).map((rel) => summary(state, pageAt(state, rel))), practiced: (day?.practiced ?? []).map((rel) => summary(state, pageAt(state, rel))) };
+      }
+      const month = query(url, "month") || dateOf(state.today).slice(0, 7);
+      const first = dayOf(`${month}-01`);
+      // 第一天往后 31 天一定落在下个月，取下个月的 1 号再退一天，就是这个月的最后一天。
+      const last = dayOf(`${dateOf(first + 31).slice(0, 8)}01`) - 1;
+      const days = calendarDays(state, first, last);
+      return { month, today: dateOf(state.today), days: [...days].map(([day, item]) => ({ date: dateOf(day), due: item.due.length, practiced: item.practiced.length })) };
+    }],
+    // 不给 folder 是全部文件夹；reviews=1 包含复习对话；sort 是 recent、oldest 或 folder。
+    ["GET", /^\/api\/sessions$/u, async (_request, url) => ({
+      sessions: await sessions.list({
+        ...(url.searchParams.has("folder") ? { folder: query(url, "folder") } : {}),
+        q: query(url, "q"),
+        reviews: query(url, "reviews") === "1",
+        sort: (["recent", "oldest", "folder"] as const).find((item) => item === query(url, "sort")) ?? "recent",
+      }),
+    })],
     ["POST", /^\/api\/sessions$/u, async (_request, _url, body) => {
       if (typeof body.review === "string") return sessions.review(pageAt(await loadState(root), body.review));
       return sessions.open({
@@ -137,7 +171,8 @@ export async function startServer(options: ServerOptions): Promise<Server> {
       });
     }],
     ["POST", /^\/api\/sessions\/([^/]+)\/prompt$/u, async (_request, _url, body, [id = ""]) => {
-      await sessions.prompt(id, String(body.text), typeof body.viewing === "string" ? body.viewing : undefined);
+      const text = (name: string) => (typeof body[name] === "string" && body[name] ? String(body[name]) : undefined);
+      await sessions.prompt(id, String(body.text), text("viewing"), text("quote"));
       return {};
     }],
     ["POST", /^\/api\/sessions\/([^/]+)\/abort$/u, async (_request, _url, _body, [id = ""]) => sessions.abort(id).then(() => ({}))],
@@ -160,11 +195,20 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     ["POST", /^\/api\/revert$/u, async (_request, _url, body) => ({ saved: await revert(root, String(body.path), String(body.version)) })],
     ["GET", /^\/api\/models$/u, async () => ({ models: await sessions.models() })],
     ["GET", /^\/api\/modes$/u, async () => ({ modes: await listModes(root) })],
-    ["GET", /^\/api\/settings$/u, async () => readSettings(root)],
-    ["PUT", /^\/api\/settings$/u, async (_request, _url, body) => updateSettings(root, {
+    ["GET", /^\/api\/modes\/([^/]+)$/u, async (_request, _url, _body, [name = ""]) => ({ name: decodeURIComponent(name), text: await readModeText(root, decodeURIComponent(name)) })],
+    ["PUT", /^\/api\/modes\/([^/]+)$/u, async (_request, _url, body, [name = ""]) => {
+      await writeMode(root, decodeURIComponent(name), String(body.text));
+      return {};
+    }],
+    // 设置里带上知识库的位置，只读，供设置页显示；这是接口里唯一出现本机路径的地方。
+    ["GET", /^\/api\/settings$/u, async () => ({ ...(await readSettings(root)), root })],
+    ["PUT", /^\/api\/settings$/u, async (_request, _url, body) => ({ root, ...await updateSettings(root, {
       ...(typeof body.confirmEdits === "boolean" ? { confirmEdits: body.confirmEdits } : {}),
       ...(typeof body.confirmCommands === "boolean" ? { confirmCommands: body.confirmCommands } : {}),
-    })],
+      ...(body.dailyLimit === null || (typeof body.dailyLimit === "number" && body.dailyLimit >= 0) ? { dailyLimit: body.dailyLimit } : {}),
+      ...(body.appearance === "system" || body.appearance === "light" || body.appearance === "dark" ? { appearance: body.appearance } : {}),
+      ...(body.keys !== null && typeof body.keys === "object" && !Array.isArray(body.keys) ? { keys: body.keys as Record<string, unknown> } : {}),
+    }) })],
   ];
 
   const server = createServer((request, response) => {
@@ -183,7 +227,8 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     if (method !== "GET" && !String(request.headers["content-type"]).startsWith("application/json")) return send(response, 415, { error: "请求要用 JSON。" });
 
     const events = /^\/api\/sessions\/([^/]+)\/events$/u.exec(url.pathname);
-    if (events && method === "GET") return stream(request, response, events[1] ?? "");
+    if (events && method === "GET") return stream(request, response, (listener) => sessions.subscribe(decodeURIComponent(events[1] ?? ""), listener));
+    if (url.pathname === "/api/events" && method === "GET") return stream(request, response, (listener) => sessions.watch(listener));
     if (url.pathname === "/api/file" && method === "GET") return sendFile(response, resolveIn(root, query(url, "path")), true);
     for (const [routeMethod, pattern, handler] of routes) {
       const match = pattern.exec(url.pathname);
@@ -198,11 +243,11 @@ export async function startServer(options: ServerOptions): Promise<Server> {
     return sendFile(response, isFile ? file : path.join(options.webRoot, "index.html"), false);
   }
 
-  function stream(request: IncomingMessage, response: ServerResponse, id: string): void {
-    // 订阅时会同步发出快照，所以先写响应头；对话没有打开时 subscribe 抛出的错误照常回成 404。
+  // subscribe 会同步发出当前的状态，所以先缓存，写过响应头再发；对话没有打开时它抛出的错误照常回成 404。
+  function stream(request: IncomingMessage, response: ServerResponse, subscribe: (listener: (event: unknown) => void) => () => void): void {
     const write = (event: unknown) => response.write(`data: ${JSON.stringify(event)}\n\n`);
     const events: unknown[] = [];
-    const unsubscribe = sessions.subscribe(decodeURIComponent(id), (event) => (response.headersSent ? write(event) : events.push(event)));
+    const unsubscribe = subscribe((event) => (response.headersSent ? write(event) : events.push(event)));
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
     for (const event of events) write(event);
     request.on("close", unsubscribe);

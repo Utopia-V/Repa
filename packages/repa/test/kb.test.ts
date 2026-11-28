@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 
-import { brokenLinks, changeOf, ensureId, keptPaths, mocMembers, RepaFault, revert, saveCard, saveVersion, scanKb, setId } from "../src/kb.js";
+import { brokenLinks, changeOf, ensureId, keptPaths, mocMembers, RepaFault, revert, saveCard, saveVersion, scanKb, setCardMeta, setField, setId } from "../src/kb.js";
 
 async function kb(t: TestContext, files: Record<string, string>): Promise<string> {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), "repa-kb-")));
@@ -16,7 +16,7 @@ async function kb(t: TestContext, files: Record<string, string>): Promise<string
   return root;
 }
 
-test("资料文件夹、仓库和以点开头的文件夹里的 Markdown 不算卡片，也不成层；资料仍列在树里，根含 .git 照常扫描", async (t) => {
+test("资料文件夹、仓库和以点开头的文件夹里的 Markdown 不算卡片，文件夹本身也不算；资料仍列在树里，根含 .git 照常扫描", async (t) => {
   const root = await kb(t, {
     ".git/HEAD": "ref",
     "AGENTS.md": "总要求",
@@ -26,7 +26,7 @@ test("资料文件夹、仓库和以点开头的文件夹里的 Markdown 不算�
     "CSAPP/lab/.git/HEAD": "ref",
     "CSAPP/lab/README.md": "不是卡片",
     "CSAPP/node_modules/x/README.md": "不是卡片",
-    ".repa/modes/讨论学习.md": "不是卡片",
+    ".repa/modes/学习.md": "不是卡片",
   });
   const scanned = await scanKb(root);
   assert.deepEqual(scanned.folders, ["", "CSAPP"]);
@@ -54,10 +54,10 @@ test("文件头各项都可以不写；summary 缺省取正文第一行，requir
   assert.match(c?.error ?? "", /文件头读不出来/u);
 });
 
-test("链接按标题找卡片，重名时先取同一层的；改名后找不到的链接、先修和 MOC 列项都标出来", async (t) => {
+test("链接按标题找卡片，重名时先取同一个文件夹里的；改名后找不到的链接、先修和 MOC 列项都标出来", async (t) => {
   const root = await kb(t, {
-    "A/页表.md": "A 层的页表",
-    "B/页表.md": "B 层的页表",
+    "A/页表.md": "A 里的页表",
+    "B/页表.md": "B 里的页表",
     "B/TLB.md": "---\nrequires: [页表, 旧名字]\n---\n和 [[页表|PT]]、[[不存在]] 一起看。\n",
     "B/地图.md": "---\nmoc: true\n---\n- [[A/页表]]\n- [[没了]]\n",
   });
@@ -71,7 +71,7 @@ test("链接按标题找卡片，重名时先取同一层的；改名后找不�
   assert.deepEqual(broken, ["没了"]);
 });
 
-test("写了 keep: true 的 MOC 列出的卡片都算保持，卡片自己写 keep: false 的退出；MOC 本身不算卡片", async (t) => {
+test("写了 keep: true 的专题列出的卡片都纳入复习，卡片自己写 keep: false 的退出；专题本身不算卡片", async (t) => {
   const root = await kb(t, {
     "地图.md": "---\nmoc: true\nkeep: true\n---\n[[甲]] [[乙]] [[丙]]\n",
     "甲.md": "甲",
@@ -135,4 +135,18 @@ test("撤回一次改动恢复整个文件，之后的改动一并退掉；撤�
   await assert.rejects(stat(path.join(root, "新.md")));
   await revert(root, "新.md", beforeDelete);
   assert.equal(await readFile(path.join(root, "新.md"), "utf8"), "新建的\n");
+});
+
+test("改是否纳入复习和手定的复习日期，只动文件头里那一行；null 删去这一行，日期写错就拒绝", async (t) => {
+  const body = "正文第一段\r\n\n[[链接]]\n";
+  const root = await kb(t, { "a.md": `---\nid: k7f3qa9d\nsummary: 概括\n---\n${body}` });
+  const file = path.join(root, "a.md");
+  await setCardMeta(root, "a.md", { keep: true, review: "2026-12-01" });
+  assert.equal(await readFile(file, "utf8"), `---\nid: k7f3qa9d\nsummary: 概括\nkeep: true\nreview: 2026-12-01\n---\n${body}`);
+  await setCardMeta(root, "a.md", { keep: false });
+  await setCardMeta(root, "a.md", { review: null });
+  assert.equal(await readFile(file, "utf8"), `---\nid: k7f3qa9d\nsummary: 概括\nkeep: false\n---\n${body}`);
+  await assert.rejects(setCardMeta(root, "a.md", { review: "下周一" }), (error: unknown) => error instanceof RepaFault && error.code === "bad_request");
+  assert.equal(setField("没有文件头", "keep", undefined), "没有文件头");
+  assert.equal(setField("---\nkeep: true\n---\n正文", "keep", undefined), "正文");
 });
