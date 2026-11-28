@@ -210,7 +210,16 @@ export async function readOptional(file: string): Promise<string | undefined> {
   }
 }
 
-/** 先写临时文件再改名，写到一半失败时原文件不受影响。 */
+/**
+ * 写一张卡片或知识库里的文件：原地写入，不写临时文件再换名，所以文件的建立时间不变，知识库的图里石头不挪。
+ * Pi 的 write、edit 本来就原地写同一批文件；写到一半断电属于少见的故障，不为它留机制。
+ */
+export async function writeCard(file: string, text: string): Promise<void> {
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, text);
+}
+
+/** Repa 自己的数据（设置、模式）先写临时文件再改名，写到一半失败时原文件不受影响。 */
 export async function writeAtomic(file: string, text: string): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.repa-tmp`;
@@ -249,7 +258,7 @@ export async function setCardMeta(root: string, rel: string, change: { keep?: bo
   let text = await readFile(file, "utf8");
   if (change.keep !== undefined) text = setField(text, "keep", change.keep === null ? undefined : String(change.keep));
   if (change.review !== undefined) text = setField(text, "review", change.review ?? undefined);
-  await writeAtomic(file, text);
+  await writeCard(file, text);
   return (await stat(file)).mtimeMs;
 }
 
@@ -259,7 +268,7 @@ export async function ensureId(root: string, page: Page): Promise<string> {
   // 首位用字母：全是数字或形如 12e45678 的 id 会被 YAML 读成数。
   const id = [...randomBytes(8)].map((byte, index) => (index === 0 ? 10 + (byte % 26) : byte % 36).toString(36)).join("");
   const file = resolveIn(root, page.path);
-  await writeAtomic(file, setId(await readFile(file, "utf8"), id));
+  await writeCard(file, setId(await readFile(file, "utf8"), id));
   page.id = id;
   return id;
 }
@@ -275,7 +284,7 @@ export async function saveCard(root: string, rel: string, text: string, mtime: n
     const now = (await stat(file)).mtimeMs;
     if (now !== mtime) throw new RepaFault("conflict", `${rel} 在打开以后被改过。`, { text: current, mtime: now });
   }
-  await writeAtomic(file, text);
+  await writeCard(file, text);
   return (await stat(file)).mtimeMs;
 }
 
@@ -343,6 +352,6 @@ export async function revert(root: string, rel: string, name: string): Promise<s
     return saved;
   }
   const id = current === undefined ? undefined : idOf(current);
-  await writeAtomic(file, id !== undefined && idOf(target) !== id && rel.endsWith(".md") ? setId(target, id) : target);
+  await writeCard(file, id !== undefined && idOf(target) !== id && rel.endsWith(".md") ? setId(target, id) : target);
   return saved;
 }

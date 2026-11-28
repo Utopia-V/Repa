@@ -5,7 +5,7 @@ import path from "node:path";
 import { isToolCallEventType, type ExtensionAPI, type ExtensionFactory, type ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 
-import { changeOf, ensureId, idOf, inside, readOptional, resolvePage, saveVersion, setId, writeAtomic, type Page } from "../kb.js";
+import { changeOf, ensureId, idOf, inside, readOptional, resolvePage, saveVersion, setId, writeCard, type Page } from "../kb.js";
 import { appendLog, QuestionSchema, ResultSchema } from "../log.js";
 import { buildMap, formatPractices, folderListing, loadState, readMode, readSettings, RESULT_LABEL, type State } from "../map.js";
 import type { PendingReply, PendingRequest } from "../protocol.js";
@@ -206,7 +206,7 @@ export function createRepaExtension(host: Host): ExtensionFactory {
     const id = before === undefined ? undefined : idOf(before);
     const now = await readOptional(file);
     if (id === undefined || now === undefined || idOf(now) === id) return undefined;
-    await writeAtomic(file, setId(now, id));
+    await writeCard(file, setId(now, id));
     return { content: [{ type: "text" as const, text: `已写入。文件头的 id 由程序管理，已恢复为 ${id}。` }] };
   }
 

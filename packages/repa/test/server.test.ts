@@ -430,3 +430,15 @@ test("模式按名字读写，新建的模式也能切到；设置里带知识�
   const latest = (await server.api("GET", "/api/folder?path=CSAPP")).json.agents as { mtime: number };
   assert.equal((await server.api("PUT", "/api/card", { path: "CSAPP/AGENTS.md", text: "我的新要求\n", mtime: latest.mtime })).status, 200);
 });
+
+test("Repa 保存卡片、改文件头的一行都原地写入：文件的建立时间不变，知识库的图里石头不挪", async (t) => {
+  const server = await backend(t, { "甲.md": "---\nsummary: 概括\n---\n正文\n" });
+  const created = async () => ((await server.api("GET", "/api/cards")).json.cards as Array<{ created: number }>)[0]?.created;
+  const before = await created();
+  const file = path.join(server.root, "甲.md");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await server.api("PUT", "/api/card", { path: "甲.md", text: "---\nsummary: 概括\n---\n改过的正文\n", mtime: (await stat(file)).mtimeMs });
+  await server.api("POST", "/api/card/meta", { path: "甲.md", keep: true });
+  assert.equal(await readFile(file, "utf8"), "---\nsummary: 概括\nkeep: true\n---\n改过的正文\n");
+  assert.equal(await created(), before);
+});
