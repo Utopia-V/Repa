@@ -14,41 +14,53 @@ import { AutoText, IconButton, Pop } from "./ui";
 const FRONT_MATTER = /^---\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/u;
 const headOf = (text: string) => FRONT_MATTER.exec(text)?.[0] ?? "";
 
-/** 编辑一份 Markdown：编辑的是文件头以下的原文，保存时接回文件头；文件在打开以后被别处改过，先给出最新内容，不悄悄覆盖。 */
-export function Editor({ path, title, text, body, mtime, folder, onSaved, empty, marks = false, children }: {
-  path: string; title: ReactNode; text: string; body: string; mtime: number | undefined; folder: string; onSaved: () => void; empty?: string; marks?: boolean; children?: ReactNode;
+/** 正在编辑的草稿：文字，以及开始编辑时的文件头和修改时间。三者一起存在本机，保存时拿它们去核对，不随卡片重新读取而变。 */
+interface Draft {
+  text: string;
+  head: string;
+  mtime: number | undefined;
+}
+
+/**
+ * 编辑一份 Markdown：编辑的是文件头以下的原文，保存时接回开始编辑时的文件头，带开始编辑时的修改时间；
+ * 文件在这之后被别处或 Agent 改过，先给出最新内容，不悄悄覆盖。plain 的文件（AGENTS.md）没有文件头。
+ */
+export function Editor({ path, title, text, body, mtime, folder, onSaved, empty, marks = false, plain = false, children }: {
+  path: string; title: ReactNode; text: string; body: string; mtime: number | undefined; folder: string; onSaved: () => void; empty?: string; marks?: boolean; plain?: boolean; children?: ReactNode;
 }) {
   const key = `repa.draft.${path}`;
-  // 文件头后面的空行不放进文本框，保存时原样接回
-  const blank = /^(\r?\n)*/u.exec(body)?.[0] ?? "";
-  const own = body.slice(blank.length);
-  const [draft, setDraft] = useState<string | null>(() => localStorage.getItem(key));
-  const [base, setBase] = useState({ head: headOf(text), mtime });
+  const [draft, setDraft] = useState<Draft | null>(() => JSON.parse(localStorage.getItem(key) ?? "null") as Draft | null);
   const [latest, setLatest] = useState<string>();
   const links = useLinks(folder);
-  useEffect(() => setBase({ head: headOf(text), mtime }), [text, mtime]);
-  const change = (value: string | null) => {
+  const change = (value: Draft | null) => {
     setDraft(value);
     if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
+    else localStorage.setItem(key, JSON.stringify(value));
+  };
+  // 文件头和它下面的空行不放进文本框，保存时原样接回
+  const start = () => {
+    const own = body.replace(/^(\r?\n)*/u, "");
+    change({ text: own, head: text.slice(0, text.length - own.length), mtime });
   };
   const save = async () => {
     if (draft === null) return;
     try {
-      await put("/api/card", { path, text: base.head + blank + draft, ...(base.mtime === undefined ? {} : { mtime: base.mtime }) });
+      await put("/api/card", { path, text: draft.head + draft.text, ...(draft.mtime === undefined ? {} : { mtime: draft.mtime }) });
       change(null);
       setLatest(undefined);
       refresh();
       onSaved();
     } catch (error) {
       if (!(error instanceof ApiError) || error.status !== 409 || error.details?.text === undefined) throw error;
-      setLatest(error.details.text.slice(headOf(error.details.text).length));
-      setBase({ head: headOf(error.details.text), mtime: error.details.mtime });
+      // 再点“完成”就以你的文字覆盖：文件头和修改时间换成最新的
+      const head = plain ? "" : headOf(error.details.text);
+      setLatest(error.details.text.slice(head.length));
+      change({ ...draft, head, mtime: error.details.mtime });
     }
   };
   return <>
     <div className="title-row"><h1>{title}</h1>{draft === null
-      ? <IconButton icon="pencil" label={t("card.edit")} onClick={() => change(own)} />
+      ? <IconButton icon="pencil" label={t("card.edit")} onClick={start} />
       : <span className="edit-acts">
         <button type="button" className="btn btn-solid btn-s" onClick={() => void save()}>{t("card.done")}</button>
         <button type="button" className="btn btn-text" onClick={() => { change(null); setLatest(undefined); }}>{t("card.cancel")}</button>
@@ -57,7 +69,7 @@ export function Editor({ path, title, text, body, mtime, folder, onSaved, empty,
     {latest !== undefined && <div className="notice" role="alert">{t("card.conflict")}<pre>{latest}</pre></div>}
     {draft === null
       ? (body.trim() ? <Markdown className="md" text={body} links={links} marks={marks} /> : empty && <p className="md sum">{empty}</p>)
-      : <AutoText className="raw" aria-label={path} value={draft} autoFocus onChange={(event) => change(event.target.value)} />}
+      : <AutoText className="raw" aria-label={path} value={draft.text} autoFocus onChange={(event) => change({ ...draft, text: event.target.value })} />}
   </>;
 }
 

@@ -127,7 +127,7 @@ export function FolderPage({ path, agents }: { path: string; agents: boolean }) 
   if (agents) {
     return <main className="cardpage"><div className="card-grid"><article>
       <header className="card-head"><p className="sum">{folderLabel(path, t("nav.kb"))}</p></header>
-      {data && <Editor key={path} path={`${path ? `${path}/` : ""}AGENTS.md`} title="AGENTS.md" text={data.agents?.text ?? ""} body={data.agents?.text ?? ""} mtime={data.agents?.mtime} folder={path} onSaved={reload} empty={t("card.agentsEmpty")} />}
+      {data && <Editor key={path} path={`${path ? `${path}/` : ""}AGENTS.md`} title="AGENTS.md" text={data.agents?.text ?? ""} body={data.agents?.text ?? ""} mtime={data.agents?.mtime} folder={path} onSaved={reload} empty={t("card.agentsEmpty")} plain />}
     </article></div></main>;
   }
   return <main className="kb folder">
