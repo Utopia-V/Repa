@@ -8,7 +8,8 @@
   },
   "workspaces": [
     "packages/learning-model",
-    "packages/repa"
+    "packages/repa",
+    "apps/web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

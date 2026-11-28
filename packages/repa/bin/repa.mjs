@@ -14,7 +14,8 @@ const { values } = parseArgs({ options: { kb: { type: "string" }, "no-window": {
 const packageDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 if (values["install-icon"]) {
-  const entry = ["[Desktop Entry]", "Type=Application", "Name=Repa", `Exec=${process.execPath} ${fileURLToPath(import.meta.url)}`, "Icon=accessories-dictionary", "Terminal=false", ""].join("\n");
+  const icon = fileURLToPath(new URL("../../../apps/web/public/icon.svg", import.meta.url));
+  const entry = ["[Desktop Entry]", "Type=Application", "Name=Repa", `Exec=${process.execPath} ${fileURLToPath(import.meta.url)}`, `Icon=${icon}`, "Terminal=false", ""].join("\n");
   const desktop = execFileSync("xdg-user-dir", ["DESKTOP"], { encoding: "utf8" }).trim();
   for (const dir of [path.join(os.homedir(), ".local/share/applications"), desktop]) {
     mkdirSync(dir, { recursive: true });

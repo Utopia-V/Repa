@@ -2,6 +2,8 @@
 
 状态：已落地
 
+其中的基础组件、设计 token 与文字占位的做法已随旧界面移除，由[自用骨架](../../proposed/architecture/2026-11-26-self-use-skeleton.md#界面)取代；界面文字集中在一个文件里、组件只引用键，这一条沿用。
+
 本记录是新 UI 落地三个 PR 中第 1 个的设计。依据 `dev` 的提交 4d8522d19 和 Fluid Functionalism（下称 FF）仓库 [`mickadesign/fluid-functionalism`](https://github.com/mickadesign/fluid-functionalism) 的提交 7e6ae29（2026-11-06，新西兰时间）。基线是 `origin/dev`，不带 `aqua256/issue-101-ui-text` 分支的提交。
 
 ## 问题

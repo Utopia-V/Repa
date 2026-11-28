@@ -66,4 +66,4 @@ Repa 要承接维护者真实的日常学习：公开课、论文、刷题、读
 - MA 的一手入口见[官方机制说明](https://www.mathacademy.com/how-our-ai-works)和 [The Math Academy Way 作者页面](https://www.justinmath.com/books/#the-math-academy-way)。公开描述没有给出的算法需要独立研究，推测不当作 MA 已公开的实现。
 - 跨任务协作使用 [GitHub Issues](https://github.com/Utopia-V/repa/issues)，通过已认证的 `gh` CLI 操作。
 - 项目自有文档使用简体中文；代码标识符、命令、协议字段、包名和上游专有名称保持原文。
-- 前端由 Aqua 负责，涉及 Web 时读取 [apps/web/AGENTS.md](apps/web/AGENTS.md)。视觉语言尚未确定基线：界面是一层薄的视图，布局和视觉语言都不定死：首版只求克制、清晰，把今日的复习、知识库与卡片写作、题目卡片和对话摆出来，用几天以后按手感调整；[设计系统](docs/design-system.md)描述现有组件，不是已确认的设计方向。
+- 前端由 Aqua 负责，涉及 Web 时读取 [apps/web/AGENTS.md](apps/web/AGENTS.md)。界面的外观和每个部件由维护者看过画稿以后逐项定下，实现照画稿做，不另行设计；画稿没画到的状态照同一套样式做最朴素的样子，并逐条告诉维护者。
