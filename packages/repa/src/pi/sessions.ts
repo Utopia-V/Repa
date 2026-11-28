@@ -3,8 +3,9 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, type AgentSession, type AgentSessionEvent, type SessionEntry } from "@earendil-works/pi-coding-agent";
 
+import { configDir } from "../config.js";
 import { inside, RepaFault, resolveIn, type Page } from "../kb.js";
 import { buildMap, LEARN_MODE, loadState, readMode, readSettings, REVIEW_MODE, reviewMaterial, updateSettings } from "../map.js";
 import { applyEvent, type Conversation, type Item, type PendingReply, type PendingRequest, type SessionInfo, type SessionStatus, type UiEvent } from "../protocol.js";
@@ -55,14 +56,13 @@ export class Sessions {
 
   private constructor(private readonly root: string, private readonly runtime: ModelRuntime, private readonly agentDir: string) {}
 
-  /** 模型与登录沿用 Pi：凭据在 Pi 全局目录的 auth.json。modelsStorePath 只供开发时把模型缓存写到别处；测试传入自己的 runtime 和 agentDir。 */
-  static async create(root: string, options: { runtime?: ModelRuntime; agentDir?: string; modelsStorePath?: string } = {}): Promise<Sessions> {
-    const agentDir = options.agentDir ?? getAgentDir();
-    const runtime = options.runtime ?? await ModelRuntime.create({
-      authPath: path.join(agentDir, "auth.json"),
-      modelsPath: path.join(agentDir, "models.json"),
-      ...(options.modelsStorePath ? { modelsStorePath: options.modelsStorePath } : {}),
-    });
+  /**
+   * 凭据、models.json 和模型目录的缓存（models-store.json）都在 Repa 自己的配置目录里，交给 Pi 的 agentDir 也是它，
+   * 所以不读 Pi 的 ~/.pi/agent。测试传入自己的 runtime 和目录。
+   */
+  static async create(root: string, options: { runtime?: ModelRuntime; agentDir?: string } = {}): Promise<Sessions> {
+    const agentDir = options.agentDir ?? configDir();
+    const runtime = options.runtime ?? await ModelRuntime.create({ authPath: path.join(agentDir, "auth.json"), modelsPath: path.join(agentDir, "models.json") });
     return new Sessions(root, runtime, agentDir);
   }
 

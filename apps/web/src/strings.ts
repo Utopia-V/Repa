@@ -124,6 +124,7 @@ const strings = {
   "chat.attachments": "随消息附带",
   "chat.reviewTitle": "复习 · ",
   "chat.sendFailed": "未能发出：{error}",
+  "chat.noModels": "没有可用的模型。在终端运行 repa login。",
 
   "tool.read": "读取",
   "tool.write": "写入",

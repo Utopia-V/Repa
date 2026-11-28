@@ -607,6 +607,9 @@ sup.fn { margin-left: 1px; font-size: 10px; line-height: 0; color: var(--soft); 
 .compacted { display: flex; align-items: center; gap: 12px; font-size: 12px; line-height: 18px; color: var(--faint); }
 .compacted::before, .compacted::after { content: ''; flex: 1; height: 1px; background: var(--hair); }
 .fault { font-size: 14px; line-height: 22px; color: var(--sting); }
+/* 没有可用的模型时，提问栏上面和设置里的一句 */
+.hint { font-size: 14px; line-height: 22px; color: var(--soft); }
+.composer .hint { margin-bottom: 8px; }
 /* 后端断开时窗口顶部一行状态 */
 .offline { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 9; padding: 4px 14px; border-radius: 999px; background: var(--tip-bg); color: var(--tip-fg); font-size: 13px; line-height: 20px; }
 /* 新建文件夹、新建卡片时的名字框 */
