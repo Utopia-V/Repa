@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // repa [--kb 目录] [--no-window]：后端没在运行就在后台启动它，然后用 Edge 的应用模式打开窗口。
+// repa login [提供方] [--api-key]、repa logout <提供方>：登录模型的提供方，凭据在 Repa 自己的配置目录。
 // repa --install-icon：在应用菜单和桌面放一个调用这个命令的图标。
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, mkdirSync, openSync, writeFileSync } from "node:fs";
@@ -10,8 +11,14 @@ import { parseArgs } from "node:util";
 
 const PORT = 7723;
 const URL_BASE = `http://127.0.0.1:${PORT}`;
-const { values } = parseArgs({ options: { kb: { type: "string" }, "no-window": { type: "boolean" }, "install-icon": { type: "boolean" } } });
 const packageDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+// repa login、repa logout 在终端里登录模型的提供方，凭据写进 Repa 自己的配置目录
+if (process.argv[2] === "login" || process.argv[2] === "logout") {
+  const child = spawn(process.execPath, ["--import", "tsx", path.join(packageDir, "src/pi/login.ts"), ...process.argv.slice(2)], { cwd: packageDir, stdio: "inherit" });
+  child.on("exit", (code) => process.exit(code ?? 1));
+  await new Promise(() => {});
+}
+const { values } = parseArgs({ options: { kb: { type: "string" }, "no-window": { type: "boolean" }, "install-icon": { type: "boolean" } } });
 
 if (values["install-icon"]) {
   const icon = fileURLToPath(new URL("../../../apps/web/public/icon.svg", import.meta.url));

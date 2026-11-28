@@ -89,7 +89,9 @@ export function SettingsPage() {
     </section>
     <section><h2>{t("settings.review")}</h2><Row label={t("settings.daily")}><Daily limit={settings.dailyLimit} /></Row></section>
     <section><h2>{t("settings.model")}</h2>
-      <Row label={t("settings.defaultModel")}><Select value={settings.model} items={(models?.models ?? []).map((item) => [`${item.provider}/${item.id}`, item.id])} onChange={(model) => save({ model })} /></Row>
+      <Row label={t("settings.defaultModel")}>{models?.models.length === 0
+        ? <span className="hint">{t("chat.noModels")}</span>
+        : <Select value={settings.model} items={(models?.models ?? []).map((item) => [`${item.provider}/${item.id}`, item.id])} onChange={(model) => save({ model })} />}</Row>
       <Row label={t("chat.thinking")}><Select value={settings.thinking} items={LEVELS.map((level) => [level, level])} onChange={(thinking) => save({ thinking })} /></Row>
     </section>
     <section><h2>{t("settings.confirm")}</h2>

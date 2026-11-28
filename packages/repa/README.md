@@ -12,7 +12,7 @@
 node packages/repa/bin/repa.mjs --kb ~/Repa
 ```
 
-模型与登录沿用 Pi：凭据在 `~/.pi/agent/auth.json`，用 `pi auth login` 登录订阅或填 API key，`GET /api/models` 只列出已有凭据的模型。模型和 thinking 级别由 Repa 自己记在 `.repa/settings.json`，与 Pi 自己的设置分开，不读也不改。在一段对话里换的模型和级别同时写进这里，成为以后新对话的默认，设置页也可以直接改这两项；还没换过时，模型取 Pi 列出的第一个有凭据的，级别用 Pi 的缺省。当前模型不支持选的级别时，由 Pi 收窄到它支持的，记下的仍是选的那一级，换回支持的模型时恢复。
+模型的凭据在 Repa 自己的配置目录里，缺省是 `~/.config/repa`（遵从 `XDG_CONFIG_HOME`），环境变量 `REPA_CONFIG` 可以指定别处，供测试和开发时试用。目录里是 `auth.json`（权限 0600）、可选的 `models.json` 和模型目录的缓存 `models-store.json`。Repa 是独立的软件，不读 Pi 的 `~/.pi/agent`；凭据也不放进知识库，知识库以后要同步。登录在终端里运行 `repa login`：列出可以登录的提供方，选一个，订阅的打开浏览器授权，API key 的粘贴进去，不回显；`repa login <提供方> --api-key` 直接用 API key；`repa logout <提供方>` 删去它的凭据。`GET /api/models` 只列出已有凭据的模型。模型和 thinking 级别由 Repa 自己记在 `.repa/settings.json`。在一段对话里换的模型和级别同时写进这里，成为以后新对话的默认，设置页也可以直接改这两项；还没换过时，模型取第一个有凭据的，级别用 Pi 的缺省。当前模型不支持选的级别时，由 Pi 收窄到它支持的，记下的仍是选的那一级，换回支持的模型时恢复。
 
 ## 知识库与数据
 

@@ -13,8 +13,7 @@ const { values } = parseArgs({ options: { kb: { type: "string" }, port: { type: 
 const root = path.resolve(values.kb ?? path.join(os.homedir(), "Repa"));
 await mkdir(root, { recursive: true });
 await ensureModes(root);
-// REPA_MODELS_STORE 只供开发时把 Pi 的模型缓存写到别处，不碰 Pi 全局目录。
-const sessions = await Sessions.create(root, process.env.REPA_MODELS_STORE ? { modelsStorePath: process.env.REPA_MODELS_STORE } : {});
+const sessions = await Sessions.create(root);
 const webRoot = fileURLToPath(new URL("../../../apps/web/dist", import.meta.url));
 await startServer({ root, port: Number(values.port), sessions, webRoot });
 console.log(`Repa 在 http://127.0.0.1:${values.port}/ 运行，知识库是 ${root}`);

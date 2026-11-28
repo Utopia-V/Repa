@@ -9,7 +9,7 @@ import { ApiError, get, listen, openSession, post, put, type ContextInfo, type S
 import { SelectionAsk } from "./card";
 import { Icon } from "./glyph";
 import { Items } from "./items";
-import { current, folderLabel, refresh, update, useApp, viewingFolder } from "./store";
+import { current, folderLabel, refresh, update, useApp, useData, viewingFolder } from "./store";
 import { t } from "./strings";
 import { AutoText, IconButton, keyOf, Menu, MenuChoice, MenuItem, MenuSep, MenuToggle, Pop } from "./ui";
 
@@ -95,6 +95,8 @@ function Composer({ id, running, card }: { id: string; running: boolean; card: s
   const { quote, settings } = useApp();
   const [text, setText] = useState("");
   const [fault, setFault] = useState<string>();
+  // 还没有任何凭据时发不出消息，在这里说一句去哪里登录
+  const { data: models } = useData(() => get<{ models: unknown[] }>("/api/models"), []);
   const send = () => {
     if (!text.trim()) return;
     const sent = { text, quote };
@@ -111,6 +113,7 @@ function Composer({ id, running, card }: { id: string; running: boolean; card: s
   const stop = !text.trim() && running;
   return <div className="composer">
     {fault && <p className="fault">{fault}</p>}
+    {models?.models.length === 0 && <p className="hint">{t("chat.noModels")}</p>}
     <div className="box">
       {quote && <div className="quote"><p>{quote}</p><IconButton icon="x" label={t("chat.dropQuote")} onClick={() => update({ quote: undefined })} /></div>}
       <AutoText placeholder={t("chat.ask")} aria-label={t("chat.ask")} value={text} onChange={(event) => setText(event.target.value)} enter={send} enterKey={keyOf(settings?.keys, "send")} newlineKey={keyOf(settings?.keys, "newline")} />
