@@ -383,3 +383,42 @@ test("对话列表跨全部文件夹，可按关键词筛、按文件夹排；�
   const again = await server.connect(csapp);
   assert.deepEqual(again.conversation.items[0], { type: "user", text: "页表为什么要多级", quote: "页表项\n占空间" });
 });
+
+test("全局的事件流推各段对话的状态：开始回复、题目卡片在等、作答以后、回复结束", async (t) => {
+  const server = await backend(t, {});
+  const id = await open(server, "");
+  const watcher = await server.watch();
+  await watcher.until(() => watcher.statuses.length === 1, "连上时的当前状态");
+  assert.deepEqual(watcher.statuses[0], { id, folder: "", kind: "learn", running: false, waiting: false });
+  server.script({ tool: "quiz", id: "call_q", args: { questions: [{ text: "题" }] } }, { text: "好" });
+  await server.api("POST", `/api/sessions/${id}/prompt`, { text: "考我" });
+  await watcher.until(() => watcher.statuses.some((status) => status.waiting), "在等作答");
+  await server.api("POST", "/api/pending/call_q", { answers: ["答"] });
+  await watcher.until(() => watcher.statuses.at(-1)?.running === false, "回复结束");
+  assert.deepEqual(watcher.statuses.map((status) => [status.running, status.waiting]), [[false, false], [true, false], [true, true], [true, false], [false, false]]);
+});
+
+test("模式按名字读写，新建的模式也能切到；设置里带知识库的位置；文件夹的 AGENTS.md 带修改时间，被别处改过就拒绝保存", async (t) => {
+  const server = await backend(t, { "CSAPP/AGENTS.md": "CSAPP 的要求\n" });
+  assert.match(String((await server.api("GET", `/api/modes/${encodeURIComponent("学习")}`)).json.text), /讲完用 quiz/u);
+  assert.equal((await server.api("PUT", `/api/modes/${encodeURIComponent("费曼")}`, { text: "让学习者讲给你听。\n" })).status, 200);
+  assert.deepEqual((await server.api("GET", "/api/modes")).json.modes, ["复习", "学习", "整理", "费曼"].sort());
+  assert.equal((await server.api("PUT", `/api/modes/${encodeURIComponent(".隐藏")}`, { text: "x" })).status, 400);
+  assert.equal((await server.api("GET", `/api/modes/${encodeURIComponent("没有")}`)).status, 404);
+  const id = await open(server, "CSAPP");
+  const client = await server.connect(id);
+  await server.api("POST", `/api/sessions/${id}/mode`, { mode: "费曼" });
+  server.script({ text: "你讲讲" });
+  await server.api("POST", `/api/sessions/${id}/prompt`, { text: "开始" });
+  await client.until(() => client.settled === 1, "一轮结束");
+  assert.match(server.seen[0]?.sections.repa_mode ?? "", /当前模式：费曼\n让学习者讲给你听。/u);
+
+  assert.equal((await server.api("GET", "/api/settings")).json.root, server.root);
+  const folder = (await server.api("GET", "/api/folder?path=CSAPP")).json.agents as { text: string; mtime: number };
+  assert.equal(folder.text, "CSAPP 的要求\n");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await writeFile(path.join(server.root, "CSAPP/AGENTS.md"), "编辑器里改过\n");
+  assert.equal((await server.api("PUT", "/api/card", { path: "CSAPP/AGENTS.md", text: "我的新要求\n", mtime: folder.mtime })).status, 409);
+  const latest = (await server.api("GET", "/api/folder?path=CSAPP")).json.agents as { mtime: number };
+  assert.equal((await server.api("PUT", "/api/card", { path: "CSAPP/AGENTS.md", text: "我的新要求\n", mtime: latest.mtime })).status, 200);
+});

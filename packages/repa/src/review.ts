@@ -26,7 +26,8 @@ export interface Practice {
 /**
  * 一张卡片今天的状态。memory 只对答对过的卡片有值；manualDue 是手定的日期已到且还没有完成。nextDue 是下一次到期的那一天：
  * 纳入复习且答对过的卡片按计算，手定的日期还没完成时按它，两者取早的；已经逾期的，是它当初到期的那一天。
- * practicedDays 是有过判定的日子，从早到晚。
+ * practicedDays 是有过判定的日子，从早到晚。countedToday 表示今天练过、并且在今天第一次练它之前它本来就在建议里，
+ * 只有这样的练习占每天的名额：学习对话里考过的新卡片不算。
  */
 export interface CardReview {
   memory?: number;
@@ -34,11 +35,12 @@ export interface CardReview {
   overdueDays: number;
   manualDue: boolean;
   practicedToday: boolean;
+  countedToday: boolean;
   nextDue?: number;
   practicedDays: number[];
 }
 
-/** 今日的建议：due 是手定日期已到的和到期的，fresh 是纳入复习而未答对的；两组都带总数。practiced 是今天有过判定的张数。 */
+/** 今日的建议：due 是手定日期已到的和到期的，fresh 是纳入复习而未答对的；两组都带总数。practiced 是今天做掉的建议的张数。 */
 export interface Suggestions {
   practiced: number;
   due: string[];
@@ -111,11 +113,16 @@ export function computeReview(cards: readonly ReviewCard[], log: readonly LogEnt
     const reviewDay = card.review === undefined ? undefined : dayOf(card.review);
     const practicedDays = [...(days?.keys() ?? [])].sort((a, b) => a - b);
     const manualPending = reviewDay !== undefined && !practicedDays.some((day) => day >= reviewDay);
+    // 用今天之前的记录再算一遍：今天第一次练它之前，它是否本来就会出现在建议里。
+    const earlier = replay(days, today).c;
+    const suggestedBefore = (reviewDay !== undefined && reviewDay <= today && !practicedDays.some((day) => day >= reviewDay && day < today))
+      || (card.keep && (earlier === undefined || isDue(earlier, today)));
     const result: CardReview = {
       due: false,
       overdueDays: 0,
       manualDue: manualPending && reviewDay <= today,
       practicedToday: practicedDays.includes(today),
+      countedToday: practicedDays.includes(today) && suggestedBefore,
       practicedDays,
       ...(manualPending ? { nextDue: reviewDay } : {}),
     };
@@ -138,18 +145,19 @@ export function computeReview(cards: readonly ReviewCard[], log: readonly LogEnt
 
 const GRAPH: KnowledgeGraph = { topics: ["c"], prerequisites: [], encompassings: [] };
 
-function replay(days: Map<number, Result> | undefined): Student {
+// before 给出时只重放这一天之前的练习。
+function replay(days: Map<number, Result> | undefined, before = Infinity): Student {
   let student: Student = {};
-  for (const [day, result] of [...(days ?? new Map<number, Result>())].sort(([a], [b]) => a - b)) {
+  for (const [day, result] of [...(days ?? new Map<number, Result>())].filter(([day]) => day < before).sort(([a], [b]) => a - b)) {
     const outcome = result === "pass" ? "pass" : "fail";
     student = applyRepetition(GRAPH, student, { topicId: "c", day, outcome, quality: result === "partial" ? 0.5 : 1 });
   }
   return student;
 }
 
-// limit 是一天建议的张数，null 是不设上限；今天已经练过的卡片占掉其中的名额。
+// limit 是一天建议的张数，null 是不设上限；今天做掉的建议占掉其中的名额。
 function suggest(cards: readonly ReviewCard[], states: Map<string, CardReview>, limit: number | null): Suggestions {
-  const practiced = [...states.values()].filter((state) => state.practicedToday).length;
+  const practiced = [...states.values()].filter((state) => state.countedToday).length;
   const open = cards.filter((card) => !states.get(card.path)?.practicedToday);
   const manual = open.filter((card) => states.get(card.path)?.manualDue);
   const due = open

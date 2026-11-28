@@ -32,21 +32,23 @@ Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 
 ## 接口
 
-后端只监听 `127.0.0.1`。Agent 能运行命令，所以它只接受来自自己页面的请求：`Host` 必须是本机地址加端口，请求带 `Origin` 时必须与它相同，写入类请求必须是 JSON。接口里的路径一律相对知识库的根，以 `/` 分隔，根是空字符串。
+后端只监听 `127.0.0.1`。Agent 能运行命令，所以它只接受来自自己页面的请求：`Host` 必须是本机地址加端口，请求带 `Origin` 时必须与它相同，写入类请求必须是 JSON。接口里的路径一律相对知识库的根，以 `/` 分隔，根是空字符串；唯一的例外是设置里只读的 `root`。
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /api/tree`、`GET /api/folder?path=`、`GET /api/card?path=`、`GET /api/cards` | 文件夹树；一个文件夹的概况；一张卡片连同先修、链到这里的卡片、找不到目标的链接和练习记录；全部卡片与专题的元数据。列出卡片的地方都带上记忆估计 `memory`、是否到期 `due`、逾期天数 `overdueDays`、下一次到期 `nextDue` 和上次练习 `lastPracticed` |
+| `GET /api/tree`、`GET /api/folder?path=`、`GET /api/card?path=`、`GET /api/cards` | 文件夹树；一个文件夹的概况，其中的 `AGENTS.md` 带 `text` 与 `mtime`，经 `PUT /api/card` 保存；一张卡片连同先修、链到这里的卡片、找不到目标的链接和练习记录；全部卡片与专题的元数据。列出卡片的地方都带上记忆估计 `memory`、是否到期 `due`、逾期天数 `overdueDays`、下一次到期 `nextDue` 和上次练习 `lastPracticed` |
 | `PUT /api/card`、`POST /api/card/meta`、`POST /api/folder` | 保存或新建卡片（保存时带打开时的 `mtime`，文件已被改过就回 409 并带回最新内容）；改是否纳入复习（`keep`）和手定的复习日期（`review`），只动文件头里那一行，`null` 删去这一行，返回新的 `mtime`；新建文件夹 |
 | `GET /api/file?path=` | 知识库里的图片等文件 |
-| `GET /api/today?extra=` | 复习的建议（`due` 是手定日期已到的和到期的，`fresh` 是未答对的，各带总数），按每天的张数给出，今天练过的 `practiced` 张占掉其中的名额，做完时 `done` 为真；`extra` 是“再来几张”累计加上的张数；以及最近用过的文件夹 |
+| `GET /api/today?extra=` | 复习的建议（`due` 是手定日期已到的和到期的，`fresh` 是未答对的，各带总数），按每天的张数给出，今天做掉的 `practiced` 张建议占掉其中的名额（今天第一次练一张卡片之前，它本来就在建议里，才算做掉一张建议；学习对话里考过的新卡片不算），做完时 `done` 为真；`extra` 是“再来几张”累计加上的张数；以及最近用过的文件夹 |
 | `GET /api/calendar?month=`、`GET /api/calendar?date=` | 一个月里每天到期几张、练了几张；某一天到期的和练过的卡片。到期按下一次到期的日子，已经逾期的算在今天 |
 | `GET /api/sessions?folder=&q=&reviews=&sort=`、`POST /api/sessions` | 对话列表，不给 `folder` 是全部文件夹，`q` 按标题和全文筛，`reviews=1` 包含复习对话，`sort` 是 `recent`、`oldest` 或 `folder`；每一项带 `running`（正在回复）和 `waiting`（有卡片在等回应）。打开（`id`）、新开（`fresh`）或接着最近的一段，`review` 给出卡片路径时新开一段复习对话 |
 | `POST /api/sessions/:id/prompt`、`abort`、`compact`、`model`、`thinking`、`mode` | 发消息（`viewing` 是正在看的卡片，`quote` 是学习者选中的一段话，两者都放进那条不显示的上下文，引文也记在那条消息的 `quote` 上）、停止、压缩（回 `compacted` 和没有压缩的原因）、换模型、换 thinking 级别、换模式；对话的概况里带着当前级别和模型可选的级别 |
 | `GET /api/sessions/:id/events`、`GET /api/sessions/:id/context` | 对话的 SSE 事件流；上下文占比与注入的内容 |
+| `GET /api/events` | 全部打开着的对话的状态（SSE）：连上时先发每段的当前状态，之后每当一段开始或结束回复、有卡片开始或结束等待，就发 `{ id, folder, kind, running, waiting }` |
 | `POST /api/pending/:toolCallId` | 交上题目卡片的作答（`answers`，`null` 是没有作答），或回应确认卡片（`approve`、`reason`） |
 | `GET /api/change?path=&tool=`、`POST /api/revert` | 一次改动的逐行差异；把文件恢复成某个版本，返回恢复前留的版本名 |
-| `GET /api/models`、`GET /api/modes`、`GET /api/settings`、`PUT /api/settings` | 有凭据的模型、模式名、设置 |
+| `GET /api/models`、`GET /api/modes`、`GET /api/modes/:name`、`PUT /api/modes/:name` | 有凭据的模型；模式名；读写一个模式的原文（`text`），写一个没有的名字就新建 |
+| `GET /api/settings`、`PUT /api/settings` | 设置；回应里另带只读的 `root`，即知识库在本机的位置，这是接口里唯一出现本机路径的地方 |
 
 事件流连上时先发一份 `snapshot`，之后是增量：`item`、`delta`、`tool_end`、`pending`、`resolved`、`running` 和 `session`。类型与把事件应用到对话上的 `applyEvent` 在 `src/protocol.ts`，链接的解析在 `src/links.ts`，两者不依赖 Node，界面可以直接复用。Pi 的类型只出现在 `src/pi/` 里，知识库、练习记录、复习、地图和 HTTP 层都不导入它们，换掉 Pi 时只改这个目录。
 

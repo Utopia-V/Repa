@@ -2,7 +2,7 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { cardCount, cardsOf, keptPaths, mocMembers, readOptional, resolvePage, scanKb, within, writeAtomic, type Kb, type Page } from "./kb.js";
+import { cardCount, cardsOf, keptPaths, mocMembers, readOptional, RepaFault, resolvePage, scanKb, within, writeAtomic, type Kb, type Page } from "./kb.js";
 import { localTime, readLog, type LogEntry, type Result } from "./log.js";
 import { computeReview, dayOf, practicesOf, type CardReview, type Practice, type Suggestions } from "./review.js";
 
@@ -192,6 +192,23 @@ export async function ensureModes(root: string): Promise<void> {
 export async function listModes(root: string): Promise<string[]> {
   const names = await readdir(modesDir(root));
   return names.filter((name) => name.endsWith(".md")).map((name) => name.slice(0, -3)).sort();
+}
+
+function modeFile(root: string, name: string): string {
+  if (!name.trim() || /[/\\]|^\./u.test(name)) throw new RepaFault("bad_request", "模式的名字不能为空，不能含斜杠，也不能以点开头。");
+  return path.join(modesDir(root), `${name}.md`);
+}
+
+/** 一个模式的原文，设置页读它；没有这个模式就是 not_found。 */
+export async function readModeText(root: string, name: string): Promise<string> {
+  const text = await readOptional(modeFile(root, name));
+  if (text === undefined) throw new RepaFault("not_found", `没有“${name}”这个模式。`);
+  return text;
+}
+
+/** 写一个模式的原文，没有就新建。从下一轮起生效，切到它的对话由 Pi 只追加模式这一段。 */
+export async function writeMode(root: string, name: string, text: string): Promise<void> {
+  await writeAtomic(modeFile(root, name), text);
 }
 
 /** 一个模式的全文，交给 Pi 作为 repa_mode 段落。 */

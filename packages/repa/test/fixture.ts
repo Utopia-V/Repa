@@ -12,7 +12,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 import { ensureModes } from "../src/map.js";
 import { Sessions } from "../src/pi/sessions.js";
-import { applyEvent, type Conversation, type UiEvent } from "../src/protocol.js";
+import { applyEvent, type Conversation, type SessionStatus, type UiEvent } from "../src/protocol.js";
 import { startServer } from "../src/server.js";
 
 /** 模型这一次实际收到的上下文：系统提示各段按追加的顺序合并后的样子，以及消息。 */
@@ -31,6 +31,7 @@ export interface Backend {
   script(...steps: Step[]): void;
   api(method: string, url: string, body?: unknown, headers?: Record<string, string>): Promise<{ status: number; json: Record<string, unknown> }>;
   connect(sessionId: string): Promise<Client>;
+  watch(): Promise<{ statuses: SessionStatus[]; until(predicate: () => boolean, what: string): Promise<void> }>;
   raw(headers: Record<string, string>): Promise<number>;
   restart(): Promise<void>;
 }
@@ -153,6 +154,34 @@ export async function backend(t: TestContext, files: Record<string, string>): Pr
       })().catch(() => undefined);
       await client.until(() => client.events.length > 0, "快照");
       return client;
+    },
+    // 全局的事件流：各段对话的状态变化。
+    async watch() {
+      const controller = new AbortController();
+      streams.add(controller);
+      const response = await fetch(`${origin()}/api/events`, { signal: controller.signal });
+      const statuses: SessionStatus[] = [];
+      void (async () => {
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for await (const chunk of response.body ?? []) {
+          buffer += decoder.decode(chunk as Uint8Array, { stream: true });
+          for (let at = buffer.indexOf("\n\n"); at >= 0; at = buffer.indexOf("\n\n")) {
+            statuses.push(JSON.parse(buffer.slice(6, at)) as SessionStatus);
+            buffer = buffer.slice(at + 2);
+          }
+        }
+      })().catch(() => undefined);
+      return {
+        statuses,
+        async until(predicate: () => boolean, what: string) {
+          const deadline = Date.now() + 10_000;
+          while (!predicate()) {
+            if (Date.now() > deadline) throw new Error(`等不到：${what}\n${JSON.stringify(statuses)}`);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        },
+      };
     },
     async restart() {
       await close();

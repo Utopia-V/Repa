@@ -35,6 +35,15 @@ export interface SessionInfo {
   thinkingLevels?: string[];
 }
 
+/** 一段打开着的对话的状态，经全局的事件流推给左栏：是否正在回复，是否有卡片在等回应。 */
+export interface SessionStatus {
+  id: string;
+  folder: string;
+  kind: SessionInfo["kind"];
+  running: boolean;
+  waiting: boolean;
+}
+
 /** 推给界面的事件。snapshot 在连上时发一次，之后是增量。 */
 export type UiEvent =
   | { type: "snapshot"; session: SessionInfo; items: Item[]; pending: Pending[]; running: boolean }

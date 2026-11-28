@@ -107,3 +107,17 @@ test("今天练过的卡片占掉每天的名额，名额用完就不再列出�
   assert.deepEqual(computeReview(cards, log, dayOf("2026-11-26"), 2).suggestions.fresh, []);
   assert.equal(computeReview(cards, log, dayOf("2026-11-26"), null).suggestions.fresh.length, 3);
 });
+
+test("只有做掉的建议占每天的名额：学习对话里考过的新卡片、还没到期就又练了的卡片不算", () => {
+  const cards = [card("due"), card("fresh"), card("notKept", { keep: false }), card("notYet"), card("manual", { keep: false, review: "2026-11-26" }), card("waiting")];
+  const log = [
+    ...practiced("due", "2026-11-24T10:00:00+08:00", "pass"),
+    // 第 20、21、23 天按时答对，间隔到了 4 天多，第 26 天还没到期。
+    ...["20", "21", "23"].flatMap((day) => practiced("notYet", `2026-11-${day}T10:00:00+08:00`, "pass")),
+    ...["due", "fresh", "notKept", "notYet", "manual"].flatMap((id) => practiced(id, "2026-11-26T10:00:00+08:00", "pass")),
+  ];
+  const { cards: states, suggestions } = computeReview(cards, log, dayOf("2026-11-26"), 10);
+  assert.deepEqual(["due", "fresh", "notKept", "notYet", "manual"].map((id) => states.get(`${id}.md`)?.countedToday), [true, true, false, false, true]);
+  assert.equal(suggestions.practiced, 3);
+  assert.deepEqual(suggestions.fresh, ["waiting.md"]);
+});

@@ -7,7 +7,7 @@ import { createAgentSession, DefaultResourceLoader, getAgentDir, ModelRuntime, S
 
 import { inside, RepaFault, resolveIn, type Page } from "../kb.js";
 import { buildMap, LEARN_MODE, loadState, readMode, readSettings, REVIEW_MODE, reviewMaterial, updateSettings } from "../map.js";
-import { applyEvent, type Conversation, type Item, type PendingReply, type PendingRequest, type SessionInfo, type UiEvent } from "../protocol.js";
+import { applyEvent, type Conversation, type Item, type PendingReply, type PendingRequest, type SessionInfo, type SessionStatus, type UiEvent } from "../protocol.js";
 import { createRepaExtension, systemPrompt } from "./extension.js";
 
 type Kind = SessionInfo["kind"];
@@ -51,6 +51,7 @@ const MODE_ENTRY = "repa-mode";
 export class Sessions {
   private readonly live = new Map<string, Live>();
   private readonly byToolCall = new Map<string, Live>();
+  private readonly watchers = new Set<(status: SessionStatus) => void>();
 
   private constructor(private readonly root: string, private readonly runtime: ModelRuntime, private readonly agentDir: string) {}
 
@@ -344,7 +345,20 @@ export class Sessions {
   private emit(live: Live, event: UiEvent): void {
     live.conversation = applyEvent(live.conversation, event);
     for (const listener of live.listeners) listener(event);
+    if (event.type === "running" || event.type === "pending" || event.type === "resolved") for (const watcher of this.watchers) watcher(statusOf(live));
   }
+
+  /** 订阅全部对话的状态：先同步收到每段打开着的对话的当前状态，之后是变化。返回取消订阅的函数。 */
+  watch(watcher: (status: SessionStatus) => void): () => void {
+    for (const live of this.live.values()) watcher(statusOf(live));
+    this.watchers.add(watcher);
+    return () => this.watchers.delete(watcher);
+  }
+}
+
+function statusOf(live: Live): SessionStatus {
+  const { id, folder, kind } = live.info;
+  return { id, folder, kind, running: live.conversation.running, waiting: live.conversation.pending.length > 0 };
 }
 
 // 界面要显示的模型与 thinking 级别，以及当前模型可选的级别。
