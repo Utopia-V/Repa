@@ -28,6 +28,8 @@ export interface Page {
   body: string;
   text: string;
   mtime: number;
+  /** 文件的建立时间（毫秒）。知识库的图按它排石头，新卡片落在外沿。 */
+  created?: number;
   error?: string;
 }
 
@@ -81,7 +83,8 @@ async function walk(kb: Kb, folder: string): Promise<boolean> {
 async function readPage(root: string, rel: string): Promise<Page> {
   const file = path.join(root, rel);
   const [text, info] = await Promise.all([readFile(file, "utf8"), stat(file)]);
-  return parsePage(rel, text, info.mtimeMs);
+  // 有的文件系统不记建立时间，birthtime 是 0，这时用 ctime
+  return { ...parsePage(rel, text, info.mtimeMs), created: info.birthtimeMs || info.ctimeMs };
 }
 
 /** 解析一张页面的文件头与正文。文件头的各项都可以不写；requires 里写成 `[[页表]]` 的也认。 */

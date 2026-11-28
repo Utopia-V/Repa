@@ -6,13 +6,13 @@
 
 ## 怎么用
 
-在仓库根目录装好依赖以后，`packages/repa/bin/repa.mjs` 就是 `repa` 命令。它先看端口 7723 上有没有后端在运行，没有就在后台启动一个，日志写到知识库的 `.repa/server.log`，然后用 Edge 的应用模式打开窗口。知识库默认在 `~/Repa`，用 `--kb <目录>` 指定别处；`--no-window` 只启动后端，不开窗口；`--install-icon` 在应用菜单和桌面放一个调用这个命令的图标。`apps/web` 构建出的页面由后端在同一个端口提供，界面目前尚待重做。
+在仓库根目录装好依赖以后，`packages/repa/bin/repa.mjs` 就是 `repa` 命令。它先看端口 7723 上有没有后端在运行，没有就在后台启动一个，日志写到知识库的 `.repa/server.log`，然后用 Edge 的应用模式打开窗口。知识库默认在 `~/Repa`，用 `--kb <目录>` 指定别处；`--no-window` 只启动后端，不开窗口；`--install-icon` 在应用菜单和桌面放一个调用这个命令的图标。界面在 `apps/web`，用 `npm run build --workspace=@repa/web` 构建以后，由后端在同一个端口提供。
 
 ```sh
 node packages/repa/bin/repa.mjs --kb ~/Repa
 ```
 
-模型与登录沿用 Pi：凭据在 `~/.pi/agent/auth.json`，用 `pi auth login` 登录订阅或填 API key，`GET /api/models` 只列出已有凭据的模型。模型和 thinking 级别由 Repa 自己记在 `.repa/settings.json`，与 Pi 自己的设置分开，不读也不改。在一段对话里换的模型和级别同时写进这里，成为以后新对话的默认；还没换过时，模型取 Pi 列出的第一个有凭据的，级别用 Pi 的缺省。当前模型不支持选的级别时，由 Pi 收窄到它支持的，记下的仍是选的那一级，换回支持的模型时恢复。
+模型与登录沿用 Pi：凭据在 `~/.pi/agent/auth.json`，用 `pi auth login` 登录订阅或填 API key，`GET /api/models` 只列出已有凭据的模型。模型和 thinking 级别由 Repa 自己记在 `.repa/settings.json`，与 Pi 自己的设置分开，不读也不改。在一段对话里换的模型和级别同时写进这里，成为以后新对话的默认，设置页也可以直接改这两项；还没换过时，模型取 Pi 列出的第一个有凭据的，级别用 Pi 的缺省。当前模型不支持选的级别时，由 Pi 收窄到它支持的，记下的仍是选的那一级，换回支持的模型时恢复。
 
 ## 知识库与数据
 
@@ -36,7 +36,7 @@ Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 
 | 接口 | 用途 |
 | --- | --- |
-| `GET /api/tree`、`GET /api/folder?path=`、`GET /api/card?path=`、`GET /api/cards` | 文件夹树；一个文件夹的概况，其中的 `AGENTS.md` 带 `text` 与 `mtime`，经 `PUT /api/card` 保存；一张卡片连同先修、链到这里的卡片、找不到目标的链接和练习记录；全部卡片与专题的元数据。列出卡片的地方都带上记忆估计 `memory`、是否到期 `due`、逾期天数 `overdueDays`、下一次到期 `nextDue` 和上次练习 `lastPracticed` |
+| `GET /api/tree`、`GET /api/folder?path=`、`GET /api/card?path=`、`GET /api/cards` | 文件夹树；一个文件夹的概况，其中的 `AGENTS.md` 带 `text` 与 `mtime`，经 `PUT /api/card` 保存；一张卡片连同先修、链到这里的卡片、找不到目标的链接和练习记录；全部卡片与专题的元数据。列出卡片的地方都带上记忆估计 `memory`、是否到期 `due`、逾期天数 `overdueDays`、下一次到期 `nextDue`、上次练习 `lastPracticed` 和文件的建立时间 `created`（毫秒） |
 | `PUT /api/card`、`POST /api/card/meta`、`POST /api/folder` | 保存或新建卡片（保存时带打开时的 `mtime`，文件已被改过就回 409 并带回最新内容）；改是否纳入复习（`keep`）和手定的复习日期（`review`），只动文件头里那一行，`null` 删去这一行，返回新的 `mtime`；新建文件夹 |
 | `GET /api/file?path=` | 知识库里的图片等文件 |
 | `GET /api/today?extra=` | 复习的建议（`due` 是手定日期已到的和到期的，`fresh` 是未答对的，各带总数），按每天的张数给出，今天做掉的 `practiced` 张建议占掉其中的名额（今天第一次练一张卡片之前，它本来就在建议里，才算做掉一张建议；学习对话里考过的新卡片不算），做完时 `done` 为真；`extra` 是“再来几张”累计加上的张数；以及最近用过的文件夹 |
@@ -68,4 +68,5 @@ Repa 自己的数据在 `.repa/` 里，其中没有 Pi 的类型：
 - Agent 正在回复时发出的消息经 Pi 的 steer 插入，不经 `before_agent_start`，所以不附带正在看的卡片；引文直接写进这条消息的文字。
 - Pi 压缩时保留最近约 2 万 token 原样不动，对话还短时不压缩。Pi 对这种情况和其他失败都只抛出普通的 Error，判断能否压缩的函数也不在公开导出里，所以 `compact` 失败一律回 `{ compacted: false, reason }`，`reason` 是 Pi 的英文原话。
 - `compact` 会先停止正在进行的回复，这是 Pi 的做法。
+- `created` 取文件系统记下的建立时间。Repa 自己保存卡片（编辑器的“完成”、改文件头的一行、勾画、第一次练习时写入 `id`）是写临时文件再换名，换名以后建立时间变成保存的时刻，这张卡片在知识库的图里因此挪到外沿；Agent 的 `write`、`edit` 和别的编辑器原地写入，不受影响。
 - 地图、今日和工具每次都重新扫描整个知识库；几百张卡片时不成问题，更大时再加缓存。

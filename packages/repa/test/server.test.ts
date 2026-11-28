@@ -256,7 +256,7 @@ test("在论文那个文件夹对话时，地图里没有 CSAPP 的细节；检�
   assert.doesNotMatch(after, /材料材料/u);
 });
 
-test("全部卡片的元数据：路径、标题、summary、keep、先修、正文里的链接、记忆估计和是否到期", async (t) => {
+test("全部卡片的元数据：路径、标题、summary、keep、先修、正文里的链接、记忆估计、是否到期和文件的建立时间", async (t) => {
   const server = await backend(t, {
     "A/页表.md": "---\nid: pt000001\nkeep: true\nrequires: [缓存]\n---\n和 [[TLB]]、[[没有]] 一起看",
     "A/TLB.md": "正文",
@@ -265,10 +265,10 @@ test("全部卡片的元数据：路径、标题、summary、keep、先修、正
   const cards = (await server.api("GET", "/api/cards")).json.cards as Array<Record<string, unknown>>;
   const table = cards.find((card) => card.path === "A/页表.md");
   // 记忆估计、逾期天数和下次到期取决于今天，只查类型。第 11-01 天学完，间隔 1 天，所以第二天到期。
-  assert.deepEqual({ ...table, memory: typeof table?.memory, overdueDays: typeof table?.overdueDays }, {
+  assert.deepEqual({ ...table, memory: typeof table?.memory, overdueDays: typeof table?.overdueDays, created: typeof table?.created }, {
     path: "A/页表.md", title: "页表", summary: "和 [[TLB]]、[[没有]] 一起看", moc: false, keep: true, folder: "A",
     requires: [{ target: "缓存", path: null }], links: [{ target: "TLB", path: "A/TLB.md" }, { target: "没有", path: null }],
-    memory: "number", due: true, overdueDays: "number", nextDue: "2026-11-02", lastPracticed: "2026-11-01",
+    memory: "number", due: true, overdueDays: "number", nextDue: "2026-11-02", lastPracticed: "2026-11-01", created: "number",
   });
 });
 
@@ -323,15 +323,18 @@ test("thinking 级别由 Repa 记在 .repa/settings.json：换了以后成为新
   await assert.rejects(stat(path.join(path.dirname(server.root), "agent", "settings.json")));
 });
 
-test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观和键位原样存取", async (t) => {
+test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观、键位、默认模型与 thinking 级别原样存取", async (t) => {
   const today = todayDate();
   const graded = (id: string) => `${JSON.stringify({ v: 1, id: `g${id}`, t: `${today}T12:00:00+08:00`, kind: "grade", card: id, result: "pass", note: "对" })}\n`;
   const server = await backend(t, {
     "甲.md": "---\nid: aaaaaaa1\nkeep: true\n---\n正文", "乙.md": "---\nkeep: true\n---\n正文", "丙.md": "---\nkeep: true\n---\n正文", "丁.md": "---\nkeep: true\n---\n正文",
     ".repa/log.jsonl": graded("aaaaaaa1"),
   });
-  const settings = await server.api("PUT", "/api/settings", { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
-  assert.deepEqual({ dailyLimit: settings.json.dailyLimit, appearance: settings.json.appearance, keys: settings.json.keys }, { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
+  const settings = await server.api("PUT", "/api/settings", { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" }, model: "deepseek/deepseek-chat", thinking: "high" });
+  assert.deepEqual(
+    { dailyLimit: settings.json.dailyLimit, appearance: settings.json.appearance, keys: settings.json.keys, model: settings.json.model, thinking: settings.json.thinking },
+    { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" }, model: "deepseek/deepseek-chat", thinking: "high" },
+  );
   const first = (await server.api("GET", "/api/today")).json;
   assert.deepEqual({ practiced: first.practiced, limit: first.limit, done: first.done, fresh: (first.fresh as unknown[]).length, freshTotal: first.freshTotal }, { practiced: 1, limit: 2, done: false, fresh: 1, freshTotal: 3 });
   await writeFile(path.join(server.root, ".repa/log.jsonl"), graded("aaaaaaa1") + graded("bbbbbbb2"));

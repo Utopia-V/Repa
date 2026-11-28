@@ -48,6 +48,7 @@ export async function startServer(options: ServerOptions): Promise<Server> {
       overdueDays: review?.overdueDays ?? 0,
       ...(review?.nextDue === undefined ? {} : { nextDue: dateOf(review.nextDue) }),
       ...(last === undefined ? {} : { lastPracticed: dateOf(last) }),
+      ...(page.created === undefined ? {} : { created: page.created }),
     };
   };
   const folderInfo = (state: State, folder: string) => ({ path: folder, name: folder.slice(folder.lastIndexOf("/") + 1), count: cardCount(state.kb, folder) });
@@ -208,6 +209,9 @@ export async function startServer(options: ServerOptions): Promise<Server> {
       ...(body.dailyLimit === null || (typeof body.dailyLimit === "number" && body.dailyLimit >= 0) ? { dailyLimit: body.dailyLimit } : {}),
       ...(body.appearance === "system" || body.appearance === "light" || body.appearance === "dark" ? { appearance: body.appearance } : {}),
       ...(body.keys !== null && typeof body.keys === "object" && !Array.isArray(body.keys) ? { keys: body.keys as Record<string, unknown> } : {}),
+      // 设置页直接改新对话默认的模型与 thinking 级别；在对话里换的也写进这两项
+      ...(typeof body.model === "string" ? { model: body.model } : {}),
+      ...(typeof body.thinking === "string" ? { thinking: body.thinking } : {}),
     }) })],
   ];
 
