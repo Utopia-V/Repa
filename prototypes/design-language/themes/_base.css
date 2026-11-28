@@ -1,0 +1,39 @@
+/* What every exploration needs but none should have to invent. No colour here. */
+.verdict { align-items: center; gap: 8px; }
+.verdict svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; }
+.tutor-lock { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.tutor-input { display: flex; align-items: flex-end; }
+.tutor-input button { flex: none; display: grid; place-items: center; width: 44px; height: 44px; }
+.tutor-input button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; }
+.tutor-input textarea { min-height: 44px; padding: 10px 12px; }
+.tutor[data-closed="1"] .tutor-input > * { visibility: hidden; }
+.tutor { display: flex; flex-direction: column; }
+.tutor-log { flex: 1; }
+.prose .code code { font: inherit; background: none; color: inherit; padding: 0; display: block; min-width: max-content; }
+.prose p + p, .prose p + ol, .prose ol + p, .prose .code + p, .prose p + .code { margin-top: var(--gap, 1em); }
+.prose li + li { margin-top: .4em; }
+.code { overflow-x: auto; counter-reset: line; }
+.ln { counter-increment: line; padding-right: 24px; }
+.ln::before { content: counter(line); display: inline-block; width: 2em; margin-right: .5em; text-align: right; opacity: .55; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
+.answer { display: grid; gap: 8px; position: relative; }
+.answer input { width: 100%; }
+.xp-ticks { display: none; }
+.kp-marks { display: flex; gap: 2px; }
+.kp-marks i { display: block; width: 8px; height: 8px; background: currentColor; }
+.kp-marks i[data-mark="wrong"] { clip-path: polygon(0 0, 100% 50%, 0 100%); }
+.figure { overflow: hidden; }
+input:focus-visible, button:focus-visible, textarea:focus-visible, a:focus-visible { outline: 3px solid var(--focus, currentColor); outline-offset: 2px; }
+
+/* The tile, for themes that use it. */
+.tile-hit { fill: transparent; }
+.tile-dot { fill: var(--faint); opacity: .55; }
+.tile-thread { fill: none; stroke: var(--blue); stroke-width: 1.25; }
+.tile-ribbon { fill: none; stroke: var(--blue); }
+.tile-frame { fill: none; stroke: var(--ink); stroke-width: 1.5; }
+.tile-miss { fill: var(--sting); }
+
+body[data-kind="review"] .map, body[data-kind="quiz"] .map, body[data-kind="review"] .tutor, body[data-kind="quiz"] .tutor { display: none; }
+body[data-kind="review"] .kind-label, body[data-kind="quiz"] .kind-label { display: block; }
+body[data-kind="quiz"] .clock { display: block; }
+body[data-kind="review"] .xp, body[data-kind="quiz"] .xp { display: none; }

@@ -1,0 +1,51 @@
+/* F 蓝印：蓝印花布与线装书。题目直排，回纹作进度带贯穿页顶，红印只在答错时落下。 */
+@import "_base.css";
+:root { color-scheme: light; --paper: #f4f6f5; --ink: #18293a; --soft: #4a5a68; --faint: #6b7884; --hair: #cdd6dc; --blue: #18293a; --sting: #b3261e; --focus: #b3261e;
+  --sans: 'PingFang SC', 'Noto Sans CJK SC', sans-serif; --song: 'Noto Serif CJK SC', 'Songti SC', serif; --mono: 'IBM Plex Mono', 'Noto Sans Mono CJK SC', monospace; --gap: 1.2em; --figure-columns: 120; }
+body { background: var(--paper); color: var(--ink); font: 400 17px/1.9 var(--sans); }
+/* progress is the ornament: one unbroken band across the head of every page */
+.figure { position: fixed; inset: 0 0 auto 0; height: 13px; background: var(--paper); z-index: 4; }
+.app { display: grid; grid-template-columns: 200px minmax(0, 640px) 300px; column-gap: 64px; justify-content: center; grid-template-rows: 88px 1fr; padding: 13px 32px 0; min-height: 100dvh; }
+.bar { grid-column: 2 / -1; display: flex; align-items: center; gap: 32px; font-size: 14px; color: var(--soft); }
+.course { flex: 1; }
+.xp-text b { font-weight: 500; color: var(--ink); }
+.abort { color: var(--faint); font-size: 14px; }
+.map { grid-column: 1; grid-row: 1 / 3; position: sticky; top: 13px; align-self: start; display: grid; grid-template-columns: auto 1fr; gap: 16px; padding-top: 40px; height: calc(100dvh - 13px); }
+.topic { writing-mode: vertical-rl; font: 700 44px/1.15 var(--song); letter-spacing: .14em; grid-row: 1 / 3; }
+.steps { writing-mode: vertical-rl; display: flex; gap: 16px; font: 500 14px/1 var(--song); color: var(--faint); align-self: start; height: max-content; }
+.steps li[data-passed="1"] { color: var(--soft); }
+.steps li[aria-current] { color: var(--paper); background: var(--ink); padding: 8px 4px; }
+.kps { position: absolute; left: 0; bottom: 32px; width: 200px; display: grid; gap: 12px; font-size: 13px; line-height: 1.6; color: var(--soft); }
+.kp-marks { color: var(--ink); margin-top: 4px; }
+.kp-marks i[data-mark="wrong"] { background: var(--sting); }
+.work { grid-column: 2; grid-row: 2; padding-bottom: 96px; }
+.prose code { font: 400 15px var(--mono); box-shadow: inset 0 -1px 0 var(--ink); padding: 0 2px; }
+.prose strong { font-weight: 700; }
+.code { background: var(--ink); color: var(--paper); font: 400 15px/2 var(--mono); padding: 20px 8px; }
+.prose .code code { box-shadow: none; }
+.answer { margin-top: 32px; }
+.answer label { font: 600 18px/1.6 var(--song); }
+.answer input { height: 48px; padding: 0 2px; border: 0; border-bottom: 2px solid var(--ink); background: transparent; border-radius: 0; font: 400 22px var(--mono); }
+.answer input:read-only { border-bottom-width: 1px; }
+.verdict { margin-top: 32px; font: 700 18px var(--song); }
+/* the seal */
+.verdict[data-v="wrong"] { color: var(--paper); background: var(--sting); width: max-content; padding: 6px 10px; letter-spacing: .2em; }
+.verdict svg { display: none; }
+body[data-stage="wrong"] .answer input { text-decoration: line-through; text-decoration-color: var(--sting); border-color: var(--sting); }
+.reference, .analysis, .slot-feedback { margin-top: 24px; }
+.reference h3, .analysis h3 { font: 600 14px/1.6 var(--song); color: var(--soft); }
+.reference-value { font: 400 22px/1.5 var(--mono); }
+.actions { margin-top: 32px; }
+.actions button { height: 44px; min-width: 96px; padding: 0 20px; font: 600 15px var(--song); letter-spacing: .1em; }
+.actions .primary { background: var(--ink); color: var(--paper); }
+.actions .primary:hover { background: var(--sting); }
+.actions .secondary { color: var(--soft); min-width: 0; }
+.tutor { grid-column: 3; grid-row: 2; position: sticky; top: 88px; height: calc(100dvh - 120px); font-size: 15px; line-height: 1.7; }
+.tutor-title { font: 600 15px var(--song); }
+.tutor-lock { margin-top: 8px; color: var(--faint); }
+.tutor-input textarea { border: 0; border-bottom: 1px solid var(--ink); background: none; }
+.tutor[data-closed="1"] .tutor-input { border-bottom: 1px dashed var(--hair); }
+body[data-kind="quiz"] .app, body[data-kind="review"] .app { grid-template-columns: minmax(0, 640px); }
+body[data-kind="quiz"] .bar, body[data-kind="review"] .bar, body[data-kind="quiz"] .work, body[data-kind="review"] .work { grid-column: 1; }
+body[data-kind="quiz"] .clock { font: 500 28px var(--mono); }
+@media (max-width: 1100px) { .app { display: block; padding: 20px; } .map { position: static; height: auto; display: block; padding: 0; } .topic { writing-mode: horizontal-tb; font-size: 28px; letter-spacing: .04em; } .steps { writing-mode: horizontal-tb; margin: 12px 0; } .steps li[aria-current] { padding: 4px 8px; } .kps { position: static; width: auto; margin-bottom: 24px; } .bar { padding: 8px 0 24px; flex-wrap: wrap; gap: 8px 16px; } .tutor { position: static; height: 200px; } }
