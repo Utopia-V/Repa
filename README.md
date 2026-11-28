@@ -8,7 +8,7 @@ Repa 是一个个人学习助手，也是 LLM 与人的长期工作之间的 har
 
 Repa 正在重做，目前只为维护者自用，只在 Linux 上运行，不提供安装包。目标与当前阶段的取舍见 [AGENTS.md](AGENTS.md)，设计记录见 [.agents/notes](.agents/notes/README.md)。
 
-仓库里现有的是学生模型的纯计算库 [`@repa/learning-model`](packages/learning-model/README.md) 与 Web 前端的基础组件。此前面向试用者的完整实现（底座、学习插件、桌面端）保存在标签 `pre-slim`。
+仓库里现有的是本机后端 [`@repa/repa`](packages/repa/README.md)、它的界面 [`apps/web`](apps/web/AGENTS.md) 和学生模型的纯计算库 [`@repa/learning-model`](packages/learning-model/README.md)。此前面向试用者的完整实现（底座、学习插件、桌面端）保存在标签 `pre-slim`。
 
 ```sh
 npm ci

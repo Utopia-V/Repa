@@ -1,190 +1,80 @@
-import { useEffect, useMemo, useState } from "react";
-import { createBrowserRouter } from "react-router";
-import { RouterProvider } from "react-router/dom";
-import { RepaClient, type ClientConnection } from "@repa/base/client";
-import { PYTHON_RUN, servePythonRun } from "@repa/python-runner/browser";
-import { useStore } from "zustand";
+// 壳：可折叠的左栏、中间的一页、右侧可开合的对话面板。布局只由“中间看什么”和“对话是否打开”决定；
+// 每个页面只接收路径，不知道自己挂在哪里，所以换一种排法只改这里。
+import { useEffect } from "react";
 
-import { routes } from "./routes";
-import { QuittingNotice, StartupPanel, ReconnectionNotice } from "@/components/domain/connection-state";
-import { StoreProvider } from "@/hooks/use-app-store";
-import { interactionCapabilities } from "@/lib/ask";
-import { TrialRunnerProvider } from "@/hooks/use-trial-runner";
-import { repaHost, type RepaHost } from "@/lib/host";
-import { createPythonRunner } from "@/lib/python/runner";
-import type { AppStore } from "@/lib/store";
-import { t } from "@/lib/strings";
+import { CardPage } from "./card";
+import { Chat } from "./chat";
+import { FolderPage, KbPage } from "./kb";
+import { SettingsPage } from "./settings";
+import { Side } from "./side";
+import { current, go, update, useApp, type Route } from "./store";
+import { t } from "./strings";
+import { TodayPage } from "./today";
+import { comboOf, IconButton, keyOf } from "./ui";
 
-type BootstrapState =
-  | { status: "starting" }
-  | { status: "failed"; error: unknown }
-  | { status: "ready" };
-
-export type LoadConnection = () => Promise<ClientConnection>;
-
-export async function loadWebConnection(): Promise<ClientConnection> {
-  const response = await fetch("/__repa/connection", {
-    cache: "no-store",
-    headers: { accept: "application/json" },
-  });
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch {
-    throw new Error(
-      response.ok
-        ? t("connection.web.invalid.error")
-        : t("connection.web.missing.error"),
-    );
+function Page({ route }: { route: Route }) {
+  switch (route.page) {
+    case "today": return <TodayPage />;
+    case "kb": return <KbPage />;
+    case "folder": return <FolderPage path={route.path} agents={route.agents ?? false} />;
+    case "card": return <CardPage path={route.path} />;
+    case "settings": return <SettingsPage />;
+    case "review": return null;
   }
-  if (!response.ok) {
-    throw new Error(
-      value &&
-        typeof value === "object" &&
-        "error" in value &&
-        typeof value.error === "string"
-        ? value.error
-        : t("connection.web.missing.error"),
-    );
-  }
-  return readConnection(value, t("connection.web.source.label"));
 }
 
-function readConnection(value: unknown, source: string): ClientConnection {
-  if (
-    !value ||
-    typeof value !== "object" ||
-    !("url" in value) ||
-    typeof value.url !== "string" ||
-    !("token" in value) ||
-    typeof value.token !== "string"
-  ) {
-    throw new Error(t("connection.source.invalid.error", { source }));
-  }
-  return { url: value.url, token: value.token };
-}
-
-/** 桌面端的连接由主进程启动后端后经 preload 交出。 */
-export async function loadDesktopConnection(host: RepaHost): Promise<ClientConnection> {
-  return readConnection(await host.getConnection(), t("connection.desktop.source.label"));
-}
-
-/** 在桌面端里向宿主要连接，在浏览器里向 Web 开发服务器要。 */
-function loadConnectionFromHost(): Promise<ClientConnection> {
-  const host = repaHost();
-  return host ? loadDesktopConnection(host) : loadWebConnection();
-}
-
-export function App({
-  store,
-  loadConnection = loadConnectionFromHost,
-}: {
-  store: AppStore;
-  loadConnection?: LoadConnection;
-}) {
-  const router = useMemo(() => createBrowserRouter(routes), []);
-  const pythonRunner = useMemo(() => createPythonRunner(), []);
-  const trialRunner = useMemo(() => createPythonRunner(), []);
-  const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<BootstrapState>({ status: "starting" });
-  const connected = useStore(store, (current) => current.connected);
-  // 桌面端退出时后端是应用自己关的：停止连接后端，不显示断线、不重连。
-  const [quitting, setQuitting] = useState(false);
-  useEffect(() => repaHost()?.onQuitting(() => { setQuitting(true); }), []);
-
+// 外观：跟随系统时随系统的亮暗切换；设置读到以前先用上次的，免得打开时闪一下。
+function useTheme(appearance: string | undefined) {
   useEffect(() => {
-    // 开始退出时上一轮的清理已经停下连接、取消重连。
-    if (quitting) return;
-    let active = true;
-    let client: RepaClient | undefined;
-    let removeListener: (() => void) | undefined;
-    let stopPython: (() => void) | undefined;
-    setState({ status: "starting" });
-
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
-
-    const connect = async (reconnecting: boolean) => {
-      try {
-        const connection = await loadConnection();
-        if (!active) return;
-        const next = await RepaClient.connect(connection, {
-          capabilities: { interaction: interactionCapabilities, services: [PYTHON_RUN] },
-        });
-        if (!active) {
-          await next.close();
-          return;
-        }
-        client = next;
-        stopPython?.();
-        stopPython = servePythonRun(next, pythonRunner);
-        removeListener = next.onConnectionChange((connected) => {
-          if (!active) return;
-          store.getState().setConnected(connected);
-          if (!connected) {
-            removeListener?.();
-            removeListener = undefined;
-            // 后端的调用随断线结束：停掉服务、关闭运行器，正在跑和排队的代码不再执行。重连后重新提供服务。
-            stopPython?.();
-            stopPython = undefined;
-            pythonRunner.close();
-            void next.close();
-            reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
-          }
-        });
-        store.getState().setClient(next);
-        setState({ status: "ready" });
-      } catch (error) {
-        if (!active) return;
-        if (reconnecting) {
-          reconnectTimer = setTimeout(() => { void connect(true); }, 1000);
-        } else {
-          setState({ status: "failed", error });
-        }
-      }
+    const chosen = appearance ?? localStorage.getItem("repa.appearance") ?? "system";
+    localStorage.setItem("repa.appearance", chosen);
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      const dark = chosen === "dark" || (chosen === "system" && media.matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
     };
-    void connect(false);
+    apply();
+    media.addEventListener("change", apply);
+    return () => media.removeEventListener("change", apply);
+  }, [appearance]);
+}
 
-    return () => {
-      active = false;
-      clearTimeout(reconnectTimer);
-      removeListener?.();
-      stopPython?.();
-      void client?.close();
+/** 整个应用。 */
+export function App() {
+  const { route, side, chat, offline, settings, at, last } = useApp();
+  useTheme(settings?.appearance);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const combo = comboOf(event);
+      const keys = current().settings?.keys;
+      if (combo === keyOf(keys, "side")) update((state) => ({ side: !state.side }));
+      else if (combo === keyOf(keys, "chat")) update((state) => ({ chat: !state.chat }));
+      else return;
+      event.preventDefault();
     };
-  }, [attempt, loadConnection, pythonRunner, quitting, store]);
-
-  useEffect(() => () => pythonRunner.close(), [pythonRunner]);
-  useEffect(() => () => trialRunner.close(), [trialRunner]);
-
-  const quittingNotice = quitting && <QuittingNotice onQuitNow={() => { void repaHost()?.quitNow(); }} />;
-
-  if (state.status !== "ready") {
-    return (
-      <main className="grid min-h-dvh place-items-center p-4 md:p-8">
-        {quittingNotice}
-        <div className="w-full max-w-xl">
-          <StartupPanel
-            failure={state.status === "failed" ? { error: state.error } : undefined}
-            onRetry={() => setAttempt((value) => value + 1)}
-          />
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  // 复习时中间没有内容；在复习里点开一张卡片，中间显示它，对话退到右侧。
+  const alone = route.page === "review";
+  useEffect(() => {
+    if (alone && !chat) go({ page: "today" });
+  }, [alone, chat]);
+  return <div className="app" data-side={side ? "open" : "closed"}>
+    <Side />
+    {alone
+      ? <Chat alone />
+      : <>
+        <div className="sheet">
+          <div className="hist">
+            <IconButton icon="arrow-left" label={t("nav.back")} disabled={at === 0} onClick={() => window.history.back()} />
+            <IconButton icon="arrow-right" label={t("nav.forward")} disabled={at >= last} onClick={() => window.history.forward()} />
+          </div>
+          {!chat && <div className="sheet-tools"><IconButton icon="panel-right" label={t("nav.chatOpen")} expanded={false} onClick={() => update({ chat: true })} /></div>}
+          <Page route={route} />
         </div>
-      </main>
-    );
-  }
-
-  return (
-    <StoreProvider store={store}>
-      <TrialRunnerProvider runner={trialRunner}>
-        <div className="flex min-h-dvh flex-col">
-          {quittingNotice}
-          {!connected && !quitting && (
-            <div className="mx-auto w-full max-w-3xl px-4 pt-4 md:px-8">
-              <ReconnectionNotice />
-            </div>
-          )}
-          <RouterProvider router={router} />
-        </div>
-      </TrialRunnerProvider>
-    </StoreProvider>
-  );
+        {chat && <Chat alone={false} />}
+      </>}
+    {offline && <p className="offline" role="status">{t("app.offline")}</p>}
+  </div>;
 }

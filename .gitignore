@@ -13,5 +13,3 @@
 **/coverage/
 /apps/desktop/out/
 
-# 本机看版式用的界面文字草稿，见 apps/web/src/components/ui/README.md
-/apps/web/src/strings/*.local.ts

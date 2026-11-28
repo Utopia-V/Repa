@@ -4,11 +4,12 @@
   "private": true,
   "packageManager": "npm@12.0.2",
   "engines": {
-    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+    "node": ">=22.19.0"
   },
   "workspaces": [
     "packages/learning-model",
-    "packages/repa"
+    "packages/repa",
+    "apps/web"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

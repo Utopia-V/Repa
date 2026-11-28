@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -256,7 +256,7 @@ test("在论文那个文件夹对话时，地图里没有 CSAPP 的细节；检�
   assert.doesNotMatch(after, /材料材料/u);
 });
 
-test("全部卡片的元数据：路径、标题、summary、keep、先修、正文里的链接、记忆估计和是否到期", async (t) => {
+test("全部卡片的元数据：路径、标题、summary、keep、先修、正文里的链接、记忆估计、是否到期和文件的建立时间", async (t) => {
   const server = await backend(t, {
     "A/页表.md": "---\nid: pt000001\nkeep: true\nrequires: [缓存]\n---\n和 [[TLB]]、[[没有]] 一起看",
     "A/TLB.md": "正文",
@@ -265,10 +265,10 @@ test("全部卡片的元数据：路径、标题、summary、keep、先修、正
   const cards = (await server.api("GET", "/api/cards")).json.cards as Array<Record<string, unknown>>;
   const table = cards.find((card) => card.path === "A/页表.md");
   // 记忆估计、逾期天数和下次到期取决于今天，只查类型。第 11-01 天学完，间隔 1 天，所以第二天到期。
-  assert.deepEqual({ ...table, memory: typeof table?.memory, overdueDays: typeof table?.overdueDays }, {
+  assert.deepEqual({ ...table, memory: typeof table?.memory, overdueDays: typeof table?.overdueDays, created: typeof table?.created }, {
     path: "A/页表.md", title: "页表", summary: "和 [[TLB]]、[[没有]] 一起看", moc: false, keep: true, folder: "A",
     requires: [{ target: "缓存", path: null }], links: [{ target: "TLB", path: "A/TLB.md" }, { target: "没有", path: null }],
-    memory: "number", due: true, overdueDays: "number", nextDue: "2026-11-02", lastPracticed: "2026-11-01",
+    memory: "number", due: true, overdueDays: "number", nextDue: "2026-11-02", lastPracticed: "2026-11-01", created: "number",
   });
 });
 
@@ -323,15 +323,18 @@ test("thinking 级别由 Repa 记在 .repa/settings.json：换了以后成为新
   await assert.rejects(stat(path.join(path.dirname(server.root), "agent", "settings.json")));
 });
 
-test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观和键位原样存取", async (t) => {
+test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观、键位、默认模型与 thinking 级别原样存取", async (t) => {
   const today = todayDate();
   const graded = (id: string) => `${JSON.stringify({ v: 1, id: `g${id}`, t: `${today}T12:00:00+08:00`, kind: "grade", card: id, result: "pass", note: "对" })}\n`;
   const server = await backend(t, {
     "甲.md": "---\nid: aaaaaaa1\nkeep: true\n---\n正文", "乙.md": "---\nkeep: true\n---\n正文", "丙.md": "---\nkeep: true\n---\n正文", "丁.md": "---\nkeep: true\n---\n正文",
     ".repa/log.jsonl": graded("aaaaaaa1"),
   });
-  const settings = await server.api("PUT", "/api/settings", { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
-  assert.deepEqual({ dailyLimit: settings.json.dailyLimit, appearance: settings.json.appearance, keys: settings.json.keys }, { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
+  const settings = await server.api("PUT", "/api/settings", { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" }, model: "deepseek/deepseek-chat", thinking: "high" });
+  assert.deepEqual(
+    { dailyLimit: settings.json.dailyLimit, appearance: settings.json.appearance, keys: settings.json.keys, model: settings.json.model, thinking: settings.json.thinking },
+    { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" }, model: "deepseek/deepseek-chat", thinking: "high" },
+  );
   const first = (await server.api("GET", "/api/today")).json;
   assert.deepEqual({ practiced: first.practiced, limit: first.limit, done: first.done, fresh: (first.fresh as unknown[]).length, freshTotal: first.freshTotal }, { practiced: 1, limit: 2, done: false, fresh: 1, freshTotal: 3 });
   await writeFile(path.join(server.root, ".repa/log.jsonl"), graded("aaaaaaa1") + graded("bbbbbbb2"));
@@ -426,4 +429,38 @@ test("模式按名字读写，新建的模式也能切到；设置里带知识�
   assert.equal((await server.api("PUT", "/api/card", { path: "CSAPP/AGENTS.md", text: "我的新要求\n", mtime: folder.mtime })).status, 409);
   const latest = (await server.api("GET", "/api/folder?path=CSAPP")).json.agents as { mtime: number };
   assert.equal((await server.api("PUT", "/api/card", { path: "CSAPP/AGENTS.md", text: "我的新要求\n", mtime: latest.mtime })).status, 200);
+});
+
+test("Repa 保存卡片、改文件头的一行都原地写入：文件的建立时间不变，知识库的图里石头不挪", async (t) => {
+  const server = await backend(t, { "甲.md": "---\nsummary: 概括\n---\n正文\n" });
+  const created = async () => ((await server.api("GET", "/api/cards")).json.cards as Array<{ created: number }>)[0]?.created;
+  const before = await created();
+  const file = path.join(server.root, "甲.md");
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  await server.api("PUT", "/api/card", { path: "甲.md", text: "---\nsummary: 概括\n---\n改过的正文\n", mtime: (await stat(file)).mtimeMs });
+  await server.api("POST", "/api/card/meta", { path: "甲.md", keep: true });
+  assert.equal(await readFile(file, "utf8"), "---\nsummary: 概括\nkeep: true\n---\n改过的正文\n");
+  assert.equal(await created(), before);
+});
+
+test("写卡片先留一份完整的临时文件：临时文件写不进去时原卡片不变，写成以后不留临时文件；扫描不列出 .repa-tmp", async (t) => {
+  const server = await backend(t, { "甲.md": "---\nsummary: 概括\n---\n原来的正文\n" });
+  const file = path.join(server.root, "甲.md");
+  // 同名的目录占住临时文件的路径，临时文件写不进去
+  await mkdir(`${file}.${process.pid}.repa-tmp`);
+  const failed = await server.api("PUT", "/api/card", { path: "甲.md", text: "新的正文\n", mtime: (await stat(file)).mtimeMs });
+  assert.equal(failed.status, 500);
+  assert.equal(await readFile(file, "utf8"), "---\nsummary: 概括\n---\n原来的正文\n");
+  const tree = (await server.api("GET", "/api/tree")).json as { materials: Array<{ path: string }> };
+  assert.deepEqual(tree.materials, []);
+  await rm(`${file}.${process.pid}.repa-tmp`, { recursive: true });
+  await server.api("PUT", "/api/card", { path: "甲.md", text: "新的正文\n", mtime: (await stat(file)).mtimeMs });
+  assert.equal(await readFile(file, "utf8"), "新的正文\n");
+  assert.deepEqual((await readdir(server.root)).filter((name) => name.endsWith(".repa-tmp")), []);
+});
+
+test("还没有打开的对话时连上全局的事件流，响应头立刻送达：后端重启以后界面据此知道已经连上，断开的提示随之消失", async (t) => {
+  const server = await backend(t, {});
+  const connected = await Promise.race([server.watch().then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 2000))]);
+  assert.equal(connected, true);
 });

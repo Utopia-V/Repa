@@ -11,24 +11,26 @@
     "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": [
       "node",
       "vite/client"
     ],
-    "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./src/*"
+      "@repa/protocol": [
+        "../../packages/repa/src/protocol.ts"
+      ],
+      "@repa/links": [
+        "../../packages/repa/src/links.ts"
       ]
     }
   },
   "include": [
     "src",
     "test",
-    "vite.config.ts",
-    "vitest.config.ts"
+    "vite.config.ts"
   ]
 }
