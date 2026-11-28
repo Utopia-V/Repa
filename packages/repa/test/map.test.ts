@@ -35,7 +35,8 @@ test("地图只投影这个文件夹、它的专题列进来的卡片和它们�
       line({ id: "g2", t: "2026-11-25T10:01:00+08:00", kind: "grade", quiz: "q2", result: "partial", note: "漏了省空间的原因" }),
     ].join(""),
   });
-  const state = await loadState(root, new Date("2026-11-26T10:00:00+08:00"));
+  // “现在”用本地时间构造：今天取的是运行机器上的本地日历日，写成带偏移的时刻会在别的时区落到另一天。
+  const state = await loadState(root, new Date(2026, 10, 26, 10));
   const { map, review } = buildMap(state, "CSAPP/第9章");
   assert.equal(map, [
     "【位置】知识库 / CSAPP / 第9章（上级文件夹：CSAPP 4 张；知识库 6 张）",
@@ -73,7 +74,7 @@ test("月历：每天到期的是下一次到期落在那天的卡片，已经�
       line({ id: "g2", t: "2026-11-26T09:00:00+08:00", kind: "grade", card: "next0001", result: "pass", note: "对" }),
     ].join(""),
   });
-  const state = await loadState(root, new Date("2026-11-26T10:00:00+08:00"));
+  const state = await loadState(root, new Date(2026, 10, 26, 10));
   const days = calendarDays(state, dayOf("2026-11-20"), dayOf("2026-11-30"));
   const at = (date: string) => days.get(dayOf(date));
   assert.deepEqual(at("2026-11-20"), { due: [], practiced: ["逾期.md"] });

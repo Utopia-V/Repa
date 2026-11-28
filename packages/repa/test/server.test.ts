@@ -4,6 +4,11 @@ import path from "node:path";
 import test from "node:test";
 
 import { backend, lastUserText, type Seen } from "./fixture.js";
+import { localTime } from "../src/log.js";
+import { dateOf, dayOf } from "../src/review.js";
+
+// 后端认定的今天：运行机器上的本地日历日，凌晨 4 点换日。toISOString 给的是 UTC 的日期，在别的时区会差一天。
+const todayDate = () => dateOf(dayOf(localTime()));
 
 async function open(server: Awaited<ReturnType<typeof backend>>, folder: string, extra: Record<string, unknown> = {}) {
   const { status, json } = await server.api("POST", "/api/sessions", { folder, ...extra });
@@ -159,7 +164,7 @@ test("题目卡片可以不答直接关掉，在输入框里直接回话也一�
 test("纳入复习的卡片出现在今日；点复习新开一段复习对话，卡片和以前的练习附在第一条消息里，模式是复习；回到这个文件夹接上的仍是学习对话", async (t) => {
   const server = await backend(t, {
     "CSAPP/页表.md": "---\nid: pt000001\nkeep: true\n---\n页表的正文\n",
-    "CSAPP/TLB.md": `---\nreview: ${new Date().toISOString().slice(0, 10)}\n---\nTLB 的正文\n`,
+    "CSAPP/TLB.md": `---\nreview: ${todayDate()}\n---\nTLB 的正文\n`,
     ".repa/log.jsonl": `${JSON.stringify({ v: 1, id: "q0", t: "2026-11-01T10:00:00+08:00", kind: "quiz", card: "pt000001", questions: [{ text: "上次的题" }], answers: ["上次的答"] })}\n`
       + `${JSON.stringify({ v: 1, id: "g0", t: "2026-11-01T10:01:00+08:00", kind: "grade", quiz: "q0", result: "fail", note: "上次没答好" })}\n`,
   });
@@ -319,7 +324,7 @@ test("thinking 级别由 Repa 记在 .repa/settings.json：换了以后成为新
 });
 
 test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观和键位原样存取", async (t) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayDate();
   const graded = (id: string) => `${JSON.stringify({ v: 1, id: `g${id}`, t: `${today}T12:00:00+08:00`, kind: "grade", card: id, result: "pass", note: "对" })}\n`;
   const server = await backend(t, {
     "甲.md": "---\nid: aaaaaaa1\nkeep: true\n---\n正文", "乙.md": "---\nkeep: true\n---\n正文", "丙.md": "---\nkeep: true\n---\n正文", "丁.md": "---\nkeep: true\n---\n正文",
