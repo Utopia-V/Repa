@@ -113,7 +113,7 @@ function Composer({ id, running, card }: { id: string; running: boolean; card: s
     {fault && <p className="fault">{fault}</p>}
     <div className="box">
       {quote && <div className="quote"><p>{quote}</p><IconButton icon="x" label={t("chat.dropQuote")} onClick={() => update({ quote: undefined })} /></div>}
-      <AutoText placeholder={t("chat.ask")} aria-label={t("chat.ask")} value={text} onChange={(event) => setText(event.target.value)} enter={send} enterKey={keyOf(settings?.keys, "send")} />
+      <AutoText placeholder={t("chat.ask")} aria-label={t("chat.ask")} value={text} onChange={(event) => setText(event.target.value)} enter={send} enterKey={keyOf(settings?.keys, "send")} newlineKey={keyOf(settings?.keys, "newline")} />
       <div className="bar-row">
         <button type="button" className="send" data-on={text.trim() || stop ? "" : undefined} aria-label={t(stop ? "chat.stop" : "chat.send")} data-tip={t(stop ? "chat.stop" : "chat.send")}
           onClick={() => (stop ? void post(`/api/sessions/${encodeURIComponent(id)}/abort`) : send())}><Icon name={stop ? "square" : "arrow-up"} /></button>

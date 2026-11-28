@@ -118,7 +118,7 @@ export function MarksList({ marks, editing, onHot, onEdit, onNote, onRemove }: {
     <p className="mk-q"><mark className="hl">{mark.text}</mark></p>
     {editing === index
       ? <AutoText className="mk-in" rows={2} autoFocus aria-label={t("marks.note")} value={draft ?? mark.note ?? ""} onClick={(event) => event.stopPropagation()} onChange={(event) => setDraft(event.target.value)}
-        enter={() => { onNote(mark, draft ?? mark.note ?? ""); setDraft(undefined); }} enterKey={keyOf(settings?.keys, "send")}
+        enter={() => { onNote(mark, draft ?? mark.note ?? ""); setDraft(undefined); }} enterKey={keyOf(settings?.keys, "send")} newlineKey={keyOf(settings?.keys, "newline")}
         onKeyDown={(event) => { if (event.key === "Escape") { setDraft(undefined); onEdit(undefined); } }}
         onBlur={() => { if (draft !== undefined) onNote(mark, draft); setDraft(undefined); onEdit(undefined); }} />
       : mark.note && <p className="mk-n">{mark.note}</p>}

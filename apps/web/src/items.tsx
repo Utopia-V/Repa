@@ -119,7 +119,7 @@ function Quiz({ item, pending, grade, folder }: { item: Tool; pending?: Pending;
             <button type="button" className="opt" role="radio" data-q={option === question.options?.[0] ? "" : undefined} aria-checked={answers[index] === option} onClick={() => { set(index, option); }}
               onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusNext(index, set(index, option)); } }}><span className="radio" />{option}</button>
           </li>)}</ul>
-          : <AutoText className="answer" data-q="" aria-label={t("quiz.answer", { n: index + 1 })} autoFocus={index === 0} value={answers[index] ?? ""} onChange={(event) => set(index, event.target.value)} enter={() => focusNext(index, answers)} enterKey={keyOf(settings?.keys, "submit")} />}
+          : <AutoText className="answer" data-q="" aria-label={t("quiz.answer", { n: index + 1 })} autoFocus={index === 0} value={answers[index] ?? ""} onChange={(event) => set(index, event.target.value)} enter={() => focusNext(index, answers)} enterKey={keyOf(settings?.keys, "submit")} newlineKey={keyOf(settings?.keys, "newline")} />}
       </li>)}</ol>
       <p className="quiz-foot"><button type="submit" className="btn btn-solid">{t("quiz.submit")}</button><button type="button" className="btn btn-text" onClick={() => reply(null)}>{t("quiz.skip")}</button></p>
     </form>;
@@ -151,7 +151,7 @@ function Confirm({ pending }: { pending: Extract<Pending, { kind: "confirm" }> }
     <p className="quiz-of">{bash ? t("confirm.bash") : t("confirm.edit", { target: nameOf(pending.target) })}</p>
     <pre><code>{bash && <span className="ps">$</span>}{pending.target}</code></pre>
     {rejecting
-      ? <div className="reason"><AutoText aria-label={t("confirm.reason")} autoFocus value={reason} onChange={(event) => setReason(event.target.value)} enter={() => reply(false)} enterKey={keyOf(settings?.keys, "send")} />
+      ? <div className="reason"><AutoText aria-label={t("confirm.reason")} autoFocus value={reason} onChange={(event) => setReason(event.target.value)} enter={() => reply(false)} enterKey={keyOf(settings?.keys, "send")} newlineKey={keyOf(settings?.keys, "newline")} />
         <button type="button" className="send" data-on="" aria-label={t("chat.send")} data-tip={t("chat.send")} onClick={() => reply(false)}><Icon name="arrow-up" /></button></div>
       : <p className="quiz-foot"><button type="button" className="btn btn-solid" onClick={() => reply(true)}>{t("confirm.allow")}</button><button type="button" className="btn btn-text" onClick={() => setRejecting(true)}>{t("confirm.reject")}</button></p>}
   </div>;

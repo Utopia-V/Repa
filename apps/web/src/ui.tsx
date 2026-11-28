@@ -101,8 +101,11 @@ export function composing(event: KeyboardEvent): boolean {
   return event.nativeEvent.isComposing || event.keyCode === 229;
 }
 
-/** 随内容长高的多行文本框。enter 是按下“发送”或“提交”那个键时做的事；其余按键照常输入。 */
-export function AutoText({ enter, enterKey, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { enter?: () => void; enterKey?: string }) {
+/**
+ * 随内容长高的多行文本框。enter 是按下“发送”或“提交”那个键时做的事；按下“换行”那个键时在光标处换行
+ * （回车和 Shift+回车本来就换行，改成别的组合时由这里插入）；其余按键照常输入。
+ */
+export function AutoText({ enter, enterKey, newlineKey, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { enter?: () => void; enterKey?: string; newlineKey?: string }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => {
     const element = ref.current;
@@ -112,9 +115,16 @@ export function AutoText({ enter, enterKey, ...props }: TextareaHTMLAttributes<H
   }, [props.value]);
   return <textarea ref={ref} rows={1} {...props} onKeyDown={(event) => {
     if (composing(event)) return;
-    if (enter && comboOf(event) === (enterKey ?? "Enter")) {
+    const combo = comboOf(event);
+    if (enter && combo === (enterKey ?? "Enter")) {
       event.preventDefault();
       enter();
+      return;
+    }
+    if (newlineKey && combo === newlineKey && combo !== "Enter" && combo !== "Shift+Enter") {
+      event.preventDefault();
+      // insertText 走浏览器自己的输入，React 的 onChange 和撤销都照常
+      document.execCommand("insertText", false, "\n");
       return;
     }
     props.onKeyDown?.(event);
