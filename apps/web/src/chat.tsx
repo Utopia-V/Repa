@@ -33,8 +33,9 @@ function useConversation(id: string | undefined, folder: string): Conversation {
         });
       }, (error: unknown) => {
         // 这段对话已经不在了：接着这个文件夹最近的一段
+        if (!alive) return;
         if (error instanceof ApiError && error.status === 404) void openTalk(folder);
-        else if (alive) setTimeout(connect, 2000);
+        else setTimeout(connect, 2000);
       });
     };
     connect();

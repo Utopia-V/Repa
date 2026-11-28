@@ -267,6 +267,10 @@ function Props({ card, onChange }: { card: CardDetail; onChange: () => void }) {
     onChange();
   };
   const date = card.review ?? card.nextDue;
+  const commit = (value: string) => {
+    setDating(false);
+    if (value && value !== card.review) void meta({ review: value });
+  };
   return <p className="props num">
     <a href="#" className="prop only" data-tip={card.keep ? t("card.keep") : t("card.keepOff")} aria-label={card.keep ? t("card.keep") : t("card.keepOff")}
       onClick={(event) => { event.preventDefault(); void meta({ keep: !card.keep }); }}>
@@ -276,7 +280,9 @@ function Props({ card, onChange }: { card: CardDetail; onChange: () => void }) {
       <Icon name="corner-left-up" /><b className={link.path ? undefined : "broken"}>{link.target}</b>
     </a>)}
     {(date || card.keep) && <Pop open={dating} onOpenChange={setDating} trigger={<a href="#" className="prop" data-tip={card.review ? t("card.setDate") : t("card.next")} onClick={(event) => event.preventDefault()}><Icon name="calendar-clock" /><b>{mmdd(date) || "—"}</b></a>}>
-      <label className="pop-row"><span>{t("card.setDate")}</span><input type="date" className="date-in" defaultValue={card.review ?? ""} onChange={(event) => { if (event.target.value) { setDating(false); void meta({ review: event.target.value }); } }} /></label>
+      {/* 键盘逐段输入时每成一个合法的日期就有一次 change，所以只在回车或离开输入框时写入 */}
+      <label className="pop-row"><span>{t("card.setDate")}</span><input type="date" className="date-in" defaultValue={card.review ?? ""} onBlur={(event) => commit(event.currentTarget.value)}
+        onKeyDown={(event) => { if (event.key === "Enter") commit(event.currentTarget.value); }} /></label>
       {card.review && <button type="button" className="btn btn-text" onClick={() => { setDating(false); void meta({ review: null }); }}>{t("card.clearDate")}</button>}
     </Pop>}
   </p>;
@@ -308,9 +314,12 @@ export function CardPage({ path }: { path: string }) {
   }, [hot, data]);
   const head = data ? data.text.slice(0, data.text.length - data.body.length) : "";
   // 改写原文都带着打开时的修改时间；文件已被别处改过就不写，重新读一遍
+  const [fault, setFault] = useState<string>();
   const write = useCallback(async (body: string) => {
     if (!data) return;
-    await put("/api/card", { path, text: head + body, mtime: data.mtime }).catch(() => undefined);
+    setFault(undefined);
+    await put("/api/card", { path, text: head + body, mtime: data.mtime })
+      .catch((error: unknown) => setFault(t("card.markFailed", { error: error instanceof Error ? error.message : String(error) })));
     refresh();
     reload();
   }, [data, head, path, reload]);
@@ -341,6 +350,7 @@ export function CardPage({ path }: { path: string }) {
             {data.error && <p className="fault">{t("card.headError", { error: data.error })}</p>}
           </Editor>
         </header>
+        {fault && <p className="fault" role="alert">{fault}</p>}
         <SelectionAsk within={article} margin onMark={onMark} />
         <Practices practices={data.practices} />
         <p className="card-foot"><code>{data.path}</code></p>

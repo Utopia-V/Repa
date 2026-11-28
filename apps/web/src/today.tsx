@@ -5,7 +5,7 @@ import { useState } from "react";
 import { mmdd, openTalk, startReview } from "./actions";
 import { get, post, type CardSummary, type Today } from "./api";
 import { Glyph, Icon, stoneOf, type Stone } from "./glyph";
-import { folderLabel, go, refresh, update, useApp, useData } from "./store";
+import { addExtra, extraToday, folderLabel, go, refresh, useApp, useData } from "./store";
 import { t } from "./strings";
 import { IconButton } from "./ui";
 
@@ -107,7 +107,8 @@ function Empty() {
 
 /** 今日。 */
 export function TodayPage() {
-  const { extra, cards, tree } = useApp();
+  const { cards, tree } = useApp();
+  const extra = extraToday();
   const { data } = useData(() => get<Today>("/api/today", { extra: extra || undefined }), [extra]);
   if (tree && cards && tree.folders.length <= 1 && cards.length === 0) return <Empty />;
   if (!data || !cards) return null;
@@ -133,7 +134,7 @@ export function TodayPage() {
       </section>
       : <section className="lead done">
         <h1 className="done-h">{t("today.done")}</h1>
-        {data.done && <p className="go"><button type="button" className="btn btn-text btn-more" onClick={() => update((state) => ({ extra: state.extra + MORE }))}>{t("today.more")}</button></p>}
+        {data.done && <p className="go"><button type="button" className="btn btn-text btn-more" onClick={() => addExtra(MORE)}>{t("today.more")}</button></p>}
       </section>}
     <div className="lists">
       <section className="group">

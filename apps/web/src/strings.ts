@@ -92,6 +92,7 @@ const strings = {
   "card.close": "关闭",
   "card.ask": "就此提问",
   "card.mark": "勾画",
+  "card.markFailed": "未能写入勾画：{error}",
   "marks.title": "勾画",
   "marks.note": "批注",
   "marks.remove": "去掉勾画",

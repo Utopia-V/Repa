@@ -33,7 +33,8 @@ interface State {
   settings?: Settings;
   tree?: Tree;
   cards?: CardSummary[];
-  extra: number;
+  /** “再来几张”累计加的张数，带着所属的日子，换日以后不再算 */
+  extra: { day: string; n: number };
   at: number;
   last: number;
 }
@@ -80,7 +81,7 @@ let state: State = {
   tick: 0,
   offline: false,
   statuses: {},
-  extra: 0,
+  extra: { day: "", n: 0 },
   at: historyAt(),
   last: historyAt(),
 };
@@ -129,16 +130,30 @@ export const folderLabel = (folder: string, root: string) => (folder ? folder.sp
 /** 取一个接口的数据；窗口重新获得焦点、后端重连以后，或 deps 变了，重新取一次。 */
 export function useData<T>(load: () => Promise<T>, deps: unknown[]): { data?: T; error?: string; reload: () => void } {
   const { tick } = useApp();
-  const [result, setResult] = useState<{ data?: T; error?: string }>({});
+  const [result, setResult] = useState<{ data?: T; error?: string; key?: string }>({});
   const [own, setOwn] = useState(0);
+  // 换了一张卡片、一个文件夹以后，不再显示上一张的内容；只是重新读取时照旧显示，免得闪一下
+  const key = JSON.stringify(deps);
   useEffect(() => {
     let live = true;
-    load().then((data) => live && setResult({ data }), (error: unknown) => live && setResult((before) => ({ ...before, error: error instanceof Error ? error.message : String(error) })));
+    load().then((data) => live && setResult({ data, key }), (error: unknown) => live && setResult((before) => ({ ...(before.key === key ? before : {}), key, error: error instanceof Error ? error.message : String(error) })));
     return () => { live = false; };
   }, [...deps, tick, own]);
   const reload = useCallback(() => setOwn((value) => value + 1), []);
-  return { ...result, reload };
+  return result.key === key ? { ...result, reload } : { reload };
 }
+
+/** 今天的日子，凌晨 4 点换日，与复习的计算一致。 */
+export function dayKey(now = new Date()): string {
+  const day = new Date(now.getTime() - 4 * 3600 * 1000);
+  return `${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`;
+}
+
+/** 今天“再来几张”累计加的张数。 */
+export const extraToday = () => (state.extra.day === dayKey() ? state.extra.n : 0);
+
+/** “再来几张”。 */
+export const addExtra = (n: number) => update({ extra: { day: dayKey(), n: extraToday() + n } });
 
 /** 让所有页面重新取数据；知识库的树和全部卡片放在这里，左栏、今日、知识库和链接共用。 */
 export function refresh(): void {

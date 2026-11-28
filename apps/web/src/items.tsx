@@ -9,7 +9,7 @@ import { get, post, type CardSummary, type Change, type Today } from "./api";
 import { Glyph, Icon, stoneOf } from "./glyph";
 import type { IconName } from "./icons";
 import { Markdown } from "./markdown";
-import { go, update, useApp } from "./store";
+import { extraToday, go, update, useApp } from "./store";
 import { t, type TextKey } from "./strings";
 import { AutoText, IconButton, keyOf } from "./ui";
 
@@ -69,7 +69,7 @@ function After({ card }: { card?: string }) {
   const [next, setNext] = useState<CardSummary | null>();
   const { tick } = useApp();
   useEffect(() => {
-    void get<Today>("/api/today").then((today) => setNext([...today.due, ...today.fresh].find((item) => item.path !== card) ?? null));
+    void get<Today>("/api/today", { extra: extraToday() || undefined }).then((today) => setNext([...today.due, ...today.fresh].find((item) => item.path !== card) ?? null));
   }, [card, tick]);
   return <div className="after">
     {next && <button type="button" className="btn btn-solid next" onClick={() => void startReview(next.path)}>
@@ -79,22 +79,34 @@ function After({ card }: { card?: string }) {
   </div>;
 }
 
+// 还没交的作答按工具调用编号放在模块里：复习中点开卡片、关掉面板时对话会重新挂载，写了一半的作答不丢。交上或跳过以后删掉。
+const answering = new Map<string, string[]>();
+
 /** 题目卡片。等作答时整张一次提交：回车跳到下一题，到最后一题时提交，Shift+回车换行；“跳过”记为没有作答。判定以后落在作答的位置。 */
-function Quiz({ item, pending, grade, folder, after }: { item: Tool; pending?: Pending; grade?: { result: Result; note: string }; folder: string; after: boolean }) {
+function Quiz({ item, pending, grade, folder }: { item: Tool; pending?: Pending; grade?: { result: Result; note: string }; folder: string }) {
   const { settings } = useApp();
   const links = useLinks(folder);
   const questions = ((pending?.kind === "quiz" ? pending.questions : item.args.questions) ?? []) as Question[];
   const details = item.details as { card?: string; answers?: string[] | null } | undefined;
   const card = (pending?.kind === "quiz" ? pending.card : undefined) ?? details?.card;
-  const [answers, setAnswers] = useState<string[]>(() => questions.map(() => ""));
+  const [answers, setAnswers] = useState<string[]>(() => answering.get(item.id) ?? questions.map(() => ""));
   const form = useRef<HTMLFormElement>(null);
-  const reply = (value: string[] | null) => void post(`/api/pending/${encodeURIComponent(item.id)}`, { answers: value });
-  const focusNext = (index: number) => {
+  const reply = (value: string[] | null) => {
+    answering.delete(item.id);
+    void post(`/api/pending/${encodeURIComponent(item.id)}`, { answers: value });
+  };
+  const set = (index: number, value: string) => {
+    const next = answers.map((answer, other) => (other === index ? value : answer));
+    answering.set(item.id, next);
+    setAnswers(next);
+    return next;
+  };
+  // 到下一题；已是最后一题就交上，交的是刚改过的这一份
+  const focusNext = (index: number, current: string[]) => {
     const next = form.current?.querySelectorAll<HTMLElement>("[data-q]")[index + 1];
     if (next) next.focus();
-    else reply(answers);
+    else reply(current);
   };
-  const set = (index: number, value: string) => setAnswers(answers.map((answer, other) => (other === index ? value : answer)));
   const of = card && <p className="quiz-of"><a href="#" onClick={(event) => { event.preventDefault(); go({ page: "card", path: card }); }}>{nameOf(card).replace(/\.md$/u, "")}</a></p>;
   const text = (question: Question, index: number) => <div className="q-text"><span className="no">{index + 1}</span><Markdown text={question.text} links={links} /></div>;
   if (pending) {
@@ -105,9 +117,9 @@ function Quiz({ item, pending, grade, folder, after }: { item: Tool; pending?: P
         {question.options?.length
           ? <ul className="opts" role="radiogroup">{question.options.map((option) => <li key={option}>
             <button type="button" className="opt" role="radio" data-q={option === question.options?.[0] ? "" : undefined} aria-checked={answers[index] === option} onClick={() => { set(index, option); }}
-              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); set(index, option); focusNext(index); } }}><span className="radio" />{option}</button>
+              onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); focusNext(index, set(index, option)); } }}><span className="radio" />{option}</button>
           </li>)}</ul>
-          : <AutoText className="answer" data-q="" aria-label={t("quiz.answer", { n: index + 1 })} autoFocus={index === 0} value={answers[index] ?? ""} onChange={(event) => set(index, event.target.value)} enter={() => focusNext(index)} enterKey={keyOf(settings?.keys, "submit")} />}
+          : <AutoText className="answer" data-q="" aria-label={t("quiz.answer", { n: index + 1 })} autoFocus={index === 0} value={answers[index] ?? ""} onChange={(event) => set(index, event.target.value)} enter={() => focusNext(index, answers)} enterKey={keyOf(settings?.keys, "submit")} />}
       </li>)}</ol>
       <p className="quiz-foot"><button type="submit" className="btn btn-solid">{t("quiz.submit")}</button><button type="button" className="btn btn-text" onClick={() => reply(null)}>{t("quiz.skip")}</button></p>
     </form>;
@@ -125,7 +137,7 @@ function Quiz({ item, pending, grade, folder, after }: { item: Tool; pending?: P
           : <p className="said">{given?.[index] || "—"}</p>}
     </li>)}</ol>
     {grade && <p className="verdict" data-v={grade.result}><b>{t(`quiz.${grade.result}`)}</b><span>{grade.note}</span></p>}
-  </div>{after && grade && <After {...(card ? { card } : {})} />}</>;
+  </div></>;
 }
 
 /** 确认卡片：允许才执行；拒绝以后可以写一句理由。 */
@@ -156,7 +168,10 @@ export function Items({ items, pending, running, folder, review }: { items: Item
     if (item.name === "quiz" && details?.quiz) quizzes.add(details.quiz);
     if (item.name === "grade" && details?.quiz && details.result) grades.set(details.quiz, { result: details.result, note: details.note ?? "" });
   }
-  const lastQuiz = items.findLastIndex((item) => item.type === "tool" && item.name === "quiz");
+  // 复习对话里有过一次判定、又不在写回复时，末尾放“下一张”和“返回今日”；下面又出了一道题在等作答也照放，
+  // 答得不全时 Agent 会再出一道同类的题，学习者仍要有去下一张的入口
+  const graded = items.findLast((item) => item.type === "tool" && item.name === "quiz" && grades.has(String((item.details as { quiz?: string } | undefined)?.quiz)));
+  const after = review && graded && (!running || pending.length > 0);
   return <>{items.map((item, index) => {
     switch (item.type) {
       // 复习对话的第一条“复习「…」”是程序替你发的，画稿里不显示
@@ -170,13 +185,13 @@ export function Items({ items, pending, running, folder, review }: { items: Item
         const details = item.details as { quiz?: string } | undefined;
         if (item.name === "quiz") {
           const grade = details?.quiz ? grades.get(details.quiz) : undefined;
-          return <Quiz key={item.id} item={item} {...(waiting ? { pending: waiting } : {})} {...(grade ? { grade } : {})} folder={folder} after={review && index === lastQuiz && !running} />;
+          return <Quiz key={item.id} item={item} {...(waiting ? { pending: waiting } : {})} {...(grade ? { grade } : {})} folder={folder} />;
         }
         if (item.name === "grade" && details?.quiz && quizzes.has(details.quiz)) return null;
         if (item.change) return <ChangeRow key={item.id} item={item} path={item.change} />;
         return <Act key={item.id} item={item} />;
       }
     }
-  })}</>;
+  })}{after && graded.type === "tool" && <After {...((graded.details as { card?: string } | undefined)?.card ? { card: String((graded.details as { card?: string }).card) } : {})} />}</>;
 }
 
