@@ -75,7 +75,7 @@ function After({ card }: { card?: string }) {
     {next && <button type="button" className="btn btn-solid next" onClick={() => void startReview(next.path)}>
       <span className="next-w">{t("quiz.next")}</span><Glyph stone={stoneOf(next)} size={18} /><span className="next-n">{next.title}</span>
     </button>}
-    <button type="button" className="btn btn-text" onClick={() => { update({ chat: false }); go({ page: "today" }); }}>{t("quiz.backToday")}</button>
+    <button type="button" className="btn btn-text" onClick={() => { update({ chat: false, talk: undefined }); go({ page: "today" }); }}>{t("quiz.backToday")}</button>
   </div>;
 }
 

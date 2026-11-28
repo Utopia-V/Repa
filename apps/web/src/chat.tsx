@@ -161,7 +161,8 @@ export function Chat({ alone }: { alone: boolean }) {
     <header className="chat-head">
       {alone && reviewName ? <h1>{t("chat.reviewTitle")}<span className="nm">{reviewName}</span></h1> : null}
       <span className="where">{alone ? folderLabel(folder, root) : <b>{folderLabel(folder, root)}</b>}</span>
-      {!alone && viewing !== undefined && viewing !== folder && <button type="button" className="here" data-tip={t("chat.moveHere")} onClick={() => void openTalk(viewing)}><Icon name="folder" />{viewing.split("/").pop() || root}</button>}
+      {/* 复习过后回到一个文件夹，按钮接上那里原来的学习对话 */}
+      {!alone && viewing !== undefined && (viewing !== folder || talk.kind === "review") && <button type="button" className="here" data-tip={t("chat.moveHere")} onClick={() => void openTalk(viewing)}><Icon name="folder" />{viewing.split("/").pop() || root}</button>}
       {mode}{tools}
     </header>
     <div className="log" ref={log} style={{ position: "relative" }} onScroll={(event) => { const box = event.currentTarget; pinned.current = box.scrollHeight - box.scrollTop - box.clientHeight < 40; }}>
