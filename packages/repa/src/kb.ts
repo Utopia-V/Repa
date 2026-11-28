@@ -1,4 +1,4 @@
-// 知识库是一个文件夹：每个文件夹是一层，Markdown 文件是卡片，Repa 自己的数据在 .repa/ 里。扫描每次从盘上读，不另存索引。
+// 知识库是一个文件夹：其中每个文件夹各有自己的对话，Markdown 文件是卡片，Repa 自己的数据在 .repa/ 里。扫描每次从盘上读，不另存索引。
 import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -31,13 +31,13 @@ export interface Page {
   error?: string;
 }
 
-/** 资料：`_` 开头的文件夹、克隆下来的仓库，以及层里的非 Markdown 文件。列在树里，不算卡片。 */
+/** 资料：`_` 开头的文件夹、克隆下来的仓库，以及文件夹里的非 Markdown 文件。列在树里，不算卡片。 */
 export interface Material {
   path: string;
   kind: "folder" | "repo" | "file";
 }
 
-/** 一次扫描的结果。folders 按先序排列，根是空字符串；pages 是卡片和 MOC，顺序就是同名链接取“排在最前”时的顺序。 */
+/** 一次扫描的结果。folders 是全部文件夹，按先序排列，根是空字符串；pages 是卡片和 MOC，顺序就是同名链接取“排在最前”时的顺序。 */
 export interface Kb {
   root: string;
   folders: string[];
@@ -50,7 +50,7 @@ export interface Kb {
 const FRONT_MATTER = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/u;
 const COLLATOR = new Intl.Collator("zh-CN", { numeric: true });
 
-/** 扫描整个知识库。以点开头的、名为 node_modules 的文件夹不列出；`_` 开头的和含 .git 的（根除外）只列为资料。 */
+/** 扫描整个知识库。以点开头的、名为 node_modules 的文件夹不列出；`_` 开头的和含 .git 的（根除外）只列为资料，不算文件夹。 */
 export async function scanKb(root: string): Promise<Kb> {
   const kb: Kb = { root, folders: [], pages: [], materials: [], agentsFiles: [], byPath: new Map() };
   await walk(kb, "");
@@ -131,7 +131,7 @@ export function cardsOf(kb: Kb): Page[] {
   return kb.pages.filter((page) => !page.moc);
 }
 
-/** 从某一层出发找 [[链接]] 的目标页面。 */
+/** 从某个文件夹出发找 [[链接]] 的目标页面。 */
 export function resolvePage(kb: Kb, fromFolder: string, target: string): Page | undefined {
   const found = resolveLink([...kb.byPath.keys()], fromFolder, target);
   return found === undefined ? undefined : kb.byPath.get(found);
@@ -149,7 +149,7 @@ export function mocMembers(kb: Kb, moc: Page): { members: Page[]; broken: string
   return { members, broken };
 }
 
-/** 是否要长期保持：卡片自己写了 keep 就按它；否则看有没有写了 `keep: true` 的 MOC 列出它。 */
+/** 是否纳入复习：卡片自己写了 keep 就按它；否则看有没有写了 `keep: true` 的 MOC 列出它。 */
 export function keptPaths(kb: Kb): Set<string> {
   const kept = new Set<string>();
   for (const page of kb.pages) {
@@ -174,12 +174,12 @@ export function backlinks(kb: Kb, page: Page): Page[] {
   return kb.pages.filter((other) => other !== page && wikiTargets(other.body).some((target) => resolvePage(kb, other.folder, target) === page));
 }
 
-/** 这一层及以下的卡片数。 */
+/** 这个文件夹及其下的卡片数。 */
 export function cardCount(kb: Kb, folder: string): number {
   return kb.pages.filter((page) => !page.moc && within(folder, page.folder)).length;
 }
 
-/** folder 是否在 ancestor 这一层或它的下面。 */
+/** folder 是否就是 ancestor 或在它的下面。 */
 export function within(ancestor: string, folder: string): boolean {
   return ancestor === "" || folder === ancestor || folder.startsWith(`${ancestor}/`);
 }
@@ -220,15 +220,34 @@ export function idOf(text: string): string | undefined {
   return parsePage("x.md", text, 0).id;
 }
 
-/** 把文件头的 id 设为给定值，其余文字原样保留；没有文件头就加一个。 */
-export function setId(text: string, id: string): string {
+/** 把文件头的一项设为给定的值，值为 undefined 时删去这一行；其余文字原样保留。新加的 id 放在最前，其余加在最后；没有文件头就加一个，删空了就去掉。 */
+export function setField(text: string, key: string, value: string | undefined): string {
   const match = FRONT_MATTER.exec(text);
-  if (!match) return `---\nid: ${id}\n---\n${text}`;
-  const lines = match[1] ? match[1].split(/\r?\n/u) : [];
-  const at = lines.findIndex((line) => /^id\s*:/u.test(line));
-  if (at >= 0) lines[at] = `id: ${id}`;
-  else lines.unshift(`id: ${id}`);
-  return `---\n${lines.join("\n")}\n---\n${text.slice(match[0].length)}`;
+  const body = match ? text.slice(match[0].length) : text;
+  const lines = match?.[1] ? match[1].split(/\r?\n/u) : [];
+  const at = lines.findIndex((line) => new RegExp(`^${key}\\s*:`, "u").test(line));
+  if (value === undefined && at >= 0) lines.splice(at, 1);
+  else if (value !== undefined && at >= 0) lines[at] = `${key}: ${value}`;
+  else if (value !== undefined && key === "id") lines.unshift(`${key}: ${value}`);
+  else if (value !== undefined) lines.push(`${key}: ${value}`);
+  if (!match && value === undefined) return text;
+  return lines.length ? `---\n${lines.join("\n")}\n---\n${body}` : body;
+}
+
+/** 把文件头的 id 设为给定值。 */
+export function setId(text: string, id: string): string {
+  return setField(text, "id", id);
+}
+
+/** 改一张卡片是否纳入复习和手定的复习日期，只动文件头里那一行；null 删去这一行。返回新的修改时间。 */
+export async function setCardMeta(root: string, rel: string, change: { keep?: boolean | null; review?: string | null }): Promise<number> {
+  if (typeof change.review === "string" && !/^\d{4}-\d{2}-\d{2}$/u.test(change.review)) throw new RepaFault("bad_request", "复习日期要写成 YYYY-MM-DD。");
+  const file = resolveIn(root, rel);
+  let text = await readFile(file, "utf8");
+  if (change.keep !== undefined) text = setField(text, "keep", change.keep === null ? undefined : String(change.keep));
+  if (change.review !== undefined) text = setField(text, "review", change.review ?? undefined);
+  await writeAtomic(file, text);
+  return (await stat(file)).mtimeMs;
 }
 
 /** 卡片第一次被练习时写入 8 位随机 id，已有就直接返回。 */
@@ -257,7 +276,7 @@ export async function saveCard(root: string, rel: string, text: string, mtime: n
   return (await stat(file)).mtimeMs;
 }
 
-/** 新建一层。 */
+/** 新建一个文件夹。 */
 export async function createFolder(root: string, rel: string): Promise<void> {
   const folder = resolveIn(root, rel);
   if ((await stat(folder).catch(() => undefined)) !== undefined) throw new RepaFault("conflict", `${rel} 已经存在。`);

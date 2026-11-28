@@ -7,30 +7,30 @@ import { Type, type Static } from "typebox";
 
 import { changeOf, ensureId, idOf, inside, readOptional, resolvePage, saveVersion, setId, writeAtomic, type Page } from "../kb.js";
 import { appendLog, QuestionSchema, ResultSchema } from "../log.js";
-import { buildMap, formatPractices, layerListing, loadState, readMode, readSettings, RESULT_LABEL, type State } from "../map.js";
+import { buildMap, formatPractices, folderListing, loadState, readMode, readSettings, RESULT_LABEL, type State } from "../map.js";
 import type { PendingReply, PendingRequest } from "../protocol.js";
 
-/** 扩展从所在的对话取得的东西。folder 是对话所在的层；ask 弹出一张卡片，等学习者回应。 */
+/** 扩展从所在的对话取得的东西。folder 是对话所在的文件夹；ask 弹出一张卡片，等学习者回应。 */
 export interface Host {
   root: string;
   folder: string;
   mode(): string;
-  takeAttachment(): string | undefined;
+  takeAttachment(): { content: string; details?: unknown } | undefined;
   ask(toolCallId: string, request: PendingRequest, signal: AbortSignal | undefined): Promise<PendingReply>;
 }
 
 /** 换掉 Pi 自带的“编程助手”提示：写明这是学习助手、文件头的约定、资料在哪类文件夹里、各个工具什么时候用。怎样教由学习者的 AGENTS.md 和模式决定。 */
 export function systemPrompt(root: string): string {
   return [
-    `你是学习者的学习助手，在 Repa 里工作。知识库是文件夹 ${root}：每个文件夹是一层，当前目录就是这段对话所在的层。`,
-    "每个 Markdown 文件是一张卡片，文件名就是标题。AGENTS.md 是学习者对这一层和上层的要求，以它为准。",
-    "卡片之间用 [[标题]] 链接，也可以写成 [[标题|显示文字]]。文件头各项都可以不写：summary 是二三十字的概括；keep: true 表示要长期保持；requires 是先修，只写不会就学不下去的；review 是学习者定的复习日期（YYYY-MM-DD）；moc: true 的页面是专题地图页，用链接把别处的卡片列进它所在的层。",
-    "文件头的 id 由程序管理，不要写、改或删。keep、requires 和 MOC 先向学习者提议，同意后再写；review 只在学习者说了日期时写。",
+    `你是学习者的学习助手，在 Repa 里工作。知识库是文件夹 ${root}，当前目录就是这段对话所在的文件夹。`,
+    "每个 Markdown 文件是一张卡片，文件名就是标题。AGENTS.md 是学习者对这个文件夹和上级文件夹的要求，以它为准。",
+    "卡片之间用 [[标题]] 链接，也可以写成 [[标题|显示文字]]。文件头各项都可以不写：summary 是二三十字的概括；keep: true 表示纳入复习；requires 是先修，只写不会就学不下去的；review 是学习者定的复习日期（YYYY-MM-DD）；moc: true 的页面是专题（MOC），用链接把别处的卡片列进它所在的文件夹。",
+    "文件头的 id 由程序管理，不要写、改或删。keep、requires 和专题先向学习者提议，同意后再写；review 只在学习者说了日期时写。",
     "卡片正文是学习者的文字。补充时加在合适的位置，不改写、不删去学习者写的段落；确实要改，先说明改什么。",
     "名字以 _ 开头的文件夹和克隆下来的仓库是资料（讲义、转写稿、作业），可以读，但不是卡片。",
-    "想考学习者时用 quiz，出题前先用 practice_history 查这张卡片以前的题和结果；复习时这些已经附在消息里，不必再查。作答交回以后，用 grade 如实记下结果和一句讲评：作答前向你要过提示的最多记为部分对，只是问清题干的不算。不经题目卡片的练习（例如学习者在编辑器里做完的题）也用 grade 记，给出卡片。",
-    "需要别的层的内容时，用 kb_search 按标题和概括检索整个知识库，用 kb_browse 浏览一层，再用 read 读原文。",
-    "<repa_map> 是这一层的地图，<repa_review> 是这一层到期的复习和最近没答好的练习，<repa_mode> 是现在的任务模式。学习者的消息后面可能附有一条上下文，写着正在看的卡片或复习的材料；学习者说“这里”“这一段”时，指的就是这张卡片。",
+    "想考学习者时用 quiz，出题前先用 practice_history 查这张卡片以前的题和结果；复习时这些已经附在消息里，不必再查。作答交回以后，用 grade 如实记下结果和一句讲评：作答前向你要过提示的最多记为部分正确，只是问清题干的不算。不经题目卡片的练习（例如学习者在编辑器里做完的题）也用 grade 记，给出卡片。",
+    "需要别的文件夹的内容时，用 kb_search 按标题和概括检索整个知识库，用 kb_browse 浏览一个文件夹，再用 read 读原文。",
+    "<repa_map> 是这个文件夹的地图，<repa_review> 是这个文件夹里到期的复习和最近没答好的练习，<repa_mode> 是现在的任务模式。学习者的消息后面可能附有一条上下文，写着正在看的卡片或复习的材料；学习者说“这里”“这一段”时，指的就是这张卡片。",
     "用中文回答。公式用 $…$ 或 $$…$$。",
   ].join("\n");
 }
@@ -48,7 +48,7 @@ const GradeParams = Type.Object({
 });
 const CardParams = Type.Object({ card: Type.String({ description: "卡片的标题或相对知识库的路径" }) });
 const SearchParams = Type.Object({ query: Type.String({ description: "几个关键词，用空格分开" }) });
-const BrowseParams = Type.Object({ folder: Type.Optional(Type.String({ description: "相对知识库的层，例如 CSAPP/第9章；不给就是知识库的根" })) });
+const BrowseParams = Type.Object({ folder: Type.Optional(Type.String({ description: "相对知识库的文件夹，例如 CSAPP/第9章；不给就是知识库的根" })) });
 
 function text(value: string, details?: unknown) {
   return { content: [{ type: "text" as const, text: value }], details };
@@ -91,7 +91,7 @@ export function createRepaExtension(host: Host): ExtensionFactory {
     pi.registerTool({
       name: "grade",
       label: "判定",
-      description: "记下一次练习的结果（pass 对、partial 部分对、fail 错）和一句讲评。经题目卡片的练习给出 quiz；不经题目卡片的给出 card。改记就再调用一次，给出原来那次的 id。",
+      description: "记下一次练习的结果（pass 正确、partial 部分正确、fail 错误）和一句讲评。经题目卡片的练习给出 quiz；不经题目卡片的给出 card。改记就再调用一次，给出原来那次的 id。",
       parameters: GradeParams,
       async execute(_toolCallId, params: Static<typeof GradeParams>) {
         if (params.quiz === undefined && params.card === undefined) throw new Error("grade 要给出 quiz（判定的那次练习）或 card（不经题目卡片的练习所属的卡片）。");
@@ -140,20 +140,20 @@ export function createRepaExtension(host: Host): ExtensionFactory {
           .sort((a, b) => b.score - a.score)
           .slice(0, 20);
         if (!scored.length) return text("没有标题或概括含这些词的页面。");
-        return text(scored.map(({ page }) => `- ${page.path}${page.moc ? "（专题地图页）" : ""}：${page.summary}`).join("\n"));
+        return text(scored.map(({ page }) => `- ${page.path}${page.moc ? "（专题）" : ""}：${page.summary}`).join("\n"));
       },
     });
 
     pi.registerTool({
       name: "kb_browse",
-      label: "浏览一层",
-      description: "列出知识库某一层的卡片和概括、专题地图页列进来的卡片、先修和下一层。",
+      label: "浏览文件夹",
+      description: "列出知识库某个文件夹的卡片和概括、专题列进来的卡片、先修和子文件夹。",
       parameters: BrowseParams,
       async execute(_toolCallId, params: Static<typeof BrowseParams>) {
         const state = await loadState(root);
         const folder = (params.folder ?? "").replace(/^\/+|\/+$/gu, "");
-        if (!state.kb.folders.includes(folder)) throw new Error(`知识库里没有 ${folder} 这一层。`);
-        return text([`【${folder || "知识库"}】`, ...layerListing(state, folder)].join("\n"));
+        if (!state.kb.folders.includes(folder)) throw new Error(`知识库里没有 ${folder} 这个文件夹。`);
+        return text([`【${folder || "知识库"}】`, ...folderListing(state, folder)].join("\n"));
       },
     });
 
@@ -164,7 +164,7 @@ export function createRepaExtension(host: Host): ExtensionFactory {
       event.systemPromptOptions.sections.repa_review = map.review;
       event.systemPromptOptions.sections.repa_mode = await readMode(root, host.mode());
       const attachment = host.takeAttachment();
-      return attachment === undefined ? undefined : { message: { customType: "repa-context", content: attachment, display: false } };
+      return attachment === undefined ? undefined : { message: { customType: "repa-context", ...attachment, display: false } };
     });
 
     // Pi 依次等待 tool_call 的处理完成才运行工具，所以确认和留旧版本都在改写之前。

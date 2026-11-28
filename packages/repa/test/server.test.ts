@@ -20,12 +20,12 @@ test("只接受来自自己页面的请求：Host 不是本机地址、Origin �
   assert.equal((await server.api("GET", "/api/tree")).status, 200);
 });
 
-test("对话只读到知识库之内这一层和上层的 AGENTS.md；系统提示是学习助手；正在看的卡片附在消息里而不显示；AGENTS.md 改了下一条消息起生效", async (t) => {
+test("对话只读到知识库之内这个文件夹和上级文件夹的 AGENTS.md；系统提示是学习助手；正在看的卡片附在消息里而不显示；AGENTS.md 改了下一条消息起生效", async (t) => {
   const server = await backend(t, {
     "AGENTS.md": "对所有学习的要求",
     "CSAPP/AGENTS.md": "CSAPP 的要求",
     "CSAPP/虚拟内存.md": "---\nsummary: 让进程以为独占地址空间\n---\n正文",
-    "论文/AGENTS.md": "兄弟层的要求",
+    "论文/AGENTS.md": "兄弟文件夹的要求",
   });
   const id = await open(server, "CSAPP");
   const client = await server.connect(id);
@@ -38,9 +38,9 @@ test("对话只读到知识库之内这一层和上层的 AGENTS.md；系统提�
   const context = first.sections.project_context ?? "";
   assert.match(context, /对所有学习的要求/u);
   assert.match(context, /CSAPP 的要求/u);
-  assert.doesNotMatch(context, /兄弟层|外层|Pi 全局/u);
+  assert.doesNotMatch(context, /兄弟文件夹|外层|Pi 全局/u);
   assert.match(first.sections.repa_map ?? "", /- 虚拟内存：让进程以为独占地址空间/u);
-  assert.match(first.sections.repa_mode ?? "", /当前模式：讨论学习/u);
+  assert.match(first.sections.repa_mode ?? "", /当前模式：学习/u);
   assert.match(lastUserText(first), /学习者正在看：CSAPP\/虚拟内存.md/u);
   assert.deepEqual(client.conversation.items.map((item) => item.type), ["user", "assistant"]);
 
@@ -108,7 +108,7 @@ test("Agent 出题：题目卡片有开放题和单选题，作答交回 Agent�
 
   // grade 要用 quiz 返回的练习 id，它在作答交回以后才出现在模型收到的工具结果里。
   const quizIdOf = (seen: Seen) => /练习 (\w+) 的作答/u.exec(JSON.stringify(seen.messages))?.[1] ?? "";
-  server.script({ tool: "grade", id: "call_grade", args: (seen) => ({ quiz: quizIdOf(seen), result: "partial", note: "漏了省空间的原因" }) }, { text: "部分对" });
+  server.script({ tool: "grade", id: "call_grade", args: (seen) => ({ quiz: quizIdOf(seen), result: "partial", note: "漏了省空间的原因" }) }, { text: "部分正确" });
   await server.api("POST", "/api/pending/call_quiz", { answers: ["不用的部分不分配", "页表项"] });
   await client.until(() => client.settled === 1, "判定结束");
   const quizItem = client.conversation.items.find((item) => item.type === "tool" && item.name === "quiz");
@@ -156,7 +156,7 @@ test("题目卡片可以不答直接关掉，在输入框里直接回话也一�
   assert.deepEqual(log.map((entry) => [entry.kind, entry.folder, entry.answers]), [["quiz", "", null], ["quiz", "", null]]);
 });
 
-test("保持的卡片出现在首页；点复习新开一段复习对话，卡片和以前的练习附在第一条消息里，模式是抽查复习；回到这一层接上的仍是学习对话", async (t) => {
+test("纳入复习的卡片出现在今日；点复习新开一段复习对话，卡片和以前的练习附在第一条消息里，模式是复习；回到这个文件夹接上的仍是学习对话", async (t) => {
   const server = await backend(t, {
     "CSAPP/页表.md": "---\nid: pt000001\nkeep: true\n---\n页表的正文\n",
     "CSAPP/TLB.md": `---\nreview: ${new Date().toISOString().slice(0, 10)}\n---\nTLB 的正文\n`,
@@ -177,7 +177,7 @@ test("保持的卡片出现在首页；点复习新开一段复习对话，卡�
   server.script({ text: "第一题：页表项里有什么？" });
   const review = await server.api("POST", "/api/sessions", { review: "CSAPP/页表.md" });
   assert.equal(review.json.kind, "review");
-  assert.equal(review.json.mode, "抽查复习");
+  assert.equal(review.json.mode, "复习");
   const reviewClient = await server.connect(String(review.json.id));
   await reviewClient.until(() => reviewClient.settled === 1, "复习的第一轮结束");
   const seen = server.seen.at(-1);
@@ -185,11 +185,11 @@ test("保持的卡片出现在首页；点复习新开一段复习对话，卡�
   assert.match(lastUserText(seen), /复习「页表」/u);
   assert.match(lastUserText(seen), /页表的正文/u);
   assert.match(lastUserText(seen), /上次的题.*上次的答|上次没答好/su);
-  assert.match(seen.sections.repa_mode ?? "", /抽查复习/u);
+  assert.match(seen.sections.repa_mode ?? "", /当前模式：复习/u);
 
-  const lists = await server.api("GET", "/api/sessions?folder=CSAPP");
-  assert.deepEqual((lists.json.learn as Array<{ id: string }>).map((item) => item.id), [learning]);
-  assert.deepEqual((lists.json.reviews as Array<{ id: string }>).map((item) => item.id), [review.json.id]);
+  const list = async (query: string) => ((await server.api("GET", `/api/sessions${query}`)).json.sessions as Array<{ id: string; kind: string }>).map((item) => [item.kind, item.id]);
+  assert.deepEqual(await list("?folder=CSAPP&reviews=1"), [["review", review.json.id], ["learn", learning]]);
+  assert.deepEqual(await list(""), [["learn", learning]]);
   assert.equal(await open(server, "CSAPP"), learning);
   assert.deepEqual((await server.api("GET", "/api/today")).json.recent, ["CSAPP"]);
 });
@@ -209,7 +209,7 @@ test("打开“运行命令先确认”以后，命令先出现确认卡片；�
   assert.match(JSON.stringify(server.seen.at(-1)?.messages.at(-1)), /学习者没有同意，理由是：用 write 建/u);
 });
 
-test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能找到 CSAPP 里的卡片；重启以后接着原来的对话；对话还短时不压缩，够长时压缩后照常继续", async (t) => {
+test("在论文那个文件夹对话时，地图里没有 CSAPP 的细节；检索能找到 CSAPP 里的卡片；重启以后接着原来的对话；对话还短时不压缩，够长时压缩后照常继续", async (t) => {
   const server = await backend(t, {
     "CSAPP/注意力的局部性.md": "---\nsummary: 访存的时间局部性\n---\n正文",
     "论文/Transformer.md": "---\nsummary: 注意力机制\n---\n正文",
@@ -223,7 +223,7 @@ test("在论文那一层对话时，地图里没有 CSAPP 的细节；检索能�
   const map = server.seen[0]?.sections.repa_map ?? "";
   assert.match(map, /Transformer/u);
   assert.doesNotMatch(map, /访存的时间局部性/u);
-  assert.match(map, /【知识库的顶层】.*CSAPP 1/u);
+  assert.match(map, /【顶层的文件夹】.*CSAPP 1/u);
   const search = client.conversation.items.find((item) => item.type === "tool");
   assert.match(search?.type === "tool" ? search.output : "", /CSAPP\/注意力的局部性.md：访存的时间局部性/u);
 
@@ -259,9 +259,11 @@ test("全部卡片的元数据：路径、标题、summary、keep、先修、正
   });
   const cards = (await server.api("GET", "/api/cards")).json.cards as Array<Record<string, unknown>>;
   const table = cards.find((card) => card.path === "A/页表.md");
-  assert.deepEqual({ ...table, memory: typeof table?.memory }, {
+  // 记忆估计、逾期天数和下次到期取决于今天，只查类型。第 11-01 天学完，间隔 1 天，所以第二天到期。
+  assert.deepEqual({ ...table, memory: typeof table?.memory, overdueDays: typeof table?.overdueDays }, {
     path: "A/页表.md", title: "页表", summary: "和 [[TLB]]、[[没有]] 一起看", moc: false, keep: true, folder: "A",
-    requires: [{ target: "缓存", path: null }], links: [{ target: "TLB", path: "A/TLB.md" }, { target: "没有", path: null }], memory: "number", due: true,
+    requires: [{ target: "缓存", path: null }], links: [{ target: "TLB", path: "A/TLB.md" }, { target: "没有", path: null }],
+    memory: "number", due: true, overdueDays: "number", nextDue: "2026-11-02", lastPracticed: "2026-11-01",
   });
 });
 
@@ -314,4 +316,70 @@ test("thinking 级别由 Repa 记在 .repa/settings.json：换了以后成为新
   const fresh = await server.api("POST", "/api/sessions", { folder: "", fresh: true });
   assert.equal(fresh.json.thinking, "high");
   await assert.rejects(stat(path.join(path.dirname(server.root), "agent", "settings.json")));
+});
+
+test("今日按每天的张数给建议，今天练过的占名额；做完以后 done 为真，“再来几张”加大名额；设置里的张数、外观和键位原样存取", async (t) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const graded = (id: string) => `${JSON.stringify({ v: 1, id: `g${id}`, t: `${today}T12:00:00+08:00`, kind: "grade", card: id, result: "pass", note: "对" })}\n`;
+  const server = await backend(t, {
+    "甲.md": "---\nid: aaaaaaa1\nkeep: true\n---\n正文", "乙.md": "---\nkeep: true\n---\n正文", "丙.md": "---\nkeep: true\n---\n正文", "丁.md": "---\nkeep: true\n---\n正文",
+    ".repa/log.jsonl": graded("aaaaaaa1"),
+  });
+  const settings = await server.api("PUT", "/api/settings", { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
+  assert.deepEqual({ dailyLimit: settings.json.dailyLimit, appearance: settings.json.appearance, keys: settings.json.keys }, { dailyLimit: 2, appearance: "dark", keys: { send: "Mod+Enter" } });
+  const first = (await server.api("GET", "/api/today")).json;
+  assert.deepEqual({ practiced: first.practiced, limit: first.limit, done: first.done, fresh: (first.fresh as unknown[]).length, freshTotal: first.freshTotal }, { practiced: 1, limit: 2, done: false, fresh: 1, freshTotal: 3 });
+  await writeFile(path.join(server.root, ".repa/log.jsonl"), graded("aaaaaaa1") + graded("bbbbbbb2"));
+  await server.api("POST", "/api/card/meta", { path: "乙.md", keep: true });
+  await writeFile(path.join(server.root, "乙.md"), "---\nid: bbbbbbb2\nkeep: true\n---\n正文");
+  const done = (await server.api("GET", "/api/today")).json;
+  assert.deepEqual({ practiced: done.practiced, done: done.done, fresh: done.fresh }, { practiced: 2, done: true, fresh: [] });
+  assert.equal(((await server.api("GET", "/api/today?extra=1")).json.fresh as unknown[]).length, 1);
+  await server.api("PUT", "/api/settings", { dailyLimit: null });
+  assert.equal(((await server.api("GET", "/api/today")).json.fresh as unknown[]).length, 2);
+});
+
+test("月历给出每天到期和练过的张数，给出日期时列出那天的卡片；改文件头的接口只动那一行，卡片带上下次到期的日子", async (t) => {
+  const server = await backend(t, { "甲.md": "---\nsummary: 概括\n---\n正文\n" });
+  await server.api("POST", "/api/card/meta", { path: "甲.md", review: "2026-12-03" });
+  assert.equal(await readFile(path.join(server.root, "甲.md"), "utf8"), "---\nsummary: 概括\nreview: 2026-12-03\n---\n正文\n");
+  assert.equal((await server.api("GET", `/api/card?path=${encodeURIComponent("甲.md")}`)).json.nextDue, "2026-12-03");
+  const month = (await server.api("GET", "/api/calendar?month=2026-12")).json;
+  const days = month.days as Array<{ date: string; due: number; practiced: number }>;
+  assert.equal(days.length, 31);
+  assert.deepEqual(days.find((day) => day.date === "2026-12-03"), { date: "2026-12-03", due: 1, practiced: 0 });
+  const day = (await server.api("GET", "/api/calendar?date=2026-12-03")).json;
+  assert.deepEqual((day.due as Array<{ path: string }>).map((item) => item.path), ["甲.md"]);
+  assert.equal((await server.api("POST", "/api/card/meta", { path: "甲.md", review: "下周" })).status, 400);
+  await server.api("POST", "/api/card/meta", { path: "甲.md", review: null });
+  assert.equal(await readFile(path.join(server.root, "甲.md"), "utf8"), "---\nsummary: 概括\n---\n正文\n");
+});
+
+test("对话列表跨全部文件夹，可按关键词筛、按文件夹排；有题目卡片在等的对话标为正在回复、在等回应；引文随消息交给模型并显示在那条消息里，重启后还在", async (t) => {
+  const server = await backend(t, { "CSAPP/页表.md": "正文", "论文/注意力.md": "正文" });
+  const csapp = await open(server, "CSAPP");
+  const paper = await open(server, "论文");
+  const csappClient = await server.connect(csapp);
+  const paperClient = await server.connect(paper);
+  server.script({ text: "好" });
+  await server.api("POST", `/api/sessions/${csapp}/prompt`, { text: "页表为什么要多级", viewing: "CSAPP/页表.md", quote: "页表项\n占空间" });
+  await csappClient.until(() => csappClient.settled === 1, "第一段对话");
+  assert.match(lastUserText(server.seen[0] ?? { sections: {}, messages: [] }), /学习者引用了这段话：\\n> 页表项\\n> 占空间/u);
+  assert.deepEqual(csappClient.conversation.items[0], { type: "user", text: "页表为什么要多级", quote: "页表项\n占空间" });
+  server.script({ tool: "quiz", id: "call_wait", args: { questions: [{ text: "注意力是什么？" }] } });
+  await server.api("POST", `/api/sessions/${paper}/prompt`, { text: "考我注意力" });
+  await paperClient.until(() => paperClient.conversation.pending.length === 1, "题目卡片在等");
+
+  const list = async (query: string) => (await server.api("GET", `/api/sessions${query}`)).json.sessions as Array<{ id: string; folder: string; running: boolean; waiting: boolean }>;
+  // 按文件夹排与文件夹树的次序相同：中文在英文之前。
+  assert.deepEqual((await list("?sort=folder")).map((item) => item.folder), ["论文", "CSAPP"]);
+  assert.deepEqual((await list("?q=多级")).map((item) => item.id), [csapp]);
+  const waiting = (await list("")).find((item) => item.id === paper);
+  assert.deepEqual({ running: waiting?.running, waiting: waiting?.waiting }, { running: true, waiting: true });
+  await server.api("POST", "/api/pending/call_wait", { answers: null });
+
+  await server.restart();
+  await open(server, "CSAPP", { id: csapp });
+  const again = await server.connect(csapp);
+  assert.deepEqual(again.conversation.items[0], { type: "user", text: "页表为什么要多级", quote: "页表项\n占空间" });
 });

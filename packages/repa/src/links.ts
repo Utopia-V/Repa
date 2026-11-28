@@ -19,14 +19,14 @@ export function titleOf(path: string): string {
   return name.endsWith(".md") ? name.slice(0, -3) : name;
 }
 
-/** 卡片所在的层，知识库的根是空字符串。 */
+/** 卡片所在的文件夹，知识库的根是空字符串。 */
 export function folderOf(path: string): string {
   const slash = path.lastIndexOf("/");
   return slash < 0 ? "" : path.slice(0, slash);
 }
 
 /**
- * 按标题找链接的目标：写了路径的按路径的结尾匹配；只写标题的，重名时先取同一层的，再取排在最前的。
+ * 按标题找链接的目标：写了路径的按路径的结尾匹配；只写标题的，重名时先取同一个文件夹里的，再取排在最前的。
  * `pages` 是知识库里所有页面（卡片和 MOC）的路径，按路径排好序。
  */
 export function resolveLink(pages: readonly string[], fromFolder: string, target: string): string | undefined {

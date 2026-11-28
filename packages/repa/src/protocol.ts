@@ -1,9 +1,9 @@
 // 后端与界面之间的对话事件。后端把 Pi 的事件换成这几种，界面因此不依赖 Pi 的类型；applyEvent 两边共用。
 import type { Question } from "./log.js";
 
-/** 对话里的一项：学习者的消息、Agent 的回复、一次工具调用、一次压缩或一条错误。change 是 write/edit 改动的知识库内的文件。 */
+/** 对话里的一项：学习者的消息（quote 是随它引用的一段话）、Agent 的回复、一次工具调用、一次压缩或一条错误。change 是 write/edit 改动的知识库内的文件。 */
 export type Item =
-  | { type: "user"; text: string }
+  | { type: "user"; text: string; quote?: string }
   | { type: "assistant"; text: string }
   | { type: "tool"; id: string; name: string; args: Record<string, unknown>; done: boolean; isError: boolean; output: string; details?: unknown; change?: string }
   | { type: "compaction" }
